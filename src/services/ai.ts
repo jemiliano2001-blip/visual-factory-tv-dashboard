@@ -1,15 +1,31 @@
 import { GoogleGenAI, Type, Modality } from '@google/genai';
 import { WorkOrder, WorkOrderHistory } from '../types';
 import { formatPONumber } from '../utils/formatters';
-import { OdooSaleOrder, getOrderPriority, isOrderOverdue, parseOdooDate } from './odoo';
+import { OdooSaleOrder, getOrderPriority, isOrderOverdue, getDeliveryProgress, parseOdooDate } from './odoo';
 
 // Use the platform-injected API key
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-export const generateShiftSummary = async (orders: WorkOrder[]) => {
+/** Proyección compacta de una orden Odoo para prompts (menos tokens, campos en español). */
+const simplifyOrder = (o: OdooSaleOrder) => ({
+  so: o.name,
+  cliente: o.partner_name,
+  producto: o.main_product,
+  monto: o.amount_total,
+  moneda: o.currency,
+  avance_entrega: `${o.qty_delivered}/${o.qty_total}`,
+  porcentaje_entrega: getDeliveryProgress(o),
+  fecha_orden: parseOdooDate(o.date_order)?.toISOString().split('T')[0] ?? null,
+  fecha_compromiso: parseOdooDate(o.commitment_date)?.toISOString().split('T')[0] ?? null,
+  vencida: isOrderOverdue(o) ? 'SÍ' : 'NO',
+  prioridad: getOrderPriority(o),
+  vendedor: o.salesperson,
+});
+
+export const generateShiftSummary = async (orders: OdooSaleOrder[]) => {
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-pro-preview',
-    contents: `You are a manufacturing plant manager. Analyze the following work orders and provide a brief executive summary of the current shift. Highlight bottlenecks, critical orders, and overall progress. Use markdown. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders)}`,
+    contents: `You are a manufacturing plant manager. Analyze the following Odoo sale orders pending invoicing and provide a brief executive summary of the current state: highlight overdue orders, clients with the largest backlog, total pending amount, and overall delivery progress. Use markdown. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders.map(simplifyOrder))}`,
   });
   return response.text;
 };
