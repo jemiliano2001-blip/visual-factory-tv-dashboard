@@ -7,10 +7,8 @@ import { getCustomerLogo } from '../utils/customerLogos';
 import { Clock, RefreshCw, WifiOff, CheckCircle2 } from 'lucide-react';
 import {
   OdooSaleOrder,
-  getOrderPriority,
   getDeliveryProgress,
   isOrderOverdue,
-  parseOdooDate,
 } from '../services/odoo';
 import { useOdooOrders } from '../hooks/useOdooOrders';
 import { processVoiceCommand, generateSpeech } from '../services/ai';
@@ -305,20 +303,7 @@ export default function TVDashboard() {
           reader.onloadend = async () => {
             const base64data = (reader.result as string).split(',')[1];
             try {
-              const adaptedOrders = odooOrders.map(o => ({
-                id: String(o.id),
-                po_number: o.name,
-                company_name: o.partner_name,
-                part_name: o.main_product,
-                quantity_total: o.qty_total || 1,
-                quantity_completed: o.qty_delivered || 0,
-                priority: getOrderPriority(o),
-                status: 'production' as const,
-                createdAt: parseOdooDate(o.date_order) ?? new Date(),
-                delivery_date: parseOdooDate(o.commitment_date) ?? undefined,
-                updatedAt: new Date(),
-              }));
-              const result = await processVoiceCommand(base64data, 'audio/webm', adaptedOrders);
+              const result = await processVoiceCommand(base64data, 'audio/webm', odooOrders);
               if (result.message) {
                 showToast(result.message, result.action === 'answer' ? 'info' : 'success');
                 const audioBase64 = await generateSpeech(result.message);

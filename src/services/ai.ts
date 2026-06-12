@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type, Modality } from '@google/genai';
 import { WorkOrder, WorkOrderHistory } from '../types';
 import { formatPONumber } from '../utils/formatters';
+import { OdooSaleOrder, getOrderPriority, isOrderOverdue, parseOdooDate } from './odoo';
 
 // Use the platform-injected API key
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -81,21 +82,17 @@ export const filterOrdersByNaturalLanguage = async (query: string, orders: WorkO
   return JSON.parse(response.text || '[]');
 };
 
-export const processVoiceCommand = async (audioBase64: string, mimeType: string, activeOrders: WorkOrder[]) => {
-  const simplifiedOrders = activeOrders.map(o => {
-    const isOverdue = o.delivery_date && new Date(o.delivery_date) < new Date();
-    return {
-      po: formatPONumber(o.po_number),
-      client: o.company_name,
-      part: o.part_name,
-      status: o.status,
-      priority: o.priority,
-      progress: `${o.quantity_completed}/${o.quantity_total}`,
-      fecha_creacion: o.createdAt instanceof Date ? o.createdAt.toISOString().split('T')[0] : o.createdAt,
-      fecha_promesa: o.delivery_date instanceof Date ? o.delivery_date.toISOString().split('T')[0] : o.delivery_date,
-      vencida: isOverdue ? 'SÍ' : 'NO'
-    };
-  });
+export const processVoiceCommand = async (audioBase64: string, mimeType: string, activeOrders: OdooSaleOrder[]) => {
+  const simplifiedOrders = activeOrders.map(o => ({
+    po: formatPONumber(o.name),
+    client: o.partner_name,
+    part: o.main_product,
+    priority: getOrderPriority(o),
+    progress: `${o.qty_delivered}/${o.qty_total}`,
+    fecha_creacion: parseOdooDate(o.date_order)?.toISOString().split('T')[0] ?? null,
+    fecha_promesa: parseOdooDate(o.commitment_date)?.toISOString().split('T')[0] ?? null,
+    vencida: isOrderOverdue(o) ? 'SÍ' : 'NO'
+  }));
 
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-pro-preview',
