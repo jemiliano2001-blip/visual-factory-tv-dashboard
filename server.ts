@@ -401,6 +401,14 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
         state:           order.state,
         salesperson:     order.user_id ? order.user_id[1] : null,
         lines_count:     lines.length,
+        // Detalle de líneas para la consola admin; la TV ignora este campo.
+        lines: lines.map(l => ({
+          name:       l.name,
+          qty:        l.product_uom_qty,
+          delivered:  l.qty_delivered,
+          price_unit: l.price_unit,
+          subtotal:   l.price_subtotal,
+        })),
       };
     });
 
