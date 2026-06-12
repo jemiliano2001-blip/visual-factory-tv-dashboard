@@ -50,7 +50,7 @@ export default function OrdersTable({ orders, predictions, onClientReport, onPre
       id: 'expander',
       header: () => null,
       cell: ({ row }) => (
-        <button onClick={row.getToggleExpandedHandler()} className="p-1 text-zinc-400 hover:text-white">
+        <button type="button" onClick={row.getToggleExpandedHandler()} className="p-1 text-zinc-400 hover:text-white">
           {row.getIsExpanded() ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </button>
       ),
@@ -150,6 +150,7 @@ export default function OrdersTable({ orders, predictions, onClientReport, onPre
         return (
           <div className="flex gap-1">
             <button
+              type="button"
               onClick={() => onClientReport(row.original)}
               title="Generar reporte para el cliente"
               className="p-1.5 hover:bg-purple-500/20 rounded-lg text-zinc-400 hover:text-purple-400 transition-colors"
@@ -157,6 +158,7 @@ export default function OrdersTable({ orders, predictions, onClientReport, onPre
               <Mail className="w-4 h-4" />
             </button>
             <button
+              type="button"
               onClick={() => onPredictRisk(row.original)}
               disabled={pred === 'loading'}
               title="Predecir riesgo de retraso"
