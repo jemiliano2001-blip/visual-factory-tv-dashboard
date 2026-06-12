@@ -1,0 +1,127 @@
+{
+  "entities": {
+    "WorkOrder": {
+      "title": "WorkOrder",
+      "description": "A manufacturing work order.",
+      "type": "object",
+      "properties": {
+        "company_name": {
+          "type": "string",
+          "description": "The client company name."
+        },
+        "po_number": {
+          "type": "string",
+          "description": "The purchase order number."
+        },
+        "part_name": {
+          "type": "string",
+          "description": "The part to be manufactured."
+        },
+        "quantity_total": {
+          "type": "number",
+          "description": "The target quantity."
+        },
+        "quantity_completed": {
+          "type": "number",
+          "description": "The current progress."
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["low", "normal", "high", "critical"],
+          "description": "The priority of the order."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["scheduled", "production", "quality", "hold"],
+          "description": "The production status."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp."
+        }
+      },
+      "required": ["company_name", "po_number", "part_name", "quantity_total", "quantity_completed", "priority", "status", "createdAt", "updatedAt"]
+    },
+    "WorkOrderHistory": {
+      "title": "WorkOrderHistory",
+      "description": "Audit log for work orders.",
+      "type": "object",
+      "properties": {
+        "work_order_id": {
+          "type": "string",
+          "description": "The ID of the modified work order."
+        },
+        "action": {
+          "type": "string",
+          "enum": ["created", "updated", "deleted"],
+          "description": "The action performed."
+        },
+        "previous_state": {
+          "type": "object",
+          "description": "The state before the change (null for creation)."
+        },
+        "new_state": {
+          "type": "object",
+          "description": "The state after the change (null for deletion)."
+        },
+        "changed_by": {
+          "type": "string",
+          "description": "The UID of the user who made the change."
+        },
+        "changed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of the change."
+        }
+      },
+      "required": ["work_order_id", "action", "changed_by", "changed_at"]
+    },
+    "CompanyConfig": {
+      "title": "CompanyConfig",
+      "description": "Configuration for a specific company.",
+      "type": "object",
+      "properties": {
+        "company_name": {
+          "type": "string",
+          "description": "The name of the company."
+        },
+        "delivery_schedule": {
+          "type": "string",
+          "description": "The delivery schedule for this company."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp."
+        }
+      },
+      "required": ["company_name", "delivery_schedule", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "work_orders": {
+      "schema": {
+        "$ref": "#/entities/WorkOrder"
+      },
+      "description": "Collection of manufacturing work orders."
+    },
+    "work_orders_history": {
+      "schema": {
+        "$ref": "#/entities/WorkOrderHistory"
+      },
+      "description": "Collection of audit logs for work orders."
+    },
+    "company_configs": {
+      "schema": {
+        "$ref": "#/entities/CompanyConfig"
+      },
+      "description": "Collection of company-specific configurations."
+    }
+  }
+}

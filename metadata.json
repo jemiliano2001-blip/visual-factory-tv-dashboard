@@ -1,0 +1,5 @@
+{
+  "name": "Visual Factory TV Dashboard",
+  "description": "A real-time TV dashboard for manufacturing work orders, including an admin panel and stats dashboard.",
+  "requestFramePermissions": ["microphone"]
+}
