@@ -279,7 +279,7 @@ function ExpandedRow({ order, prediction }: { order: OdooSaleOrder; prediction?:
             </thead>
             <tbody className="divide-y divide-white/5">
               {order.lines.map((line, i) => (
-                <tr key={i} className="text-zinc-300">
+                <tr key={`${line.name}-${i}`} className="text-zinc-300">
                   <td className="py-1.5 pr-4">{line.name}</td>
                   <td className="py-1.5 px-4 text-right">{line.qty}</td>
                   <td className="py-1.5 px-4 text-right">{line.delivered}</td>
@@ -299,7 +299,7 @@ function ExpandedRow({ order, prediction }: { order: OdooSaleOrder; prediction?:
           </h4>
           <div className="flex flex-wrap gap-2">
             {order.deliveries.map((d, i) => (
-              <div key={i} className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-2 py-1">
+              <div key={`${d.name}-${i}`} className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-2 py-1">
                 <span className="font-mono text-xs text-zinc-300">{d.name}</span>
                 <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${DELIVERY_STATE_BADGE[d.state] ?? 'bg-zinc-800 text-zinc-400'}`}>
                   {DELIVERY_STATE_LABEL[d.state] ?? d.state}
