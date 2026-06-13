@@ -130,6 +130,7 @@ export default function TVDashboard() {
   const audioChunksRef    = useRef<Blob[]>([]);
   const streamRef         = useRef<MediaStream | null>(null);
   const toastTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isTVMode = viewMode === 'tv';
 
@@ -285,6 +286,7 @@ export default function TVDashboard() {
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
       mediaRecorderRef.current?.stop();
       streamRef.current?.getTracks().forEach(t => t.stop());
     };
@@ -337,7 +339,8 @@ export default function TVDashboard() {
                   if (pageIdx !== -1) setCurrentPageIndex(pageIdx);
                   playSuccessSound();
                   setHighlightedSO(soId);
-                  setTimeout(() => setHighlightedSO(null), 10000);
+                  if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+                  highlightTimerRef.current = setTimeout(() => setHighlightedSO(null), 10000);
                 } else {
                   showToast(`No se encontró la orden ${result.po_number}.`, 'error');
                   playErrorSound();
