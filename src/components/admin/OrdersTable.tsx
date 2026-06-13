@@ -282,7 +282,7 @@ function ExpandedRow({ order, prediction }: { order: OdooSaleOrder; prediction?:
               Riesgo {RISK_LABELS[prediction.risk_level]}:
             </span>{' '}
             <span className="text-zinc-300">{prediction.issue}</span>
-            <p className="text-zinc-400 mt-1">💡 {prediction.suggestion}</p>
+            <p className="text-zinc-400 mt-1">{prediction.suggestion}</p>
           </div>
         </div>
       )}

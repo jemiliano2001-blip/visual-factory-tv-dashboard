@@ -48,6 +48,7 @@ export default function ConfigTab({ companyNames }: ConfigTabProps) {
   };
 
   const handleDelete = async (id: string) => {
+    if (!window.confirm('¿Estás seguro de eliminar este horario?')) return;
     try {
       await deleteCompanyConfig(id);
     } catch (error) {
