@@ -32,8 +32,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   ].filter(Boolean);
 
   const origin = req.headers.origin || '';
-  if (allowedOrigins.includes(origin) || !origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -98,6 +98,7 @@ class OdooSessionExpiredError extends Error {}
 // (2 sesiones nuevas en Odoo por ciclo de polling, nunca liberadas); la cookie
 // de Odoo vive horas, así que se reutiliza y solo se renueva al expirar.
 let sessionPromise: Promise<OdooSession> | null = null;
+let reauthing: Promise<OdooSession> | null = null;
 
 function getSession(forceNew = false): Promise<OdooSession> {
   if (forceNew || !sessionPromise) {
@@ -230,7 +231,10 @@ async function odooCall<T = unknown>(
   } catch (err) {
     if (err instanceof OdooSessionExpiredError) {
       console.warn('[Odoo] Sesión expirada — reautenticando…');
-      return await odooRpc<T>(await getSession(true), model, method, args, kwargs);
+      if (!reauthing) {
+        reauthing = getSession(true).finally(() => { reauthing = null; });
+      }
+      return await odooRpc<T>(await reauthing, model, method, args, kwargs);
     }
     throw err;
   }
