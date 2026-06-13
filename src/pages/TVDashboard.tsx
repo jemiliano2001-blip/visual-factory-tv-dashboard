@@ -128,14 +128,17 @@ export default function TVDashboard() {
   const [isSpeaking, setIsSpeaking]             = useState(false);
   const mediaRecorderRef  = useRef<MediaRecorder | null>(null);
   const audioChunksRef    = useRef<Blob[]>([]);
+  const streamRef         = useRef<MediaStream | null>(null);
+  const toastTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isTVMode = viewMode === 'tv';
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
+    toastTimerRef.current = setTimeout(() => setToast(null), 4000);
   }, []);
 
   // ── Company configs (para horarios de entrega) ───────────────────────────────
@@ -279,6 +282,14 @@ export default function TVDashboard() {
     if (currentPageIndex >= pages.length && pages.length > 0) setCurrentPageIndex(0);
   }, [pages.length, currentPageIndex]);
 
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      mediaRecorderRef.current?.stop();
+      streamRef.current?.getTracks().forEach(t => t.stop());
+    };
+  }, []);
+
   const currentPage = pages.length > 0 ? pages[currentPageIndex] : null;
 
   // ── Voice control ────────────────────────────────────────────────────────────
@@ -289,6 +300,7 @@ export default function TVDashboard() {
     } else {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        streamRef.current = stream;
         const mediaRecorder = new MediaRecorder(stream);
         mediaRecorderRef.current = mediaRecorder;
         audioChunksRef.current = [];
