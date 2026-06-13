@@ -237,7 +237,7 @@ async function odooCall<T = unknown>(
 }
 
 // ─── Tipos de respuesta de Odoo ───────────────────────────────────────────────
-interface OdooOrderLine {
+interface OdooRawOrderLine {
   id: number;
   name: string;
   /** 'line_section' | 'line_note' para líneas decorativas; false en productos */
@@ -349,11 +349,11 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
     //    tamaño de petición de Odoo. Truncar aquí pintaría órdenes reales
     //    como "Sin descripción" / 0% en la TV.
     const allLineIds = orders.flatMap(o => o.order_line);
-    const linesMap = new Map<number, OdooOrderLine>();
+    const linesMap = new Map<number, OdooRawOrderLine>();
     const LINE_BATCH_SIZE = 500;
 
     for (let i = 0; i < allLineIds.length; i += LINE_BATCH_SIZE) {
-      const lines = await odooCall<OdooOrderLine[]>(
+      const lines = await odooCall<OdooRawOrderLine[]>(
         'sale.order.line',
         'read',
         [allLineIds.slice(i, i + LINE_BATCH_SIZE)],
@@ -377,7 +377,7 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
         .map(id => linesMap.get(id))
         // display_type marca secciones y notas ('line_section'/'line_note'):
         // no son productos y distorsionarían main_product y lines_count.
-        .filter((l): l is OdooOrderLine => !!l && !l.display_type);
+        .filter((l): l is OdooRawOrderLine => !!l && !l.display_type);
 
       const mainLine = lines[0];
       const mainProductName = mainLine?.name || 'Sin descripción';
@@ -401,6 +401,14 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
         state:           order.state,
         salesperson:     order.user_id ? order.user_id[1] : null,
         lines_count:     lines.length,
+        // Detalle de líneas para la consola admin; la TV ignora este campo.
+        lines: lines.map(l => ({
+          name:       l.name,
+          qty:        l.product_uom_qty,
+          delivered:  l.qty_delivered,
+          price_unit: l.price_unit,
+          subtotal:   l.price_subtotal,
+        })),
       };
     });
 

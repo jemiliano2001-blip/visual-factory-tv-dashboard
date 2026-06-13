@@ -2,76 +2,36 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+
     // ===============================================================
     // Helper Functions
     // ===============================================================
-    
+
     function isAuthenticated() {
       return request.auth != null;
     }
-    
+
     function hasOnlyAllowedFields(allowedFields) {
       return request.resource.data.keys().hasOnly(allowedFields);
     }
-    
+
     function hasRequiredFields(requiredFields) {
       return request.resource.data.keys().hasAll(requiredFields);
     }
-    
+
     function isValidString(field, minLen, maxLen) {
       return request.resource.data[field] is string &&
              request.resource.data[field].size() >= minLen &&
              request.resource.data[field].size() <= maxLen;
     }
-    
-    function isValidNumber(field, minVal) {
-      return request.resource.data[field] is number &&
-             request.resource.data[field] >= minVal;
-    }
-    
-    function isValidEnum(field, allowedValues) {
-      return request.resource.data[field] in allowedValues;
-    }
-    
+
     function isTimestamp(field) {
       return request.resource.data[field] is timestamp;
     }
-    
-    function isUnchanged(field) {
-      return request.resource.data[field] == resource.data[field];
-    }
-    
+
     // ===============================================================
     // Domain Validators
     // ===============================================================
-    
-    function isValidWorkOrder() {
-      let allowedFields = ['company_name', 'po_number', 'part_name', 'quantity_total', 'quantity_completed', 'priority', 'status', 'createdAt', 'updatedAt'];
-      return hasOnlyAllowedFields(allowedFields) &&
-             hasRequiredFields(allowedFields) &&
-             isValidString('company_name', 1, 100) &&
-             isValidString('po_number', 1, 50) &&
-             isValidString('part_name', 1, 100) &&
-             isValidNumber('quantity_total', 1) &&
-             isValidNumber('quantity_completed', 0) &&
-             request.resource.data.quantity_completed <= request.resource.data.quantity_total &&
-             isValidEnum('priority', ['low', 'normal', 'high', 'critical']) &&
-             isValidEnum('status', ['scheduled', 'production', 'quality', 'hold']) &&
-             isTimestamp('createdAt') &&
-             isTimestamp('updatedAt');
-    }
-    
-    function isValidWorkOrderHistory() {
-      let allowedFields = ['work_order_id', 'action', 'previous_state', 'new_state', 'changed_by', 'changed_at'];
-      let requiredFields = ['work_order_id', 'action', 'changed_by', 'changed_at'];
-      return hasOnlyAllowedFields(allowedFields) &&
-             hasRequiredFields(requiredFields) &&
-             isValidString('work_order_id', 1, 100) &&
-             isValidEnum('action', ['created', 'updated', 'deleted']) &&
-             request.resource.data.changed_by == request.auth.uid &&
-             isTimestamp('changed_at');
-    }
 
     function isValidCompanyConfig() {
       let allowedFields = ['company_name', 'delivery_schedule', 'updatedAt'];
@@ -85,34 +45,22 @@ service cloud.firestore {
     // ===============================================================
     // Rules
     // ===============================================================
-    
+
     match /company_configs/{configId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidCompanyConfig();
       allow update: if isAuthenticated() && isValidCompanyConfig();
       allow delete: if isAuthenticated();
     }
-    
+
+    // Las órdenes ahora viven en Odoo. Los datos históricos de estas
+    // colecciones se conservan en Firestore pero quedan inaccesibles.
     match /work_orders/{orderId} {
-      allow read: if isAuthenticated();
-      
-      allow create: if isAuthenticated() && isValidWorkOrder();
-      
-      allow update: if isAuthenticated() && 
-                    isValidWorkOrder() &&
-                    isUnchanged('createdAt');
-                    
-      allow delete: if isAuthenticated();
+      allow read, write: if false;
     }
-    
+
     match /work_orders_history/{historyId} {
-      allow read: if isAuthenticated();
-      
-      allow create: if isAuthenticated() && isValidWorkOrderHistory();
-      
-      // History should be immutable
-      allow update: if false;
-      allow delete: if false;
+      allow read, write: if false;
     }
   }
 }

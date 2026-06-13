@@ -1,20 +1,16 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useQuery } from '@tanstack/react-query';
 import { CompanyConfig } from '../types';
 import { subscribeToCompanyConfigs } from '../services/companyConfigs';
 import { getCustomerLogo } from '../utils/customerLogos';
 import { Clock, RefreshCw, WifiOff, CheckCircle2 } from 'lucide-react';
 import {
   OdooSaleOrder,
-  fetchInvoiceableOrders,
-  checkOdooStatus,
-  getOrderPriority,
   getDeliveryProgress,
   isOrderOverdue,
-  parseOdooDate,
 } from '../services/odoo';
+import { useOdooOrders } from '../hooks/useOdooOrders';
 import { processVoiceCommand, generateSpeech } from '../services/ai';
 import OdooOrderCard from '../components/OdooOrderCard';
 import type { ViewMode } from '../components/OdooOrderCard';
@@ -96,29 +92,16 @@ const playErrorSound = () => {
 export default function TVDashboard() {
   const navigate = useNavigate();
 
-  // ── Odoo state (React Query) ─────────────────────────────────────────────────
-  const { 
-    data: odooData, 
-    isLoading: isLoadingOdoo, 
-    isFetching: isRefreshing, 
-    error: queryError,
-    refetch
-  } = useQuery({
-    queryKey: ['odooData'],
-    queryFn: async () => {
-      const [statusRes, ordersRes] = await Promise.all([
-        checkOdooStatus(),
-        fetchInvoiceableOrders(),
-      ]);
-      return { statusRes, ordersRes };
-    },
-    refetchInterval: 5 * 60 * 1000,
-  });
-
-  const odooStatus = odooData?.statusRes || null;
-  const odooOrders = odooData?.ordersRes.orders || [];
-  const odooLastUpdated = odooData?.ordersRes.lastUpdated || null;
-  const odooError = queryError ? (queryError as Error).message : odooData?.ordersRes.error || null;
+  // ── Odoo state (hook compartido) ─────────────────────────────────────────────
+  const {
+    status: odooStatus,
+    orders: odooOrders,
+    lastUpdated: odooLastUpdated,
+    error: odooError,
+    isLoading: isLoadingOdoo,
+    isFetching: isRefreshing,
+    refetch,
+  } = useOdooOrders();
 
   const loadOdooOrders = () => refetch();
 
@@ -320,20 +303,7 @@ export default function TVDashboard() {
           reader.onloadend = async () => {
             const base64data = (reader.result as string).split(',')[1];
             try {
-              const adaptedOrders = odooOrders.map(o => ({
-                id: String(o.id),
-                po_number: o.name,
-                company_name: o.partner_name,
-                part_name: o.main_product,
-                quantity_total: o.qty_total || 1,
-                quantity_completed: o.qty_delivered || 0,
-                priority: getOrderPriority(o),
-                status: 'production' as const,
-                createdAt: parseOdooDate(o.date_order) ?? new Date(),
-                delivery_date: parseOdooDate(o.commitment_date) ?? undefined,
-                updatedAt: new Date(),
-              }));
-              const result = await processVoiceCommand(base64data, 'audio/webm', adaptedOrders);
+              const result = await processVoiceCommand(base64data, 'audio/webm', odooOrders);
               if (result.message) {
                 showToast(result.message, result.action === 'answer' ? 'info' : 'success');
                 const audioBase64 = await generateSpeech(result.message);

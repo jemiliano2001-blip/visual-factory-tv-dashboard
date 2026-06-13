@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**Visual Factory TV** — a manufacturing shop-floor dashboard, originally scaffolded as a Google AI Studio applet. It displays work orders on a live TV view, lets admins manage them, and layers Gemini AI features (voice commands, predictions, reports, image generation) on top. The UI is **entirely in Spanish**; all AI prompts also instruct the model to respond in Spanish.
+**Visual Factory TV** — a manufacturing shop-floor dashboard, originally scaffolded as a Google AI Studio applet. It displays Odoo sale orders on a live TV view, gives admins a read-only console over the same data, and layers Gemini AI features (voice commands, risk predictions, client reports, anomaly analysis) on top. The UI is **entirely in Spanish**; all AI prompts also instruct the model to respond in Spanish.
 
 ## Getting Started
 
@@ -56,14 +56,11 @@ npm run lint       # tsc --noEmit — the ONLY check; there are no unit tests or
 
 There is **no test runner and no linter** beyond `tsc --noEmit`. Treat `npm run lint` as the gate for "does this compile."
 
-## Two independent data sources (the key architectural split)
+## Data sources
 
-The app reads from **two unrelated backends** depending on the page. Do not assume one feeds the other:
+**Odoo ERP is the single source of truth for orders.** The TV Dashboard (`/`), Admin console (`/admin`) and Stats (`/stats`) all show Odoo `sale.order` records with `invoice_status = 'to invoice'`, fetched through the shared `useOdooOrders()` hook (`src/hooks/useOdooOrders.ts`) → React Query polling → Express proxy (`server.ts`). All three pages share one query key (`odooData`), so they share a single request/cache.
 
-1. **Firestore** (`src/services/workOrders.ts`, `companyConfigs.ts`) — backs the **Admin Panel** and **Stats Dashboard**. Collections: `work_orders`, `work_orders_history` (immutable audit log), `company_configs`. All reads are real-time via `onSnapshot`. Every create/update/delete on a work order also writes a history record through `logHistory`.
-2. **Odoo ERP** (`server.ts` proxy → `src/services/odoo.ts`) — backs the **TV Dashboard** at `/`. The TV view shows Odoo `sale.order` records with `invoice_status = 'to invoice'`, fetched via React Query polling against the proxy. It does **not** read Firestore work orders.
-
-So "a work order" means two different things: a Firestore `WorkOrder` (admin-managed) vs. an Odoo `OdooSaleOrder` (read-only ERP data on the TV).
+**Firestore** only holds `company_configs` (per-client delivery schedules, shown on the TV cards and managed from the Admin → Configuración tab) and backs Firebase **auth**. The legacy `work_orders` / `work_orders_history` collections were retired in 2026-06 (data preserved but rules closed — see `docs/superpowers/specs/2026-06-12-admin-odoo-console-design.md`). The Admin console is **read-only** over Odoo: there is no order CRUD anywhere in the app.
 
 ### The Odoo proxy (`server.ts`)
 
@@ -71,9 +68,9 @@ A standalone Express server (not part of Vite) that exists to hide Odoo credenti
 
 ## AI layer (`src/services/ai.ts`)
 
-All Gemini calls go through `@google/genai`, keyed by `process.env.GEMINI_API_KEY` (injected at build time by `vite.config.ts` via `define`, and at runtime by the AI Studio platform). Functions cover: shift summaries, client report emails, anomaly analysis, risk prediction (structured JSON output → stored on `WorkOrder.prediction`), natural-language order filtering, **voice command processing** (audio → JSON action for the TV dashboard), image analysis, image generation, file/CSV order extraction, and TTS speech.
+All Gemini calls go through `@google/genai`, keyed by `process.env.GEMINI_API_KEY` (injected at build time by `vite.config.ts` via `define`, and at runtime by the AI Studio platform). Functions cover: shift summaries (Stats), client report emails, global anomaly analysis, per-order risk prediction (ephemeral, not persisted), natural-language order filtering, **voice command processing** (audio → JSON action for the TV dashboard), and TTS speech. All functions take `OdooSaleOrder` data; the `simplifyOrder` helper produces the compact Spanish-field projection used in prompts.
 
-Model IDs are referenced directly as string literals in this file (e.g. `gemini-3.1-pro-preview`, `gemini-3-pro-image-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash-preview-tts`). When changing models, update them here.
+Model IDs are referenced directly as string literals in this file (e.g. `gemini-3.1-pro-preview`, `gemini-2.5-flash-preview-tts`). When changing models, update them here.
 
 `window.aistudio` (typed in `src/types.ts`) gates whether an API key is selected; `App.tsx` blocks the UI until `hasSelectedApiKey()` is true.
 
@@ -85,7 +82,7 @@ Model IDs are referenced directly as string literals in this file (e.g. `gemini-
 
 ## Firestore rules (`firestore.rules`)
 
-Heavily validated, not just `auth != null`. Each collection has a domain validator enforcing exact field sets, string lengths, number bounds, and enum membership (e.g. `quantity_completed <= quantity_total`, status ∈ {scheduled, production, quality, hold}). `work_orders` updates must keep `createdAt` unchanged. `work_orders_history` is **append-only** (`update`/`delete` are `false`). If you add a field to a `WorkOrder`, you must update both `src/types.ts` **and** `isValidWorkOrder()` here, or writes will be rejected.
+Only `company_configs` is writable (validated: exact field set, string lengths, timestamp). `work_orders` and `work_orders_history` are **closed** (`allow read, write: if false`) — legacy data is preserved in Firestore but unreachable. If you add a field to `CompanyConfig`, update both `src/types.ts` **and** `isValidCompanyConfig()` here, or writes will be rejected. Deploy with `firebase deploy --only firestore:rules`.
 
 ## Conventions & gotchas
 
@@ -95,7 +92,7 @@ Heavily validated, not just `auth != null`. Each collection has a domain validat
 - **PWA**: `vite-plugin-pwa` with `registerType: 'autoUpdate'`, registered in `main.tsx` via `registerSW({ immediate: true })`. Enabled in dev too.
 - **HMR** is controlled by `DISABLE_HMR` env var (set by AI Studio to prevent flicker during agent edits) — leave the `server.hmr` logic in `vite.config.ts` alone.
 - The `@` import alias resolves to the **repo root** (`vite.config.ts` + `tsconfig.json`), but `src/` code currently uses relative imports throughout — match the surrounding style.
-- Firestore `Timestamp` ↔ JS `Date` conversion is centralized in `convertTimestamps` (workOrders.ts); service functions return `Date`s, so write code against `Date`.
+- Odoo datetimes arrive as non-ISO strings (`"YYYY-MM-DD HH:MM:SS"` in UTC); always parse them through `parseOdooDate` (`src/services/odoo.ts`), which normalizes to a JS `Date` (or `null`). Don't `new Date()` raw Odoo strings — Safari rejects them and Chrome misreads the timezone.
 
 ## Project Structure
 
@@ -105,11 +102,15 @@ Heavily validated, not just `auth != null`. Each collection has a domain validat
 │   ├── main.tsx           # Entry point, PWA registration
 │   ├── App.tsx            # Root router & auth initialization
 │   ├── firebase.ts        # Firebase & Firestore initialization
-│   ├── types.ts           # Shared TypeScript types (WorkOrder, etc.)
+│   ├── types.ts           # Shared TypeScript types (CompanyConfig, Odoo re-exports)
 │   ├── pages/             # Route components (Admin, Stats, TV Dashboard)
-│   ├── components/        # Reusable UI components
+│   ├── hooks/
+│   │   └── useOdooOrders.ts  # Shared React Query hook (TV, Admin, Stats)
+│   ├── components/
+│   │   ├── admin/         # OrdersTable, ConfigTab, AIModal, riskTypes
+│   │   └── ...            # Reusable UI components
 │   ├── services/
-│   │   ├── workOrders.ts  # Firestore CRUD & real-time listeners
+│   │   ├── companyConfigs.ts  # Firestore CRUD for delivery schedules
 │   │   ├── odoo.ts        # Odoo API client (via proxy)
 │   │   ├── ai.ts          # Gemini API calls (voice, predictions, reports, etc.)
 │   │   └── ...

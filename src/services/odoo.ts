@@ -12,6 +12,19 @@ const PROXY_BASE = import.meta.env.VITE_ODOO_PROXY_URL || '';
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
+export interface OdooOrderLine {
+  /** Descripción del producto */
+  name: string;
+  /** Cantidad pedida (product_uom_qty) */
+  qty: number;
+  /** Cantidad entregada */
+  delivered: number;
+  /** Precio unitario */
+  price_unit: number;
+  /** Subtotal de la línea (sin impuestos) */
+  subtotal: number;
+}
+
 export interface OdooSaleOrder {
   id: number;
   /** Número de orden de venta, ej. "SO/2024/0042" */
@@ -42,6 +55,8 @@ export interface OdooSaleOrder {
   salesperson: string | null;
   /** Número de líneas de producto */
   lines_count: number;
+  /** Detalle de líneas de producto (para la consola admin) */
+  lines: OdooOrderLine[];
 }
 
 export interface OdooConnectionStatus {

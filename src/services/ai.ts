@@ -1,44 +1,59 @@
 import { GoogleGenAI, Type, Modality } from '@google/genai';
-import { WorkOrder, WorkOrderHistory } from '../types';
+import type { RiskPrediction } from '../components/admin/riskTypes';
 import { formatPONumber } from '../utils/formatters';
+import { OdooSaleOrder, getOrderPriority, isOrderOverdue, getDeliveryProgress, parseOdooDate } from './odoo';
+
+export type { RiskPrediction };
 
 // Use the platform-injected API key
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-export const generateShiftSummary = async (orders: WorkOrder[]) => {
+/** Proyección compacta de una orden Odoo para prompts (menos tokens, campos en español). */
+const simplifyOrder = (o: OdooSaleOrder) => ({
+  so: o.name,
+  cliente: o.partner_name,
+  producto: o.main_product,
+  monto: o.amount_total,
+  moneda: o.currency,
+  avance_entrega: `${o.qty_delivered}/${o.qty_total}`,
+  porcentaje_entrega: getDeliveryProgress(o),
+  fecha_orden: parseOdooDate(o.date_order)?.toISOString().split('T')[0] ?? null,
+  fecha_compromiso: parseOdooDate(o.commitment_date)?.toISOString().split('T')[0] ?? null,
+  vencida: isOrderOverdue(o) ? 'SÍ' : 'NO',
+  prioridad: getOrderPriority(o),
+  vendedor: o.salesperson,
+});
+
+export const generateShiftSummary = async (orders: OdooSaleOrder[]) => {
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-pro-preview',
-    contents: `You are a manufacturing plant manager. Analyze the following work orders and provide a brief executive summary of the current shift. Highlight bottlenecks, critical orders, and overall progress. Use markdown. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders)}`,
+    contents: `You are a manufacturing plant manager. Analyze the following Odoo sale orders pending invoicing and provide a brief executive summary of the current state: highlight overdue orders, clients with the largest backlog, total pending amount, and overall delivery progress. Use markdown. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders.map(simplifyOrder))}`,
   });
   return response.text;
 };
 
-export const generateClientReport = async (order: WorkOrder) => {
+export const generateClientReport = async (order: OdooSaleOrder) => {
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-pro-preview',
-    contents: `Draft a professional, concise email in SPANISH to the client (${order.company_name}) updating them on PO ${order.po_number} for part ${order.part_name}. Current status is ${order.status}, progress is ${order.quantity_completed}/${order.quantity_total}.`,
+    contents: `Draft a professional, concise email in SPANISH to the client (${order.partner_name}) updating them on sale order ${order.name} for "${order.main_product}". Delivery progress is ${order.qty_delivered}/${order.qty_total} units${order.commitment_date ? `, committed delivery date is ${order.commitment_date}` : ''}. Total amount: ${order.amount_total} ${order.currency}.`,
   });
   return response.text;
 };
 
-export const analyzeOrderAnomalies = async (order: WorkOrder, history: WorkOrderHistory[]) => {
+export const analyzeOrderAnomalies = async (orders: OdooSaleOrder[]) => {
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-pro-preview',
-    contents: `Analyze this history log for work order ${order.po_number} (${order.part_name}). Identify any anomalies, inefficiencies, or red flags (e.g., bouncing between quality and production, sitting on hold too long). Keep it brief and actionable. RESPOND IN SPANISH.\n\nHistory: ${JSON.stringify(history)}`,
+    contents: `You are a manufacturing operations analyst. Analyze this set of Odoo sale orders pending invoicing and identify anomalies and red flags: overdue orders with 0% delivery, unusually large or stale orders, clients accumulating backlog, orders without commitment date. Be brief and actionable, use markdown bullet points. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders.map(simplifyOrder))}`,
   });
   return response.text;
 };
 
-export const predictOrderRisk = async (order: WorkOrder, history: WorkOrderHistory[]) => {
+export const predictOrderRisk = async (order: OdooSaleOrder): Promise<RiskPrediction> => {
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-pro-preview',
-    contents: `You are a manufacturing predictive maintenance AI. Analyze the current status, priority, and historical data for work order ${order.po_number} (${order.part_name}). Predict potential future issues or delays. 
-    Current Status: ${order.status}
-    Priority: ${order.priority}
-    Progress: ${order.quantity_completed}/${order.quantity_total}
-    Delivery Date: ${order.delivery_date ? order.delivery_date.toISOString() : 'Not set'}
-    History: ${JSON.stringify(history)}
-    
+    contents: `You are a manufacturing delivery-risk AI. Analyze this Odoo sale order pending invoicing and predict potential delivery/invoicing issues.
+    Order data: ${JSON.stringify(simplifyOrder(order))}
+
     Return a JSON object with:
     - risk_level: 'low', 'medium', or 'high'
     - issue: a brief description of the predicted issue in SPANISH
@@ -58,7 +73,7 @@ export const predictOrderRisk = async (order: WorkOrder, history: WorkOrderHisto
       }
     }
   });
-  
+
   const result = JSON.parse(response.text || '{}');
   return {
     ...result,
@@ -66,36 +81,32 @@ export const predictOrderRisk = async (order: WorkOrder, history: WorkOrderHisto
   };
 };
 
-export const filterOrdersByNaturalLanguage = async (query: string, orders: WorkOrder[]) => {
+export const filterOrdersByNaturalLanguage = async (query: string, orders: OdooSaleOrder[]): Promise<number[]> => {
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-pro-preview',
-    contents: `Given the following JSON list of work orders and a user query in SPANISH, return a JSON array of the 'id's of the work orders that match the query. Query: "${query}". Orders: ${JSON.stringify(orders)}`,
+    contents: `Given the following JSON list of Odoo sale orders and a user query in SPANISH, return a JSON array of the 'id's (numbers) of the orders that match the query. Query: "${query}". Orders: ${JSON.stringify(orders.map(o => ({ id: o.id, ...simplifyOrder(o) })))}`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
-        items: { type: Type.STRING }
+        items: { type: Type.NUMBER }
       }
     }
   });
   return JSON.parse(response.text || '[]');
 };
 
-export const processVoiceCommand = async (audioBase64: string, mimeType: string, activeOrders: WorkOrder[]) => {
-  const simplifiedOrders = activeOrders.map(o => {
-    const isOverdue = o.delivery_date && new Date(o.delivery_date) < new Date();
-    return {
-      po: formatPONumber(o.po_number),
-      client: o.company_name,
-      part: o.part_name,
-      status: o.status,
-      priority: o.priority,
-      progress: `${o.quantity_completed}/${o.quantity_total}`,
-      fecha_creacion: o.createdAt instanceof Date ? o.createdAt.toISOString().split('T')[0] : o.createdAt,
-      fecha_promesa: o.delivery_date instanceof Date ? o.delivery_date.toISOString().split('T')[0] : o.delivery_date,
-      vencida: isOverdue ? 'SÍ' : 'NO'
-    };
-  });
+export const processVoiceCommand = async (audioBase64: string, mimeType: string, activeOrders: OdooSaleOrder[]) => {
+  const simplifiedOrders = activeOrders.map(o => ({
+    po: formatPONumber(o.name),
+    client: o.partner_name,
+    part: o.main_product,
+    priority: getOrderPriority(o),
+    progress: `${o.qty_delivered}/${o.qty_total}`,
+    fecha_creacion: parseOdooDate(o.date_order)?.toISOString().split('T')[0] ?? null,
+    fecha_promesa: parseOdooDate(o.commitment_date)?.toISOString().split('T')[0] ?? null,
+    vencida: isOrderOverdue(o) ? 'SÍ' : 'NO'
+  }));
 
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-pro-preview',
@@ -127,98 +138,6 @@ IMPORTANT INSTRUCTIONS:
     }
   });
   return JSON.parse(response.text || '{"po_number": null, "action": "answer", "message": "No pude entender el comando."}');
-};
-
-export const analyzeImage = async (base64Image: string, mimeType: string, prompt: string) => {
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.1-pro-preview',
-    contents: {
-      parts: [
-        { inlineData: { data: base64Image, mimeType } },
-        { text: `Analiza esta imagen desde la perspectiva de un supervisor de fábrica. El usuario pregunta: "${prompt}". Responde de forma técnica, profesional y concisa en ESPAÑOL.` }
-      ]
-    }
-  });
-  return response.text;
-};
-
-export const generateVisualAid = async (prompt: string, aspectRatio: string = "16:9") => {
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-image-preview',
-    contents: {
-      parts: [
-        { text: `Manufacturing safety poster or technical visualization: ${prompt}. High quality, industrial style, professional.` }
-      ]
-    },
-    config: {
-      imageConfig: {
-        aspectRatio: aspectRatio as any,
-        imageSize: "1K"
-      }
-    }
-  });
-
-  for (const part of response.candidates?.[0]?.content?.parts || []) {
-    if (part.inlineData) {
-      return `data:image/png;base64,${part.inlineData.data}`;
-    }
-  }
-  return null;
-};
-
-export const extractOrdersFromFile = async (fileContent: string) => {
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: `You are a data extraction assistant for a manufacturing plant. Extract a list of work orders from the following raw text/CSV data. 
-    Return a JSON array of objects. Each object must have the following properties:
-    - po_number (string)
-    - company_name (string)
-    - part_name (string)
-    - quantity_total (number)
-    - quantity_completed (number)
-    - priority (string: 'low', 'normal', 'high', or 'critical')
-    - status (string: 'scheduled', 'production', 'quality', or 'hold')
-    - createdAt (string: ISO 8601 date format if possible, or original string)
-    - delivery_date (string: ISO 8601 date format if possible, or original string)
-    
-    Mapping instructions:
-    - "Referencia de la orden" -> po_number
-    - "Cliente" -> company_name
-    - "Descripción" -> part_name
-    - "Cantidad" -> quantity_total
-    - "Cantidad entregada" -> quantity_completed
-    - "Creado el" -> createdAt
-    - "Fecha de entrega" or "Promesa" -> delivery_date
-    
-    If priority is missing or unclear, default to 'normal'.
-    If status is missing or unclear, default to 'scheduled'.
-    If quantity_total is missing, default to 100.
-    If quantity_completed is missing, default to 0.
-    
-    Raw Data:
-    ${fileContent}`,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            po_number: { type: Type.STRING },
-            company_name: { type: Type.STRING },
-            part_name: { type: Type.STRING },
-            quantity_total: { type: Type.NUMBER },
-            quantity_completed: { type: Type.NUMBER },
-            priority: { type: Type.STRING },
-            status: { type: Type.STRING },
-            createdAt: { type: Type.STRING }
-          },
-          required: ["po_number", "company_name", "part_name", "quantity_total", "quantity_completed", "priority", "status"]
-        }
-      }
-    }
-  });
-  return JSON.parse(response.text || '[]');
 };
 
 export const generateSpeech = async (text: string) => {
