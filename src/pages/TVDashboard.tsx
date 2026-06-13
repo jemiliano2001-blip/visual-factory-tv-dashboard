@@ -316,7 +316,9 @@ export default function TVDashboard() {
                 setVoiceFilter(result.filter_type as any);
                 setCurrentPageIndex(0);
               } else if (result.po_number) {
-                const found = odooOrders.find(o => o.name === result.po_number || o.name.includes(result.po_number));
+                const found = result.po_number
+                  ? odooOrders.find(o => o.name === result.po_number || o.name.includes(result.po_number))
+                  : undefined;
                 if (found) {
                   const soId = found.name;
                   const pageIdx = pages.findIndex(p => p.orders.some(o => o.name === soId));
