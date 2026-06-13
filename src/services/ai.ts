@@ -26,7 +26,7 @@ const simplifyOrder = (o: OdooSaleOrder) => ({
 
 export const generateShiftSummary = async (orders: OdooSaleOrder[]) => {
   const response = await ai.models.generateContent({
-    model: 'gemini-3.1-pro-preview',
+    model: 'gemini-2.0-flash',
     contents: `You are a manufacturing plant manager. Analyze the following Odoo sale orders pending invoicing and provide a brief executive summary of the current state: highlight overdue orders, clients with the largest backlog, total pending amount, and overall delivery progress. Use markdown. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders.map(simplifyOrder))}`,
   });
   return response.text;
@@ -34,7 +34,7 @@ export const generateShiftSummary = async (orders: OdooSaleOrder[]) => {
 
 export const generateClientReport = async (order: OdooSaleOrder) => {
   const response = await ai.models.generateContent({
-    model: 'gemini-3.1-pro-preview',
+    model: 'gemini-2.0-flash',
     contents: `Draft a professional, concise email in SPANISH to the client (${order.partner_name}) updating them on sale order ${order.name} for "${order.main_product}". Delivery progress is ${order.qty_delivered}/${order.qty_total} units${order.commitment_date ? `, committed delivery date is ${order.commitment_date}` : ''}. Total amount: ${order.amount_total} ${order.currency}.`,
   });
   return response.text;
@@ -42,7 +42,7 @@ export const generateClientReport = async (order: OdooSaleOrder) => {
 
 export const analyzeOrderAnomalies = async (orders: OdooSaleOrder[]) => {
   const response = await ai.models.generateContent({
-    model: 'gemini-3.1-pro-preview',
+    model: 'gemini-2.0-flash',
     contents: `You are a manufacturing operations analyst. Analyze this set of Odoo sale orders pending invoicing and identify anomalies and red flags: overdue orders with 0% delivery, unusually large or stale orders, clients accumulating backlog, orders without commitment date. Be brief and actionable, use markdown bullet points. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders.map(simplifyOrder))}`,
   });
   return response.text;
@@ -50,7 +50,7 @@ export const analyzeOrderAnomalies = async (orders: OdooSaleOrder[]) => {
 
 export const predictOrderRisk = async (order: OdooSaleOrder): Promise<RiskPrediction> => {
   const response = await ai.models.generateContent({
-    model: 'gemini-3.1-pro-preview',
+    model: 'gemini-2.0-flash',
     contents: `You are a manufacturing delivery-risk AI. Analyze this Odoo sale order pending invoicing and predict potential delivery/invoicing issues.
     Order data: ${JSON.stringify(simplifyOrder(order))}
 
@@ -83,7 +83,7 @@ export const predictOrderRisk = async (order: OdooSaleOrder): Promise<RiskPredic
 
 export const filterOrdersByNaturalLanguage = async (query: string, orders: OdooSaleOrder[]): Promise<number[]> => {
   const response = await ai.models.generateContent({
-    model: 'gemini-3.1-pro-preview',
+    model: 'gemini-2.0-flash',
     contents: `Given the following JSON list of Odoo sale orders and a user query in SPANISH, return a JSON array of the 'id's (numbers) of the orders that match the query. Query: "${query}". Orders: ${JSON.stringify(orders.map(o => ({ id: o.id, ...simplifyOrder(o) })))}`,
     config: {
       responseMimeType: "application/json",
@@ -109,7 +109,7 @@ export const processVoiceCommand = async (audioBase64: string, mimeType: string,
   }));
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3.1-pro-preview',
+    model: 'gemini-2.0-flash',
     contents: {
       parts: [
         { inlineData: { data: audioBase64, mimeType } },

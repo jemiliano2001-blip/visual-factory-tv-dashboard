@@ -263,6 +263,14 @@ interface OdooRawOrder {
   user_id: [number, string] | false;
 }
 
+interface OdooRawPicking {
+  id: number;
+  name: string;
+  origin: string | false;
+  state: string;
+  date_done: string | false;
+}
+
 // ─── Chrome DevTools well-known endpoint (silences browser console noise) ────
 // Chrome 136+ probes every local server for this file to enable DevTools features.
 app.get('/.well-known/appspecific/com.chrome.devtools.json', (_req: Request, res: Response) => {
@@ -371,7 +379,28 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
       lines.forEach(l => linesMap.set(l.id, l));
     }
 
-    // 4) Construir respuesta normalizada
+    // 4) Fetch remisiones (stock.picking) por nombre de orden — no-fatal
+    const pickingsByOrder = new Map<string, OdooRawPicking[]>();
+    try {
+      const orderNames = orders.map(o => o.name);
+      const allPickings = await odooCall<OdooRawPicking[]>(
+        'stock.picking',
+        'search_read',
+        [[['origin', 'in', orderNames]]],
+        { fields: ['name', 'origin', 'state', 'date_done'], limit: 5000 }
+      );
+      for (const p of allPickings) {
+        const origin = typeof p.origin === 'string' ? p.origin : null;
+        if (!origin) continue;
+        if (!pickingsByOrder.has(origin)) pickingsByOrder.set(origin, []);
+        pickingsByOrder.get(origin)!.push(p);
+      }
+      console.log(`[Odoo] ${allPickings.length} remisiones cargadas para ${orders.length} órdenes`);
+    } catch (err) {
+      console.warn('[Odoo] No se pudieron cargar remisiones (stock.picking):', err instanceof Error ? err.message : err);
+    }
+
+    // 5) Construir respuesta normalizada
     const normalized = orders.map(order => {
       const lines = order.order_line
         .map(id => linesMap.get(id))
@@ -408,6 +437,12 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
           delivered:  l.qty_delivered,
           price_unit: l.price_unit,
           subtotal:   l.price_subtotal,
+        })),
+        // Remisiones (traslados de salida) asociadas a esta orden
+        deliveries: (pickingsByOrder.get(order.name) ?? []).map(p => ({
+          name:      p.name,
+          state:     p.state,
+          date_done: typeof p.date_done === 'string' ? p.date_done : null,
         })),
       };
     });

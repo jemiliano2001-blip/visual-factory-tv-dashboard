@@ -15,6 +15,24 @@ import {
 } from '../../services/odoo';
 import { RiskPrediction } from './riskTypes';
 
+const DELIVERY_STATE_BADGE: Record<string, string> = {
+  done:      'bg-emerald-500/20 text-emerald-400',
+  assigned:  'bg-cyan-500/20 text-cyan-400',
+  waiting:   'bg-amber-500/20 text-amber-400',
+  confirmed: 'bg-amber-500/20 text-amber-400',
+  draft:     'bg-zinc-800 text-zinc-500',
+  cancel:    'bg-zinc-900 text-zinc-600',
+};
+
+const DELIVERY_STATE_LABEL: Record<string, string> = {
+  done:      'Hecho',
+  assigned:  'Listo',
+  waiting:   'En espera',
+  confirmed: 'Confirmado',
+  draft:     'Borrador',
+  cancel:    'Cancelado',
+};
+
 const PRIORITY_STYLES: Record<string, string> = {
   low: 'bg-emerald-500/10 text-emerald-400',
   normal: 'bg-blue-500/10 text-blue-400',
@@ -273,6 +291,27 @@ function ExpandedRow({ order, prediction }: { order: OdooSaleOrder; prediction?:
           </table>
         )}
       </div>
+
+      {order.deliveries && order.deliveries.length > 0 && (
+        <div>
+          <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wide mb-2">
+            Remisiones ({order.deliveries.length})
+          </h4>
+          <div className="flex flex-wrap gap-2">
+            {order.deliveries.map((d, i) => (
+              <div key={i} className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-2 py-1">
+                <span className="font-mono text-xs text-zinc-300">{d.name}</span>
+                <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${DELIVERY_STATE_BADGE[d.state] ?? 'bg-zinc-800 text-zinc-400'}`}>
+                  {DELIVERY_STATE_LABEL[d.state] ?? d.state}
+                </span>
+                {d.date_done && (
+                  <span className="text-[9px] text-zinc-500">{d.date_done.split(' ')[0]}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {prediction && prediction !== 'loading' && (
         <div className="flex items-start gap-3 bg-white/5 border border-white/10 rounded-xl p-3">

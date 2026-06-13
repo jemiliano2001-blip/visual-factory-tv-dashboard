@@ -57,6 +57,17 @@ export interface OdooSaleOrder {
   lines_count: number;
   /** Detalle de líneas de producto (para la consola admin) */
   lines: OdooOrderLine[];
+  /** Remisiones (traslados de salida) asociadas a esta orden */
+  deliveries: OdooDelivery[];
+}
+
+export interface OdooDelivery {
+  /** Nombre de la remisión, ej. "WH/OUT/00042" */
+  name: string;
+  /** Estado: 'draft' | 'waiting' | 'confirmed' | 'assigned' | 'done' | 'cancel' */
+  state: string;
+  /** Fecha de entrega (solo si state === 'done'), formato Odoo o null */
+  date_done: string | null;
 }
 
 export interface OdooConnectionStatus {

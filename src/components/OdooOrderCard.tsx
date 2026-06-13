@@ -22,6 +22,22 @@ interface OdooOrderCardProps {
 
 // ─── Constantes de estilo ───────────────────────────────────────────────────────
 
+const DELIVERY_STATE_LABEL: Record<string, string> = {
+  done:      'Entregada',
+  assigned:  'Lista',
+  waiting:   'En espera',
+  confirmed: 'Confirmada',
+  draft:     'Borrador',
+};
+
+const DELIVERY_STATE_COLOR: Record<string, string> = {
+  done:      'text-emerald-400 border-emerald-800/60',
+  assigned:  'text-cyan-400 border-cyan-800/60',
+  waiting:   'text-amber-400 border-amber-800/60',
+  confirmed: 'text-amber-400 border-amber-800/60',
+  draft:     'text-zinc-500 border-zinc-700/60',
+};
+
 const PRIORITY_COLORS: Record<string, string> = {
   low:      'bg-zinc-800/80 text-zinc-300 border-zinc-600',
   normal:   'bg-blue-600/20 text-blue-300 border-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.3)]',
@@ -48,6 +64,18 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   const isOverdue = isOrderOverdue(order);
   const commitmentDate = parseOdooDate(order.commitment_date);
   const isDesktop = viewMode === 'desktop';
+
+  // ── Resumen de remisiones (excluye canceladas) ─────────────────────────────
+  const deliveries = order.deliveries ?? [];
+  const deliveryCounts: Record<string, number> = {};
+  for (const d of deliveries) {
+    if (d.state !== 'cancel') {
+      deliveryCounts[d.state] = (deliveryCounts[d.state] ?? 0) + 1;
+    }
+  }
+  const deliveryStates = ['done', 'assigned', 'waiting', 'confirmed', 'draft'].filter(
+    s => (deliveryCounts[s] ?? 0) > 0,
+  );
 
   // ── Colores por estado ──────────────────────────────────────────────────────
   const cardBorder = isHighlighted
@@ -259,6 +287,23 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
             </div>
           )}
         </div>
+
+        {/* Remisiones */}
+        {deliveryStates.length > 0 && (
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+            <span className={`${isWide ? 'text-[10px]' : 'text-[9px]'} text-zinc-600 font-bold uppercase tracking-wider shrink-0`}>
+              Rem.
+            </span>
+            {deliveryStates.map(state => (
+              <span
+                key={state}
+                className={`${isWide ? 'text-[10px]' : 'text-[9px]'} font-black px-1.5 py-0.5 rounded border ${DELIVERY_STATE_COLOR[state]}`}
+              >
+                {deliveryCounts[state]} {DELIVERY_STATE_LABEL[state]}{(deliveryCounts[state] ?? 0) > 1 ? 's' : ''}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </motion.div>
   );
