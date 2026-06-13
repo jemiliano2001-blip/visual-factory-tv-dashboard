@@ -63,6 +63,7 @@ export default function AdminPanel() {
   const handleNLSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nlQuery.trim()) return;
+    setAiFilterIds(null);
     setIsSearchingAI(true);
     try {
       const ids = await filterOrdersByNaturalLanguage(nlQuery, orders);
@@ -165,7 +166,7 @@ export default function AdminPanel() {
           </button>
         </div>
 
-        {error && (
+        {error && !isLoading && (
           <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-2xl p-4">
             <WifiOff className="w-5 h-5 shrink-0" />
             <span className="font-bold">SIN CONEXIÓN A ODOO — {error}</span>
