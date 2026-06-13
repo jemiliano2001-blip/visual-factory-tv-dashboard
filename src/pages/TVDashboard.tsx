@@ -89,6 +89,9 @@ const playErrorSound = () => {
 
 // ─── TVDashboard principal ─────────────────────────────────────────────────────
 
+const VALID_VOICE_FILTERS = ['all', 'overdue', 'pending', 'delivered'] as const;
+type VoiceFilter = typeof VALID_VOICE_FILTERS[number];
+
 export default function TVDashboard() {
   const navigate = useNavigate();
 
@@ -235,40 +238,45 @@ export default function TVDashboard() {
     });
   }, [odooOrders, voiceFilter]);
 
-  const groupedOrders = filteredOdooOrders.reduce((acc, order) => {
-    const key = order.partner_name;
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(order);
-    return acc;
-  }, {} as Record<string, OdooSaleOrder[]>);
+  const groupedOrders = useMemo(() =>
+    filteredOdooOrders.reduce((acc, order) => {
+      const key = order.partner_name;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(order);
+      return acc;
+    }, {} as Record<string, OdooSaleOrder[]>),
+    [filteredOdooOrders]
+  );
 
-  const pages: { company: string; orders: OdooSaleOrder[]; current: number; total: number }[] = [];
-
-  if (isTVMode) {
-    // TV: paginación por cliente, respetando ordersPerPage
-    Object.entries(groupedOrders).forEach(([company, companyOrders]) => {
-      const totalPages = Math.ceil(companyOrders.length / ordersPerPage);
-      for (let i = 0; i < totalPages; i++) {
-        pages.push({
-          company,
-          orders: companyOrders.slice(i * ordersPerPage, (i + 1) * ordersPerPage),
-          current: i + 1,
-          total: totalPages,
-        });
-      }
-    });
-  } else {
-    // Desktop: una sola "página" con todas las órdenes agrupadas por cliente
-    // Usamos la primera compañía como referencia, pero renderizamos todo
-    Object.entries(groupedOrders).forEach(([company, companyOrders]) => {
-      pages.push({
-        company,
-        orders: companyOrders,
-        current: 1,
-        total: 1,
+  const pages = useMemo(() => {
+    const result: { company: string; orders: OdooSaleOrder[]; current: number; total: number }[] = [];
+    if (isTVMode) {
+      // TV: paginación por cliente, respetando ordersPerPage
+      Object.entries(groupedOrders).forEach(([company, companyOrders]) => {
+        const totalPages = Math.ceil(companyOrders.length / ordersPerPage);
+        for (let i = 0; i < totalPages; i++) {
+          result.push({
+            company,
+            orders: companyOrders.slice(i * ordersPerPage, (i + 1) * ordersPerPage),
+            current: i + 1,
+            total: totalPages,
+          });
+        }
       });
-    });
-  }
+    } else {
+      // Desktop: una sola "página" con todas las órdenes agrupadas por cliente
+      // Usamos la primera compañía como referencia, pero renderizamos todo
+      Object.entries(groupedOrders).forEach(([company, companyOrders]) => {
+        result.push({
+          company,
+          orders: companyOrders,
+          current: 1,
+          total: 1,
+        });
+      });
+    }
+    return result;
+  }, [groupedOrders, ordersPerPage, isTVMode]);
 
   // ── Auto-rotate pages (solo en modo TV) ──────────────────────────────────────
   useEffect(() => {
@@ -327,7 +335,10 @@ export default function TVDashboard() {
                 }
               }
               if (result.action === 'filter' && result.filter_type) {
-                setVoiceFilter(result.filter_type as any);
+                const ft = result.filter_type as string;
+                if ((VALID_VOICE_FILTERS as readonly string[]).includes(ft)) {
+                  setVoiceFilter(ft as VoiceFilter);
+                }
                 setCurrentPageIndex(0);
               } else if (result.po_number) {
                 const found = result.po_number
