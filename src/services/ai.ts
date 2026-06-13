@@ -74,7 +74,12 @@ export const predictOrderRisk = async (order: OdooSaleOrder): Promise<RiskPredic
     }
   });
 
-  const result = JSON.parse(response.text || '{}');
+  let result: any = {};
+  try {
+    result = JSON.parse(response.text || '{}');
+  } catch {
+    /* malformed JSON — los campos de RiskPrediction quedarán undefined */
+  }
   return {
     ...result,
     analyzedAt: new Date(result.analyzedAt || Date.now())
@@ -93,7 +98,11 @@ export const filterOrdersByNaturalLanguage = async (query: string, orders: OdooS
       }
     }
   });
-  return JSON.parse(response.text || '[]');
+  try {
+    return JSON.parse(response.text || '[]') as number[];
+  } catch {
+    return [];
+  }
 };
 
 export const processVoiceCommand = async (audioBase64: string, mimeType: string, activeOrders: OdooSaleOrder[]) => {
@@ -128,6 +137,7 @@ IMPORTANT INSTRUCTIONS:
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
+        required: ['action', 'message'],
         properties: {
           po_number: { type: Type.STRING, description: "The PO number to highlight or complete, if applicable" },
           action: { type: Type.STRING, description: "The action: 'highlight', 'complete', 'filter', or 'answer'" },
@@ -137,7 +147,11 @@ IMPORTANT INSTRUCTIONS:
       }
     }
   });
-  return JSON.parse(response.text || '{"po_number": null, "action": "answer", "message": "No pude entender el comando."}');
+  try {
+    return JSON.parse(response.text || '{}');
+  } catch {
+    return { po_number: null, action: 'answer', message: 'No pude entender el comando.' };
+  }
 };
 
 export const generateSpeech = async (text: string) => {
