@@ -203,3 +203,12 @@ export function getDeliveryProgress(order: OdooSaleOrder): number {
   if (!order.qty_total || order.qty_total === 0) return 0;
   return Math.min(100, Math.round((order.qty_delivered / order.qty_total) * 100));
 }
+
+/**
+ * True si la orden tiene remisiones y TODAS las no canceladas están en 'done'.
+ * Si no tiene remisiones, devuelve false (no podemos confirmar la entrega → no ocultar).
+ */
+export function isOrderFullyDelivered(order: OdooSaleOrder): boolean {
+  const active = (order.deliveries ?? []).filter(d => d.state !== 'cancel');
+  return active.length > 0 && active.every(d => d.state === 'done');
+}

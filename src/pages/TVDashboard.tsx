@@ -9,7 +9,10 @@ import {
   OdooSaleOrder,
   getDeliveryProgress,
   isOrderOverdue,
+  isOrderFullyDelivered,
+  getOrderPriority,
 } from '../services/odoo';
+import { formatPONumber } from '../utils/formatters';
 import { useOdooOrders } from '../hooks/useOdooOrders';
 import { processVoiceCommand, generateSpeech } from '../services/ai';
 import OdooOrderCard from '../components/OdooOrderCard';
@@ -89,7 +92,7 @@ const playErrorSound = () => {
 
 // ─── TVDashboard principal ─────────────────────────────────────────────────────
 
-const VALID_VOICE_FILTERS = ['all', 'overdue', 'pending', 'delivered'] as const;
+const VALID_VOICE_FILTERS = ['all', 'overdue', 'pending', 'delivered', 'critical'] as const;
 type VoiceFilter = typeof VALID_VOICE_FILTERS[number];
 
 export default function TVDashboard() {
@@ -123,17 +126,22 @@ export default function TVDashboard() {
   const [isWide, setIsWide]                 = useState(false);
   const [isDense, setIsDense]               = useState(false);
   const [toast, setToast]                   = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const [voiceFilter, setVoiceFilter]       = useState<'all' | 'overdue' | 'pending' | 'delivered'>('all');
+  const [voiceFilter, setVoiceFilter]       = useState<VoiceFilter>('all');
+  const [clientFilter, setClientFilter]     = useState<string | null>(null);
 
   // ── Voice ────────────────────────────────────────────────────────────────────
   const [isRecording, setIsRecording]           = useState(false);
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [isSpeaking, setIsSpeaking]             = useState(false);
+  const [voiceTranscript, setVoiceTranscript]   = useState<string | null>(null);
   const mediaRecorderRef  = useRef<MediaRecorder | null>(null);
   const audioChunksRef    = useRef<Blob[]>([]);
   const streamRef         = useRef<MediaStream | null>(null);
   const toastTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transcriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Último turno para dar contexto conversacional a seguimientos ("¿y las de Bosch?")
+  const lastVoiceTurnRef  = useRef<{ transcript: string; message: string } | null>(null);
 
   const isTVMode = viewMode === 'tv';
 
@@ -227,16 +235,30 @@ export default function TVDashboard() {
 
   // ── Paginación ───────────────────────────────────────────────────────────────
   const filteredOdooOrders = useMemo(() => {
-    if (voiceFilter === 'all') return odooOrders;
+    const matchesClient = (order: OdooSaleOrder) =>
+      !clientFilter || order.partner_name.toLowerCase().includes(clientFilter.toLowerCase());
+
+    // Override: el filtro de voz 'entregadas' muestra SOLO las totalmente entregadas.
+    if (voiceFilter === 'delivered') {
+      return odooOrders.filter(o => isOrderFullyDelivered(o) && matchesClient(o));
+    }
+
+    // Por defecto: ocultar de la vista TV las órdenes totalmente entregadas.
     return odooOrders.filter(order => {
+      if (isOrderFullyDelivered(order)) return false;
+      if (!matchesClient(order)) return false;
+      if (voiceFilter === 'all') return true;
       const isOverdue = isOrderOverdue(order);
       const progress = getDeliveryProgress(order);
       if (voiceFilter === 'overdue') return isOverdue;
-      if (voiceFilter === 'delivered') return progress >= 100;
       if (voiceFilter === 'pending') return progress < 100 && !isOverdue;
+      if (voiceFilter === 'critical') {
+        const priority = getOrderPriority(order);
+        return priority === 'critical' || priority === 'high';
+      }
       return true;
     });
-  }, [odooOrders, voiceFilter]);
+  }, [odooOrders, voiceFilter, clientFilter]);
 
   const groupedOrders = useMemo(() =>
     filteredOdooOrders.reduce((acc, order) => {
@@ -294,6 +316,7 @@ export default function TVDashboard() {
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      if (transcriptTimerRef.current) clearTimeout(transcriptTimerRef.current);
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
       mediaRecorderRef.current?.stop();
       streamRef.current?.getTracks().forEach(t => t.stop());
@@ -308,6 +331,10 @@ export default function TVDashboard() {
       mediaRecorderRef.current?.stop();
       setIsRecording(false);
     } else {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        showToast('Este navegador no soporta grabación de audio para comandos de voz.', 'error');
+        return;
+      }
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         streamRef.current = stream;
@@ -325,7 +352,25 @@ export default function TVDashboard() {
           reader.onloadend = async () => {
             const base64data = (reader.result as string).split(',')[1];
             try {
-              const result = await processVoiceCommand(base64data, 'audio/webm', odooOrders);
+              const result = await processVoiceCommand(
+                base64data,
+                'audio/webm',
+                odooOrders,
+                lastVoiceTurnRef.current,
+              );
+
+              // Mostrar la transcripción de lo que entendió la IA
+              if (result.transcript) {
+                if (transcriptTimerRef.current) clearTimeout(transcriptTimerRef.current);
+                setVoiceTranscript(result.transcript);
+                transcriptTimerRef.current = setTimeout(() => setVoiceTranscript(null), 8000);
+              }
+
+              // Guardar el turno para dar contexto a seguimientos
+              if (result.transcript && result.message) {
+                lastVoiceTurnRef.current = { transcript: result.transcript, message: result.message };
+              }
+
               if (result.message) {
                 showToast(result.message, result.action === 'answer' ? 'info' : 'success');
                 const audioBase64 = await generateSpeech(result.message);
@@ -334,16 +379,22 @@ export default function TVDashboard() {
                   playPCMBase64(audioBase64, () => setIsSpeaking(false));
                 }
               }
-              if (result.action === 'filter' && result.filter_type) {
-                const ft = result.filter_type as string;
-                if ((VALID_VOICE_FILTERS as readonly string[]).includes(ft)) {
+              if (result.action === 'filter') {
+                const ft = result.filter_type as string | null;
+                if (ft && (VALID_VOICE_FILTERS as readonly string[]).includes(ft)) {
                   setVoiceFilter(ft as VoiceFilter);
+                  // 'all' (limpiar filtro) también resetea el filtro por cliente
+                  if (ft === 'all') setClientFilter(null);
+                }
+                if (result.filter_client) {
+                  setClientFilter(result.filter_client);
                 }
                 setCurrentPageIndex(0);
               } else if (result.po_number) {
-                const found = result.po_number
-                  ? odooOrders.find(o => o.name === result.po_number || o.name.includes(result.po_number))
-                  : undefined;
+                const target = formatPONumber(result.po_number);
+                const found =
+                  odooOrders.find(o => formatPONumber(o.name) === target) ??
+                  odooOrders.find(o => o.name === result.po_number || o.name.includes(result.po_number));
                 if (found) {
                   const soId = found.name;
                   const pageIdx = pages.findIndex(p => p.orders.some(o => o.name === soId));
@@ -369,8 +420,15 @@ export default function TVDashboard() {
         };
         mediaRecorder.start();
         setIsRecording(true);
-      } catch {
-        showToast('Se requiere acceso al micrófono para los comandos de voz.');
+      } catch (err) {
+        const name = (err as DOMException)?.name;
+        if (name === 'NotAllowedError' || name === 'SecurityError') {
+          showToast('Permiso de micrófono denegado. Habilítalo en el navegador para usar comandos de voz.', 'error');
+        } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+          showToast('No se detectó ningún micrófono conectado.', 'error');
+        } else {
+          showToast('No se pudo acceder al micrófono para los comandos de voz.', 'error');
+        }
       }
     }
   };
@@ -416,7 +474,8 @@ export default function TVDashboard() {
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
         voiceFilter={voiceFilter}
-        onClearFilter={() => { setVoiceFilter('all'); setCurrentPageIndex(0); }}
+        clientFilter={clientFilter}
+        onClearFilter={() => { setVoiceFilter('all'); setClientFilter(null); setCurrentPageIndex(0); }}
         isSpeaking={isSpeaking}
         onNavigateAdmin={() => navigate('/admin')}
       />
@@ -616,6 +675,43 @@ export default function TVDashboard() {
           </div>
         ) : null}
       </div>
+
+      {/* ── Feedback de voz (escucha + transcripción) ───────────────────────────── */}
+      <AnimatePresence>
+        {isRecording && (
+          <motion.div
+            key="voice-listening"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none flex items-center gap-3 px-6 py-3 rounded-full bg-red-500/15 border border-red-500/40 backdrop-blur-md shadow-[0_0_30px_rgba(239,68,68,0.3)]"
+          >
+            <span className="flex items-end gap-1 h-5">
+              {[0, 1, 2, 3, 4].map(i => (
+                <span
+                  key={i}
+                  className="w-1 bg-red-400 rounded-full animate-pulse"
+                  style={{ height: `${6 + ((i % 3) + 1) * 4}px`, animationDelay: `${i * 0.12}s` }}
+                />
+              ))}
+            </span>
+            <span className="text-red-200 font-bold uppercase tracking-widest text-sm">Escuchando…</span>
+          </motion.div>
+        )}
+        {!isRecording && voiceTranscript && (
+          <motion.div
+            key="voice-transcript"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none max-w-[80vw] px-6 py-3 rounded-2xl bg-indigo-500/15 border border-indigo-500/40 backdrop-blur-md shadow-[0_0_30px_rgba(99,102,241,0.3)]"
+          >
+            <span className="text-indigo-200 font-semibold text-base lg:text-lg">
+              🎙️ «{voiceTranscript}»
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Footer ─────────────────────────────────────────────────────────────── */}
       <DashboardFooter

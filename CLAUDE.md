@@ -24,6 +24,7 @@ Copy `.env.example` to `.env.local` and fill in:
 | `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD` | Your Odoo instance | TV dashboard data |
 | `API_SECRET` / `VITE_API_SECRET` | Generate a strong random string | Odoo proxy auth in production |
 | `APP_URL` | Set by AI Studio at runtime (or your domain) | Self-referential links |
+| `VITE_ODOO_PROXY_URL` | URL of a remote proxy host (no trailing slash) | Points the frontend at an Odoo proxy on a different host; empty = same origin |
 
 ### Firebase Setup
 
@@ -60,6 +61,8 @@ There is **no test runner and no linter** beyond `tsc --noEmit`. Treat `npm run 
 
 **Odoo ERP is the single source of truth for orders.** The TV Dashboard (`/`), Admin console (`/admin`) and Stats (`/stats`) all show Odoo `sale.order` records with `invoice_status = 'to invoice'`, fetched through the shared `useOdooOrders()` hook (`src/hooks/useOdooOrders.ts`) → React Query polling → Express proxy (`server.ts`). All three pages share one query key (`odooData`), so they share a single request/cache.
 
+`OdooSaleOrder` includes a `deliveries: OdooDelivery[]` field — the linked `stock.picking` records (outgoing transfers). Each `OdooDelivery` has `name` (e.g. `WH/OUT/00042`), `state` (`draft | confirmed | waiting | assigned | done | cancel`), and `date_done`. `OdooOrderCard` shows a badge row ("Rem.") summarising delivery counts by state, excluding cancelled ones.
+
 **Firestore** only holds `company_configs` (per-client delivery schedules, shown on the TV cards and managed from the Admin → Configuración tab) and backs Firebase **auth**. The legacy `work_orders` / `work_orders_history` collections were retired in 2026-06 (data preserved but rules closed — see `docs/superpowers/specs/2026-06-12-admin-odoo-console-design.md`). The Admin console is **read-only** over Odoo: there is no order CRUD anywhere in the app.
 
 ### The Odoo proxy (`server.ts`)
@@ -70,7 +73,9 @@ A standalone Express server (not part of Vite) that exists to hide Odoo credenti
 
 All Gemini calls go through `@google/genai`, keyed by `process.env.GEMINI_API_KEY` (injected at build time by `vite.config.ts` via `define`, and at runtime by the AI Studio platform). Functions cover: shift summaries (Stats), client report emails, global anomaly analysis, per-order risk prediction (ephemeral, not persisted), natural-language order filtering, **voice command processing** (audio → JSON action for the TV dashboard), and TTS speech. All functions take `OdooSaleOrder` data; the `simplifyOrder` helper produces the compact Spanish-field projection used in prompts.
 
-Model IDs are referenced directly as string literals in this file (e.g. `gemini-3.1-pro-preview`, `gemini-2.5-flash-preview-tts`). When changing models, update them here.
+Model IDs referenced as string literals in this file: text tasks and voice-command understanding use `gemini-3.5-flash`; **TTS (`generateSpeech`) must use a dedicated audio model — `gemini-2.5-flash-preview-tts`**. A text flash model does NOT emit audio (`inlineData` comes back empty → silent response), so never swap the TTS model for `gemini-3.5-flash` in a bulk model bump. `gemini-2.0-flash` is **deprecated — do not reintroduce it**.
+
+**Voice command TTS pipeline**: `processVoiceCommand()` sends the recorded `audio/webm` blob inline to Gemini and returns a JSON action (`highlight | filter | answer`) plus a Spanish `message`, the literal `transcript` of what was said, and optional `filter_type` (`all | overdue | pending | delivered | critical`) / `filter_client`. It also accepts an optional `previousContext` (last turn) for conversational follow-ups. `generateSpeech()` then sends that message to the TTS model, which returns raw **PCM audio at 24 kHz** encoded as base64. `playPCMBase64()` in `TVDashboard.tsx` decodes it manually (16-bit little-endian samples → Float32) and plays it via a singleton `AudioContext` (`sharedAudioCtx`, `sampleRate: 24000`). Don't replace this with `<audio src="data:...">` — browsers won't decode raw PCM without a WAV header.
 
 `window.aistudio` (typed in `src/types.ts`) gates whether an API key is selected; `App.tsx` blocks the UI until `hasSelectedApiKey()` is true.
 
@@ -83,6 +88,21 @@ Model IDs are referenced directly as string literals in this file (e.g. `gemini-
 ## Firestore rules (`firestore.rules`)
 
 Only `company_configs` is writable (validated: exact field set, string lengths, timestamp). `work_orders` and `work_orders_history` are **closed** (`allow read, write: if false`) — legacy data is preserved in Firestore but unreachable. If you add a field to `CompanyConfig`, update both `src/types.ts` **and** `isValidCompanyConfig()` here, or writes will be rejected. Deploy with `firebase deploy --only firestore:rules`.
+
+## TV Dashboard — view modes & layout
+
+`TVDashboard` has two rendering modes toggled by the `viewMode` state (`'tv' | 'desktop'`):
+
+- **TV mode** (default): paginated view — orders are grouped by `partner_name`, each group split into pages of `ordersPerPage` cards. Pages auto-rotate every 10 seconds (`setInterval`). The page index resets to 0 when a voice filter is applied or a PO highlight expires.
+- **Desktop mode**: all groups shown at once in a single scrollable column; no pagination, no auto-rotate.
+
+A `ResizeObserver` on the grid container recomputes `gridCols` / `gridRows` / `ordersPerPage` on every resize. It also derives two layout flags passed to `OdooOrderCard`:
+- `isWide`: few columns + few rows + wide aspect ratio → cards render larger text and padding
+- `isDense`: many cards in limited vertical space → cards use a compact horizontal layout
+
+Voice filter types accepted by `setVoiceFilter`: `'all' | 'overdue' | 'pending' | 'delivered' | 'critical'` (defined as `VALID_VOICE_FILTERS` const). The Gemini voice command response sets `filter_type` to one of these. There is also a separate `clientFilter` string state ("muéstrame las de Bosch") set from the response's `filter_client`, combinable with `filter_type`; clearing the filter (`'all'`) also resets `clientFilter`.
+
+**Fully-delivered orders are hidden from the TV view.** `filteredOdooOrders` excludes any order where `isOrderFullyDelivered(order)` (`src/services/odoo.ts`) is true — i.e. it has deliveries and **all** non-cancelled `stock.picking` records are in `done` state. The `'delivered'` voice filter is the deliberate override: it shows *only* those hidden, fully-delivered orders (also state-based, not the old `progress >= 100` quantity check). This hiding is **TV-only** — Admin/Stats filter independently and still show everything.
 
 ## Conventions & gotchas
 
@@ -122,14 +142,3 @@ Only `company_configs` is writable (validated: exact field set, string lengths, 
 └── dist/                 # Build output (git-ignored)
 ```
 
-## Common Tasks
-
-| Task | Command |
-|------|---------|
-| Start development (Vite + Odoo proxy) | `npm run dev:full` |
-| Start only frontend dev server | `npm run dev` |
-| Start only Odoo proxy | `npm run server` |
-| Build for production | `npm run build` |
-| Type-check without compilation | `npm run lint` |
-| Clean build artifacts | `npm run clean` |
-| Preview production build locally | `npm run preview` |

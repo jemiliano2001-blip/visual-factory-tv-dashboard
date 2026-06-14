@@ -270,7 +270,7 @@ interface OdooRawOrder {
 interface OdooRawPicking {
   id: number;
   name: string;
-  origin: string | false;
+  sale_id: [number, string] | false;
   state: string;
   date_done: string | false;
 }
@@ -383,23 +383,27 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
       lines.forEach(l => linesMap.set(l.id, l));
     }
 
-    // 4) Fetch remisiones (stock.picking) por nombre de orden — no-fatal
-    const pickingsByOrder = new Map<string, OdooRawPicking[]>();
+    // 4) Fetch remisiones (traslados de SALIDA) por sale_id — no-fatal
+    const pickingsByOrder = new Map<number, OdooRawPicking[]>();
     try {
-      const orderNames = orders.map(o => o.name);
+      const saleOrderIds = orders.map(o => o.id);
       const allPickings = await odooCall<OdooRawPicking[]>(
         'stock.picking',
         'search_read',
-        [[['origin', 'in', orderNames]]],
-        { fields: ['name', 'origin', 'state', 'date_done'], limit: 5000 }
+        [[
+          ['sale_id', 'in', saleOrderIds],
+          ['picking_type_code', '=', 'outgoing'],
+        ]],
+        { fields: ['name', 'sale_id', 'state', 'date_done'], limit: 5000 }
       );
       for (const p of allPickings) {
-        const origin = typeof p.origin === 'string' ? p.origin : null;
-        if (!origin) continue;
-        if (!pickingsByOrder.has(origin)) pickingsByOrder.set(origin, []);
-        pickingsByOrder.get(origin)!.push(p);
+        const saleId = Array.isArray(p.sale_id) ? p.sale_id[0] : null;
+        if (!saleId) continue;
+        if (!pickingsByOrder.has(saleId)) pickingsByOrder.set(saleId, []);
+        pickingsByOrder.get(saleId)!.push(p);
       }
-      console.log(`[Odoo] ${allPickings.length} remisiones cargadas para ${orders.length} órdenes`);
+      const pickingSummary = allPickings.map(p => `${p.name}(${Array.isArray(p.sale_id) ? p.sale_id[1] : '?'} - ${p.state})`).join(', ');
+      console.log(`[Odoo] ${allPickings.length} remisiones cargadas para ${orders.length} órdenes${allPickings.length ? `: ${pickingSummary}` : ''}`);
     } catch (err) {
       console.warn('[Odoo] No se pudieron cargar remisiones (stock.picking):', err instanceof Error ? err.message : err);
     }
@@ -443,7 +447,7 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
           subtotal:   l.price_subtotal,
         })),
         // Remisiones (traslados de salida) asociadas a esta orden
-        deliveries: (pickingsByOrder.get(order.name) ?? []).map(p => ({
+        deliveries: (pickingsByOrder.get(order.id) ?? []).map(p => ({
           name:      p.name,
           state:     p.state,
           date_done: typeof p.date_done === 'string' ? p.date_done : null,

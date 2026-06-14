@@ -64,6 +64,7 @@ interface DashboardHeaderProps {
   onToggleFullscreen: () => void;
   // Voice filter
   voiceFilter: string;
+  clientFilter?: string | null;
   onClearFilter: () => void;
   // Speaking
   isSpeaking: boolean;
@@ -89,6 +90,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   isFullscreen,
   onToggleFullscreen,
   voiceFilter,
+  clientFilter,
   onClearFilter,
   isSpeaking,
   onNavigateAdmin,
@@ -125,14 +127,21 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       </AnimatePresence>
 
       <div className="text-right flex items-center gap-3">
-        {voiceFilter !== 'all' && (
+        {(voiceFilter !== 'all' || clientFilter) && (
           <button
             onClick={onClearFilter}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-indigo-500/30 transition-all"
             title="Quitar filtro de voz"
           >
             <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-            Filtro: {voiceFilter === 'overdue' ? 'Vencidas' : voiceFilter === 'delivered' ? 'Entregadas' : 'Pendientes'}
+            Filtro: {[
+              voiceFilter === 'overdue' ? 'Vencidas'
+                : voiceFilter === 'delivered' ? 'Entregadas'
+                : voiceFilter === 'pending' ? 'Pendientes'
+                : voiceFilter === 'critical' ? 'Críticas'
+                : null,
+              clientFilter ? `Cliente: ${clientFilter}` : null,
+            ].filter(Boolean).join(' · ')}
             <span className="ml-1 opacity-70 hover:opacity-100">×</span>
           </button>
         )}
