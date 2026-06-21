@@ -12,6 +12,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import * as dotenv from 'dotenv';
 import { existsSync } from 'fs';
+import { startNotifications } from './src/services/notificationService.js';
 
 // Carga .env.local primero (alta prioridad, no se sube a git),
 // luego .env como fallback — mismo orden que Vite en desarrollo local.
@@ -303,7 +304,137 @@ app.get('/api/odoo/status', async (_req: Request, res: Response) => {
   }
 });
 
-// ─── GET /api/odoo/invoiceable-orders ─────────────────────────────────────────
+export async function fetchInvoiceableOrders() {
+  // 1) Buscar IDs de órdenes con invoice_status = 'to invoice'
+  const orderIds = await odooCall<number[]>(
+    'sale.order',
+    'search',
+    [[
+      ['invoice_status', '=', 'to invoice'],
+      ['state', 'in', ['sale', 'done']],
+    ]],
+    { limit: 500, order: 'commitment_date asc, date_order asc' }
+  );
+
+  if (orderIds.length === 0) {
+    return [];
+  }
+
+  // 2) Leer los campos de las órdenes
+  const orders = await odooCall<OdooRawOrder[]>(
+    'sale.order',
+    'read',
+    [orderIds],
+    {
+      fields: [
+        'name',
+        'partner_id',
+        'amount_total',
+        'amount_untaxed',
+        'date_order',
+        'commitment_date',
+        'invoice_status',
+        'currency_id',
+        'order_line',
+        'state',
+        'user_id',
+      ],
+    }
+  );
+
+  // 3) Leer TODAS las líneas de productos
+  const allLineIds = orders.flatMap(o => o.order_line);
+  const linesMap = new Map<number, OdooRawOrderLine>();
+  const LINE_BATCH_SIZE = 500;
+
+  for (let i = 0; i < allLineIds.length; i += LINE_BATCH_SIZE) {
+    const lines = await odooCall<OdooRawOrderLine[]>(
+      'sale.order.line',
+      'read',
+      [allLineIds.slice(i, i + LINE_BATCH_SIZE)],
+      {
+        fields: [
+          'name',
+          'display_type',
+          'product_uom_qty',
+          'qty_delivered',
+          'price_unit',
+          'price_subtotal',
+        ],
+      }
+    );
+    lines.forEach(l => linesMap.set(l.id, l));
+  }
+
+  // 4) Fetch remisiones (traslados de SALIDA) por sale_id
+  const pickingsByOrder = new Map<number, OdooRawPicking[]>();
+  try {
+    const saleOrderIds = orders.map(o => o.id);
+    const allPickings = await odooCall<OdooRawPicking[]>(
+      'stock.picking',
+      'search_read',
+      [[
+        ['sale_id', 'in', saleOrderIds],
+        ['picking_type_code', '=', 'outgoing'],
+      ]],
+      { fields: ['name', 'sale_id', 'state', 'date_done'], limit: 5000 }
+    );
+    for (const p of allPickings) {
+      const saleId = Array.isArray(p.sale_id) ? p.sale_id[0] : null;
+      if (!saleId) continue;
+      if (!pickingsByOrder.has(saleId)) pickingsByOrder.set(saleId, []);
+      pickingsByOrder.get(saleId)!.push(p);
+    }
+  } catch (err) {
+    console.warn('[Odoo] No se pudieron cargar remisiones (stock.picking):', err instanceof Error ? err.message : err);
+  }
+
+  // 5) Construir respuesta normalizada
+  const normalized = orders.map(order => {
+    const lines = order.order_line
+      .map(id => linesMap.get(id))
+      .filter((l): l is OdooRawOrderLine => !!l && !l.display_type);
+
+    const mainLine = lines[0];
+    const mainProductName = mainLine?.name || 'Sin descripción';
+
+    const totalQty     = lines.reduce((s, l) => s + l.product_uom_qty, 0);
+    const deliveredQty = lines.reduce((s, l) => s + l.qty_delivered, 0);
+
+    return {
+      id:              order.id,
+      name:            order.name,
+      partner_name:    order.partner_id ? order.partner_id[1] : 'Desconocido',
+      main_product:    mainProductName,
+      amount_total:    order.amount_total,
+      amount_untaxed:  order.amount_untaxed,
+      date_order:      order.date_order,
+      commitment_date: order.commitment_date || null,
+      invoice_status:  order.invoice_status,
+      currency:        order.currency_id ? order.currency_id[1] : 'MXN',
+      qty_total:       totalQty,
+      qty_delivered:   deliveredQty,
+      state:           order.state,
+      salesperson:     order.user_id ? order.user_id[1] : null,
+      lines_count:     lines.length,
+      lines: lines.map(l => ({
+        name:       l.name,
+        qty:        l.product_uom_qty,
+        delivered:  l.qty_delivered,
+        price_unit: l.price_unit,
+        subtotal:   l.price_subtotal,
+      })),
+      deliveries: (pickingsByOrder.get(order.id) ?? []).map(p => ({
+        name:      p.name,
+        state:     p.state,
+        date_done: typeof p.date_done === 'string' ? p.date_done : null,
+      })),
+    };
+  });
+
+  return normalized;
+}
+
 app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => {
   if (!ODOO_URL || !ODOO_DB || !ODOO_USERNAME || !ODOO_PASSWORD) {
     res.status(503).json({
@@ -314,147 +445,7 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
   }
 
   try {
-    // 1) Buscar IDs de órdenes con invoice_status = 'to invoice'
-    //    (odooCall reutiliza la sesión cacheada y reautentica si expiró)
-    const orderIds = await odooCall<number[]>(
-      'sale.order',
-      'search',
-      [[
-        ['invoice_status', '=', 'to invoice'],
-        ['state', 'in', ['sale', 'done']],
-      ]],
-      // Las fechas compromiso más próximas primero, para que las órdenes
-      // urgentes nunca queden fuera del límite. El límite es solo un tope de
-      // seguridad: hoy hay ~114 órdenes 'to invoice' y con 100 se quedaban
-      // 14 fuera de la TV.
-      { limit: 500, order: 'commitment_date asc, date_order asc' }
-    );
-
-    if (orderIds.length === 0) {
-      res.json({ orders: [], total: 0, lastUpdated: new Date().toISOString() });
-      return;
-    }
-
-    // 2) Leer los campos de las órdenes
-    const orders = await odooCall<OdooRawOrder[]>(
-      'sale.order',
-      'read',
-      [orderIds],
-      {
-        fields: [
-          'name',
-          'partner_id',
-          'amount_total',
-          'amount_untaxed',
-          'date_order',
-          'commitment_date',
-          'invoice_status',
-          'currency_id',
-          'order_line',
-          'state',
-          'user_id',
-        ],
-      }
-    );
-
-    // 3) Leer TODAS las líneas de productos, en lotes para no exceder el
-    //    tamaño de petición de Odoo. Truncar aquí pintaría órdenes reales
-    //    como "Sin descripción" / 0% en la TV.
-    const allLineIds = orders.flatMap(o => o.order_line);
-    const linesMap = new Map<number, OdooRawOrderLine>();
-    const LINE_BATCH_SIZE = 500;
-
-    for (let i = 0; i < allLineIds.length; i += LINE_BATCH_SIZE) {
-      const lines = await odooCall<OdooRawOrderLine[]>(
-        'sale.order.line',
-        'read',
-        [allLineIds.slice(i, i + LINE_BATCH_SIZE)],
-        {
-          fields: [
-            'name',
-            'display_type',
-            'product_uom_qty',
-            'qty_delivered',
-            'price_unit',
-            'price_subtotal',
-          ],
-        }
-      );
-      lines.forEach(l => linesMap.set(l.id, l));
-    }
-
-    // 4) Fetch remisiones (traslados de SALIDA) por sale_id — no-fatal
-    const pickingsByOrder = new Map<number, OdooRawPicking[]>();
-    try {
-      const saleOrderIds = orders.map(o => o.id);
-      const allPickings = await odooCall<OdooRawPicking[]>(
-        'stock.picking',
-        'search_read',
-        [[
-          ['sale_id', 'in', saleOrderIds],
-          ['picking_type_code', '=', 'outgoing'],
-        ]],
-        { fields: ['name', 'sale_id', 'state', 'date_done'], limit: 5000 }
-      );
-      for (const p of allPickings) {
-        const saleId = Array.isArray(p.sale_id) ? p.sale_id[0] : null;
-        if (!saleId) continue;
-        if (!pickingsByOrder.has(saleId)) pickingsByOrder.set(saleId, []);
-        pickingsByOrder.get(saleId)!.push(p);
-      }
-      const pickingSummary = allPickings.map(p => `${p.name}(${Array.isArray(p.sale_id) ? p.sale_id[1] : '?'} - ${p.state})`).join(', ');
-      console.log(`[Odoo] ${allPickings.length} remisiones cargadas para ${orders.length} órdenes${allPickings.length ? `: ${pickingSummary}` : ''}`);
-    } catch (err) {
-      console.warn('[Odoo] No se pudieron cargar remisiones (stock.picking):', err instanceof Error ? err.message : err);
-    }
-
-    // 5) Construir respuesta normalizada
-    const normalized = orders.map(order => {
-      const lines = order.order_line
-        .map(id => linesMap.get(id))
-        // display_type marca secciones y notas ('line_section'/'line_note'):
-        // no son productos y distorsionarían main_product y lines_count.
-        .filter((l): l is OdooRawOrderLine => !!l && !l.display_type);
-
-      const mainLine = lines[0];
-      const mainProductName = mainLine?.name || 'Sin descripción';
-
-      const totalQty     = lines.reduce((s, l) => s + l.product_uom_qty, 0);
-      const deliveredQty = lines.reduce((s, l) => s + l.qty_delivered, 0);
-
-      return {
-        id:              order.id,
-        name:            order.name,
-        partner_name:    order.partner_id ? order.partner_id[1] : 'Desconocido',
-        main_product:    mainProductName,
-        amount_total:    order.amount_total,
-        amount_untaxed:  order.amount_untaxed,
-        date_order:      order.date_order,
-        commitment_date: order.commitment_date || null,
-        invoice_status:  order.invoice_status,
-        currency:        order.currency_id ? order.currency_id[1] : 'MXN',
-        qty_total:       totalQty,
-        qty_delivered:   deliveredQty,
-        state:           order.state,
-        salesperson:     order.user_id ? order.user_id[1] : null,
-        lines_count:     lines.length,
-        // Detalle de líneas para la consola admin; la TV ignora este campo.
-        lines: lines.map(l => ({
-          name:       l.name,
-          qty:        l.product_uom_qty,
-          delivered:  l.qty_delivered,
-          price_unit: l.price_unit,
-          subtotal:   l.price_subtotal,
-        })),
-        // Remisiones (traslados de salida) asociadas a esta orden
-        deliveries: (pickingsByOrder.get(order.id) ?? []).map(p => ({
-          name:      p.name,
-          state:     p.state,
-          date_done: typeof p.date_done === 'string' ? p.date_done : null,
-        })),
-      };
-    });
-
+    const normalized = await fetchInvoiceableOrders();
     console.log(`[Odoo] Retornando ${normalized.length} órdenes a facturar`);
     res.json({ orders: normalized, total: normalized.length, lastUpdated: new Date().toISOString() });
 
@@ -466,11 +457,12 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
 });
 
 
-// ─── Arrancar servidor ─────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`\n🚀 Odoo Proxy corriendo en http://localhost:${PORT}`);
   console.log(`   Odoo URL: ${ODOO_URL || '⚠️  No configurada'}`);
   console.log(`   Endpoints:`);
   console.log(`     GET http://localhost:${PORT}/api/odoo/status`);
   console.log(`     GET http://localhost:${PORT}/api/odoo/invoiceable-orders\n`);
+
+  startNotifications(fetchInvoiceableOrders).catch(console.error);
 });

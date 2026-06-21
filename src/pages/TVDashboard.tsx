@@ -439,7 +439,8 @@ export default function TVDashboard() {
 
   return (
     <div
-      className={`bg-zinc-950 text-white p-4 lg:p-6 font-sans transition-all duration-700 relative ${
+      style={{ backgroundColor: '#0a0a0f' }}
+      className={`text-white p-4 lg:p-6 font-sans transition-all duration-700 relative ${
         isTVMode ? 'tv-viewport' : 'desktop-viewport'
       } ${isFullscreen ? 'w-full h-full' : ''}`}
     >

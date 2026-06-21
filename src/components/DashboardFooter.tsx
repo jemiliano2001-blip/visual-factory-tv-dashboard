@@ -33,20 +33,21 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
   onToggleRecording,
 }) => {
   return (
-    <footer className="mt-auto pt-4 border-t border-zinc-800 flex justify-between items-center text-[10px] lg:text-xs text-zinc-500 uppercase tracking-widest relative z-10 flex-shrink-0">
+    <footer className="mt-auto pt-3 flex justify-between items-center text-[9px] lg:text-[10px] text-zinc-600 uppercase tracking-widest relative z-10 flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
       <div className="flex items-center gap-4">
-        <div>
-          Órdenes a Facturar:{' '}
-          <span className="text-violet-300 font-bold">{totalOrders}</span>
+        <div className="font-mono-data">
+          <span className="text-zinc-600">Total:</span>{' '}
+          <span className="text-indigo-300 font-bold">{totalOrders}</span>{' '}
+          <span className="text-zinc-700">órdenes</span>
         </div>
 
         {pages.length > 1 && (
-          <div className="flex gap-1.5 ml-2">
+          <div className="flex gap-1.5 ml-1">
             {pages.map((_, idx) => (
               <button
                 key={idx}
                 onClick={() => onPageChange(idx)}
-                className={`h-1.5 rounded-full transition-all duration-500 ${idx === currentPageIndex ? 'w-6 bg-indigo-500' : 'w-1.5 bg-zinc-700 hover:bg-zinc-500'}`}
+                className={`h-1 rounded-full transition-all duration-500 ${idx === currentPageIndex ? 'w-5 bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.6)]' : 'w-1 bg-zinc-700 hover:bg-zinc-500'}`}
               />
             ))}
           </div>
@@ -74,40 +75,44 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
       <button
         onClick={onToggleRecording}
         disabled={isProcessingVoice || isSpeaking}
-        className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold transition-all ${
+        title={isRecording ? 'Detener grabación' : 'Comando de Voz'}
+        className={`relative w-10 h-10 lg:w-12 lg:h-12 rounded-full flex items-center justify-center transition-all duration-300 ${
           isRecording
-            ? 'bg-red-500/20 text-red-400 border border-red-500/50 animate-pulse'
+            ? 'bg-red-500/20 border-2 border-red-500/60 text-red-400 shadow-[0_0_20px_rgba(239,68,68,0.4)] animate-pulse'
             : isProcessingVoice
-            ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/50 animate-pulse'
+            ? 'bg-indigo-500/15 border-2 border-indigo-500/40 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.3)]'
             : isSpeaking
-            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 animate-pulse'
-            : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:bg-zinc-800 hover:text-zinc-300'
+            ? 'bg-emerald-500/15 border-2 border-emerald-500/40 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse'
+            : 'bg-indigo-500/10 border-2 border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 hover:border-indigo-400/50 hover:shadow-[0_0_20px_rgba(99,102,241,0.3)]'
         }`}
       >
         {isRecording ? (
-          <MicOff className="w-4 h-4" />
+          <MicOff className="w-4 h-4 lg:w-5 lg:h-5" />
         ) : isProcessingVoice ? (
           <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
         ) : isSpeaking ? (
-          <Volume2 className="w-4 h-4" />
+          <Volume2 className="w-4 h-4 lg:w-5 lg:h-5" />
         ) : (
-          <Mic className="w-4 h-4" />
+          <Mic className="w-4 h-4 lg:w-5 lg:h-5" />
         )}
-        {isRecording ? 'Escuchando...' : isProcessingVoice ? 'Procesando...' : isSpeaking ? 'IA Hablando...' : 'Comando de Voz'}
       </button>
 
-      <div className="flex gap-6 items-center">
-        <span className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]" /> Pendiente
+      <div className="flex gap-4 lg:gap-5 items-center font-mono-data">
+        <span className="flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_6px_rgba(6,182,212,0.7)]" />
+          <span className="text-zinc-600">Pendiente</span>
         </span>
-        <span className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" /> En Proceso
+        <span className="flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]" />
+          <span className="text-zinc-600">En Proceso</span>
         </span>
-        <span className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-fuchsia-400 shadow-[0_0_8px_rgba(232,121,249,0.8)]" /> Entregado
+        <span className="flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-fuchsia-500 shadow-[0_0_6px_rgba(217,70,239,0.7)]" />
+          <span className="text-zinc-600">Entregado</span>
         </span>
-        <span className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.8)]" /> Vencida
+        <span className="flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.7)]" />
+          <span className="text-zinc-600">Vencida</span>
         </span>
       </div>
     </footer>

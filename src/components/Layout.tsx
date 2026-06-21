@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { auth } from '../firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { LayoutDashboard, Settings, BarChart3, LogOut, Tv } from 'lucide-react';
+import { LayoutDashboard, BarChart3, LogOut, Tv } from 'lucide-react';
 
 export default function Layout() {
   const [user, setUser] = useState(auth.currentUser);
@@ -25,84 +25,89 @@ export default function Layout() {
 
   if (isTvDashboard) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-white">
+      <div className="min-h-screen text-white" style={{ backgroundColor: '#0a0a0f' }}>
         <Outlet />
       </div>
     );
   }
 
+  const navItem = (to: string, icon: React.ReactNode, label: string) => {
+    const isActive = location.pathname === to;
+    return (
+      <Link
+        to={to}
+        className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-semibold text-sm ${
+          isActive
+            ? 'bg-white/8 text-indigo-300 border-l-4 border-indigo-500 shadow-[inset_0_0_12px_rgba(99,102,241,0.15)] pl-3'
+            : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border-l-4 border-transparent'
+        }`}
+      >
+        <span className={isActive ? 'text-indigo-400' : 'text-zinc-500'}>{icon}</span>
+        {label}
+      </Link>
+    );
+  };
+
   return (
-    <div className="flex h-screen bg-zinc-950 text-white font-sans overflow-hidden relative">
-      {/* Global Background Orbs for Layout */}
-      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-fuchsia-600/10 rounded-full blur-[120px] pointer-events-none" />
+    <div className="flex h-screen text-white font-sans overflow-hidden relative" style={{ backgroundColor: '#0a0a0f' }}>
+      {/* Background orbs */}
+      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-600/8 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-fuchsia-600/8 rounded-full blur-[140px] pointer-events-none" />
 
       {/* Sidebar */}
-      <aside className="w-72 bg-zinc-900/40 backdrop-blur-2xl border-r border-white/10 flex flex-col relative z-20 shadow-2xl">
-        <div className="p-8 border-b border-white/10">
-          <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-fuchsia-400 flex items-center gap-3 tracking-tight">
-            <Tv className="w-8 h-8 text-indigo-400" />
+      <aside className="w-64 flex flex-col relative z-20 shrink-0" style={{ backgroundColor: 'rgba(10,10,15,0.85)', backdropFilter: 'blur(24px)', borderRight: '1px solid rgba(255,255,255,0.07)' }}>
+        {/* Brand */}
+        <div className="px-5 py-6 border-b border-white/8">
+          <h1 className="font-display text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 flex items-center gap-2.5 tracking-tight">
+            <Tv className="w-6 h-6 text-indigo-400 shrink-0" />
             Fábrica Visual
           </h1>
+          <p className="text-zinc-600 text-[10px] font-mono-data uppercase tracking-widest mt-1.5 pl-8">Control Room v2</p>
         </div>
-        
-        <nav className="flex-1 p-6 space-y-3">
-          <Link 
-            to="/admin" 
-            className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold ${location.pathname === '/admin' ? 'bg-gradient-to-r from-indigo-500/20 to-fuchsia-500/20 text-white border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.15)]' : 'text-zinc-400 hover:bg-white/5 hover:text-white border border-transparent'}`}
-          >
-            <Settings className={`w-6 h-6 ${location.pathname === '/admin' ? 'text-indigo-400' : ''}`} />
-            Panel de Admin
-          </Link>
-          <Link 
-            to="/stats" 
-            className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold ${location.pathname === '/stats' ? 'bg-gradient-to-r from-indigo-500/20 to-fuchsia-500/20 text-white border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.15)]' : 'text-zinc-400 hover:bg-white/5 hover:text-white border border-transparent'}`}
-          >
-            <BarChart3 className={`w-6 h-6 ${location.pathname === '/stats' ? 'text-fuchsia-400' : ''}`} />
-            Estadísticas
-          </Link>
 
-          <div className="pt-6 mt-6 border-t border-white/10">
-            <p className="px-5 text-xs font-black text-zinc-500 uppercase tracking-widest mb-3">Vistas en Vivo</p>
-            <Link 
-              to="/" 
+        {/* Nav */}
+        <nav className="flex-1 px-3 py-5 space-y-1">
+          {navItem('/admin', <LayoutDashboard className="w-4 h-4" />, 'Panel de Admin')}
+          {navItem('/stats', <BarChart3 className="w-4 h-4" />, 'Estadísticas')}
+
+          <div className="pt-5 mt-4 border-t border-white/8">
+            <p className="px-4 text-[9px] font-mono-data font-bold text-zinc-600 uppercase tracking-[0.2em] mb-2">Vistas en Vivo</p>
+            <Link
+              to="/"
               target="_blank"
-              className="group relative flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 hover:from-emerald-500/20 hover:to-cyan-500/20 text-emerald-100 border border-emerald-500/30 hover:border-emerald-400/50 shadow-[0_0_20px_rgba(16,185,129,0.15)] hover:shadow-[0_0_30px_rgba(16,185,129,0.3)] overflow-hidden"
+              className="group flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-semibold text-sm text-emerald-300/80 hover:text-emerald-200 hover:bg-emerald-500/8 border-l-4 border-emerald-500/40 hover:border-emerald-400 pl-3"
             >
-              <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/0 via-emerald-400/10 to-emerald-400/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-in-out" />
-              <div className="relative z-10 flex items-center gap-4 w-full">
-                <div className="p-2 bg-emerald-500/20 rounded-xl border border-emerald-500/30 group-hover:scale-110 transition-transform duration-300">
-                  <Tv className="w-5 h-5 text-emerald-400" />
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-emerald-50 tracking-wide">TV Dashboard</span>
-                  <span className="text-[10px] text-emerald-400/70 uppercase tracking-widest font-black mt-0.5 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    En Vivo
-                  </span>
-                </div>
-              </div>
+              <Tv className="w-4 h-4 text-emerald-500 shrink-0" />
+              <span>TV Dashboard</span>
+              <span className="ml-auto flex items-center gap-1 text-[9px] font-mono-data text-emerald-500/60 group-hover:text-emerald-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                EN VIVO
+              </span>
             </Link>
           </div>
         </nav>
 
-        <div className="p-6 border-t border-white/10 bg-black/20">
+        {/* User card */}
+        <div className="px-3 py-4 border-t border-white/8">
           {user ? (
-            <div className="flex items-center justify-between bg-zinc-800/50 p-4 rounded-2xl border border-white/5">
-              <div className="text-sm truncate pr-2">
-                <p className="text-white font-bold truncate">{user.displayName || 'Admin'}</p>
-                <p className="text-zinc-400 text-xs truncate font-medium mt-0.5">{user.email}</p>
+            <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-white/4 border border-white/6">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-white font-bold text-xs shrink-0">
+                {(user.displayName || user.email || 'A')[0].toUpperCase()}
               </div>
-              <button 
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-xs font-bold truncate">{user.displayName || 'Admin'}</p>
+                <p className="text-zinc-500 text-[10px] truncate font-mono-data">{user.email}</p>
+              </div>
+              <button
                 onClick={handleLogout}
-                className="p-2.5 hover:bg-red-500/20 rounded-xl text-zinc-400 hover:text-red-400 transition-colors"
+                className="p-1.5 hover:bg-red-500/20 rounded-lg text-zinc-500 hover:text-red-400 transition-colors shrink-0"
                 title="Cerrar Sesión"
               >
-                <LogOut className="w-5 h-5" />
+                <LogOut className="w-4 h-4" />
               </button>
             </div>
           ) : (
-            <Link to="/login" className="block w-full text-center py-3 bg-gradient-to-r from-indigo-500 to-fuchsia-500 hover:from-indigo-400 hover:to-fuchsia-400 text-white rounded-xl transition-all font-bold shadow-lg">
+            <Link to="/login" className="block w-full text-center py-2.5 bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-400 hover:to-cyan-400 text-white rounded-xl transition-all font-bold text-sm shadow-lg">
               Iniciar Sesión
             </Link>
           )}

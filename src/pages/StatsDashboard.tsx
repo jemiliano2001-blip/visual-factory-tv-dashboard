@@ -70,14 +70,14 @@ export default function StatsDashboard() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-zinc-950 text-white relative overflow-hidden font-sans">
-      <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-600/20 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-600/10 rounded-full blur-[120px] pointer-events-none" />
+    <div className="min-h-screen text-white relative overflow-hidden font-sans" style={{ backgroundColor: '#0a0a0f' }}>
+      <div className="absolute top-[-10%] right-[-10%] w-[45%] h-[45%] bg-indigo-600/10 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-fuchsia-600/10 rounded-full blur-[140px] pointer-events-none" />
 
       <div className="relative z-10 p-6 lg:p-8 max-w-7xl mx-auto space-y-8">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight">Estadísticas de Producción</h1>
-          <p className="text-zinc-500 mt-1">Órdenes por facturar en Odoo — datos en vivo</p>
+        <div className="border-b border-white/8 pb-6">
+          <h1 className="font-display text-3xl font-extrabold tracking-tight text-white">Estadísticas de Producción</h1>
+          <p className="text-zinc-500 mt-1.5 font-mono-data text-xs uppercase tracking-widest">Órdenes por facturar en Odoo — datos en vivo</p>
         </div>
 
         {error && (
@@ -93,12 +93,12 @@ export default function StatsDashboard() {
           </div>
         ) : (
           <>
-            {/* Tarjetas */}
+            {/* Tarjetas KPI */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard icon={<Package className="w-5 h-5 text-blue-400" />} label="Órdenes por facturar" value={String(totalOrders)} />
-              <StatCard icon={<AlertTriangle className="w-5 h-5 text-red-400" />} label="Vencidas" value={String(overdueCount)} />
-              <StatCard icon={<TrendingUp className="w-5 h-5 text-emerald-400" />} label="Avance de entrega" value={`${deliveryRate}%`} />
-              <StatCard icon={<DollarSign className="w-5 h-5 text-amber-400" />} label="Monto por facturar" value={formatCurrency(totalAmount, currency)} />
+              <StatCard icon={<Package className="w-5 h-5 text-indigo-400" />} label="Órdenes por facturar" value={String(totalOrders)} accentColor="#6366f1" />
+              <StatCard icon={<AlertTriangle className="w-5 h-5 text-red-400" />} label="Vencidas" value={String(overdueCount)} accentColor="#ef4444" />
+              <StatCard icon={<TrendingUp className="w-5 h-5 text-emerald-400" />} label="Avance de entrega" value={`${deliveryRate}%`} accentColor="#10b981" />
+              <StatCard icon={<DollarSign className="w-5 h-5 text-cyan-400" />} label="Monto por facturar" value={formatCurrency(totalAmount, currency)} accentColor="#06b6d4" />
             </div>
 
             {/* Gráficas */}
@@ -144,10 +144,10 @@ export default function StatsDashboard() {
             </ChartCard>
 
             {/* Resumen IA */}
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
+            <div className="glass-card rounded-2xl p-6 space-y-4" style={{ borderTop: '2px solid rgba(139,92,246,0.4)' }}>
               <div className="flex items-center justify-between flex-wrap gap-3">
-                <h3 className="text-lg font-bold flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-purple-400" /> Resumen ejecutivo con IA
+                <h3 className="text-lg font-display font-bold flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-violet-400" /> Resumen ejecutivo con IA
                 </h3>
                 <div className="flex gap-2">
                   <button
@@ -181,21 +181,25 @@ export default function StatsDashboard() {
   );
 }
 
-function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function StatCard({ icon, label, value, accentColor }: { icon: React.ReactNode; label: string; value: string; accentColor: string }) {
   return (
-    <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
-      <div className="flex items-center gap-2 text-zinc-400 text-sm font-bold uppercase tracking-wide">
+    <div
+      className="glass-card rounded-2xl p-5 relative overflow-hidden"
+      style={{ borderTop: `2px solid ${accentColor}40`, boxShadow: `0 0 30px ${accentColor}10` }}
+    >
+      <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-[40px] pointer-events-none" style={{ backgroundColor: `${accentColor}15` }} />
+      <div className="flex items-center gap-2 text-zinc-400 text-xs font-bold uppercase tracking-widest font-mono-data relative z-10">
         {icon} {label}
       </div>
-      <div className="text-3xl font-black mt-2">{value}</div>
+      <div className="font-display text-4xl font-extrabold mt-3 relative z-10 tracking-tight">{value}</div>
     </div>
   );
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
-      <h3 className="text-lg font-bold mb-4">{title}</h3>
+    <div className="glass-card rounded-2xl p-6" style={{ borderLeft: '2px solid rgba(255,255,255,0.06)' }}>
+      <h3 className="font-display text-base font-bold mb-4 text-zinc-200 uppercase tracking-wider text-sm">{title}</h3>
       {children}
     </div>
   );

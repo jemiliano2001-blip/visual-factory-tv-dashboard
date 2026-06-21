@@ -146,23 +146,23 @@ export default function AdminPanel() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white font-sans">
+    <div className="min-h-screen text-white font-sans" style={{ backgroundColor: '#0a0a0f' }}>
       <div className="p-6 lg:p-8 max-w-[1600px] mx-auto space-y-6">
-        <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center justify-between flex-wrap gap-3 border-b border-white/8 pb-6">
           <div>
-            <h1 className="text-3xl font-black tracking-tight">Consola de Administración</h1>
-            <p className="text-zinc-500 mt-1">
-              Órdenes por facturar en Odoo (solo lectura)
-              {lastUpdated && ` — actualizado ${format(new Date(lastUpdated), 'HH:mm:ss')}`}
+            <h1 className="font-display text-3xl font-extrabold tracking-tight text-white">Consola de Administración</h1>
+            <p className="text-zinc-500 mt-1.5 font-mono-data text-xs uppercase tracking-widest">
+              Órdenes por facturar — solo lectura
+              {lastUpdated && ` · actualizado ${format(new Date(lastUpdated), 'HH:mm:ss')}`}
             </p>
           </div>
           <button
             type="button"
             onClick={() => refetch()}
             disabled={isFetching}
-            className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl font-bold text-sm transition-colors flex items-center gap-2 disabled:opacity-50"
+            className="px-4 py-2 glass-card rounded-xl font-bold text-sm transition-all hover:border-white/20 flex items-center gap-2 disabled:opacity-50"
           >
-            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} /> Actualizar
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin text-indigo-400' : 'text-zinc-400'}`} /> Actualizar
           </button>
         </div>
 
@@ -299,10 +299,10 @@ function TabButton({ active, onClick, icon, children }: {
     <button
       type="button"
       onClick={onClick}
-      className={`px-4 py-2.5 font-bold text-sm flex items-center gap-2 border-b-2 -mb-px transition-colors ${
+      className={`px-5 py-2.5 font-bold text-sm flex items-center gap-2 border-b-2 -mb-px transition-all duration-200 font-mono-data uppercase tracking-wider text-xs ${
         active
-          ? 'border-blue-500 text-white'
-          : 'border-transparent text-zinc-500 hover:text-zinc-300'
+          ? 'border-cyan-400 text-cyan-300 neon-text-cyan'
+          : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:border-white/20'
       }`}
     >
       {icon} {children}

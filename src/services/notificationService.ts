@@ -9,14 +9,16 @@ export interface NotifOrder {
   partner_name: string;
   date_order: string; // "YYYY-MM-DD HH:MM:SS" UTC from Odoo
   lines_count: number;
-  deliveries: { state: string }[];
+  deliveries: { state: string; date_done?: string | null }[];
 }
 
 interface NotificationState {
   sentAlerts: Record<string, number>;       // "orderId_7d" → unix timestamp ms
   knownOrderIds: number[];
   deliveredOrderIds: number[];
+  deliveryTimestamps: Record<string, { detectedAt: number; ageAtDelivery: number }>;
   clientAlertDates: Record<string, string>; // "ClientName" → "YYYY-MM-DD"
+  lastMonthlyReportMonth: string;           // "YYYY-MM" del último reporte mensual enviado
 }
 
 interface DiscordField {
@@ -42,7 +44,9 @@ const EMPTY_STATE: NotificationState = {
   sentAlerts: {},
   knownOrderIds: [],
   deliveredOrderIds: [],
+  deliveryTimestamps: {},
   clientAlertDates: {},
+  lastMonthlyReportMonth: '',
 };
 
 export function loadState(): NotificationState {
@@ -64,13 +68,26 @@ export function saveState(state: NotificationState): void {
 
 // ─── Discord webhook ──────────────────────────────────────────────────────────
 
+let lastSendMs = 0;
+
+async function postWebhook(url: string, body: string): Promise<Response> {
+  // Enforce minimum 1.5s between sends to stay under Discord's per-webhook rate limit
+  const wait = 1500 - (Date.now() - lastSendMs);
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  lastSendMs = Date.now();
+  return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+}
+
 export async function sendWebhook(url: string, content: string, embeds: DiscordEmbed[]): Promise<void> {
+  const body = JSON.stringify({ content, embeds });
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, embeds }),
-    });
+    let res = await postWebhook(url, body);
+    if (res.status === 429) {
+      const { retry_after } = await res.json() as { retry_after?: number };
+      await new Promise(r => setTimeout(r, Math.ceil((retry_after ?? 1) * 1000) + 500));
+      lastSendMs = Date.now();
+      res = await postWebhook(url, body);
+    }
     if (!res.ok) {
       console.error(`[notifications] Discord webhook falló: ${res.status} ${await res.text()}`);
     }
@@ -157,7 +174,6 @@ export async function checkThresholds(
   let dirty = false;
 
   const thresholds = [
-    { days: 7,  key: '7d',  color: 0xF59E0B, title: '🟡 Orden pendiente — 1 semana',  mention: '',          useCrit: false },
     { days: 14, key: '14d', color: 0xDC2626, title: '🔴 Orden atrasada — 2 semanas',  mention: '@everyone', useCrit: false },
     { days: 30, key: '30d', color: 0x7F1D1D, title: '💀 Orden crítica — 1 mes',       mention: '@everyone', useCrit: true  },
   ] as const;
@@ -208,15 +224,17 @@ export async function checkEvents(orders: NotifOrder[], mainUrl: string): Promis
   // --- Delivered orders (state changed to fully delivered) ---
   for (const order of orders) {
     if (isFullyDelivered(order) && !state.deliveredOrderIds.includes(order.id)) {
+      const ageAtDelivery = getOrderAgeDays(order.date_order);
       await sendWebhook(mainUrl, '', [reportEmbed(
         `✅ Orden entregada — ${order.name}`,
         [
           `**Cliente:** ${order.partner_name}`,
-          `**Duración:** ${getOrderAgeDays(order.date_order)} días`,
+          `**Duración:** ${ageAtDelivery} días`,
         ],
         0x16A34A,
       )]);
       state.deliveredOrderIds.push(order.id);
+      state.deliveryTimestamps[String(order.id)] = { detectedAt: Date.now(), ageAtDelivery };
       dirty = true;
     }
   }
@@ -326,6 +344,82 @@ export async function sendEndOfShiftReport(orders: NotifOrder[], mainUrl: string
   await sendWebhook(mainUrl, '', [reportEmbed('🌙 Cierre de turno — Visual Factory', lines, 0x475569)]);
 }
 
+// ─── Cierre de semana (viernes 5pm) ──────────────────────────────────────────
+
+export async function sendWeekendReport(orders: NotifOrder[], mainUrl: string): Promise<void> {
+  const state = loadState();
+  const weekAgo = Date.now() - 7 * 86_400_000;
+  const thisWeek = Object.values(state.deliveryTimestamps).filter(d => d.detectedAt >= weekAgo);
+  const active   = orders.filter(o => !isFullyDelivered(o));
+  const overdue  = active.filter(o => getOrderAgeDays(o.date_order) >= 14);
+  const avgAge   = thisWeek.length > 0
+    ? Math.round(thisWeek.reduce((s, d) => s + d.ageAtDelivery, 0) / thisWeek.length)
+    : null;
+
+  const lines: string[] = [
+    `✅ **${thisWeek.length}** entregas esta semana${avgAge !== null ? ` · promedio **${avgAge} días** por entrega` : ''}`,
+    `📋 **${active.length}** activas · 🔴 **${overdue.length}** críticas (>14d)`,
+  ];
+  if (overdue.length > 0) {
+    lines.push('', '⚠️ **Pendientes críticas al cierre de semana:**');
+    overdue
+      .sort((a, b) => getOrderAgeDays(b.date_order) - getOrderAgeDays(a.date_order))
+      .slice(0, 5)
+      .forEach(o => lines.push(`  • ${o.name} · ${o.partner_name} (${getOrderAgeDays(o.date_order)}d)`));
+  } else {
+    lines.push('✅ Sin críticas al cierre de semana.');
+  }
+
+  await sendWebhook(mainUrl, '', [reportEmbed('📅 Cierre de semana — Visual Factory', lines, 0x7C3AED)]);
+}
+
+// ─── Reporte mensual (1° de cada mes) ─────────────────────────────────────────
+
+function prevMonthRange(): { start: number; end: number; label: string } {
+  const now = new Date();
+  const y   = now.getFullYear();
+  const m   = now.getMonth(); // índice 0 = enero, actual
+  return {
+    start: new Date(y, m - 1, 1).getTime(),
+    end:   new Date(y, m, 1).getTime(),
+    label: new Date(y, m - 1).toLocaleString('es-MX', { month: 'long', year: 'numeric' }),
+  };
+}
+
+export async function sendMonthlyReport(orders: NotifOrder[], mainUrl: string): Promise<void> {
+  const state = loadState();
+  const { start, end, label } = prevMonthRange();
+
+  const monthDeliveries = Object.values(state.deliveryTimestamps)
+    .filter(d => d.detectedAt >= start && d.detectedAt < end);
+
+  const avgAge = monthDeliveries.length > 0
+    ? Math.round(monthDeliveries.reduce((s, d) => s + d.ageAtDelivery, 0) / monthDeliveries.length)
+    : null;
+
+  const active  = orders.filter(o => !isFullyDelivered(o));
+  const overdue = active.filter(o => getOrderAgeDays(o.date_order) >= 14);
+
+  const clientCounts: Record<string, number> = {};
+  for (const o of overdue) {
+    clientCounts[o.partner_name] = (clientCounts[o.partner_name] ?? 0) + 1;
+  }
+  const topClients = Object.entries(clientCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([name, count]) => `  • ${name}: ${count} órdenes con >14d`);
+
+  const lines: string[] = [
+    `📦 **${monthDeliveries.length}** entregas en ${label}${avgAge !== null ? ` · promedio **${avgAge} días** por entrega` : ''}`,
+    `📋 **${active.length}** órdenes activas al inicio del mes`,
+    '',
+    '👥 **Clientes con más atrasos (>14d):**',
+    ...(topClients.length > 0 ? topClients : ['  Ninguno — ¡excelente mes!']),
+  ];
+
+  await sendWebhook(mainUrl, '@everyone', [reportEmbed(`📊 Reporte mensual — ${label}`, lines, 0x0EA5E9)]);
+}
+
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 export async function startNotifications(
@@ -349,11 +443,23 @@ export async function startNotifications(
     }
   }
 
-  // Scan cada 30 minutos: umbrales + eventos
+  // Scan cada 30 minutos: umbrales + eventos + sin remisión
   async function scan() {
     const orders = await getOrders();
     await checkThresholds(orders, mainUrl, critUrl);
     await checkEvents(orders, mainUrl);
+    // Reporte mensual: dispara una vez al mes en el primer scan del nuevo mes después de las 8am
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const state = loadState();
+    if (state.lastMonthlyReportMonth && state.lastMonthlyReportMonth !== currentMonth && now.getHours() >= 8) {
+      await sendMonthlyReport(orders, mainUrl);
+      state.lastMonthlyReportMonth = currentMonth;
+      saveState(state);
+    } else if (!state.lastMonthlyReportMonth) {
+      state.lastMonthlyReportMonth = currentMonth;
+      saveState(state);
+    }
   }
   scan(); // ejecutar inmediatamente al arrancar
   setInterval(scan, 30 * 60 * 1000);
@@ -368,9 +474,14 @@ export async function startNotifications(
     await sendMiddayReport(await getOrders(), mainUrl);
   });
 
-  // Lun–Sáb 5:00 PM — cierre de turno
-  scheduleAt(17, 0, [1, 2, 3, 4, 5, 6], async () => {
+  // Lun–Jue + Sáb 5:00 PM — cierre de turno normal
+  scheduleAt(17, 0, [1, 2, 3, 4, 6], async () => {
     await sendEndOfShiftReport(await getOrders(), mainUrl);
+  });
+
+  // Viernes 5:00 PM — cierre de semana (reporte enriquecido)
+  scheduleAt(17, 0, [5], async () => {
+    await sendWeekendReport(await getOrders(), mainUrl);
   });
 
   // Lunes 9:00 AM — resumen semanal

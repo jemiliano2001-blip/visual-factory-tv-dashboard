@@ -79,16 +79,26 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
 
   // ── Colores por estado ──────────────────────────────────────────────────────
   const cardBorder = isHighlighted
-    ? 'bg-indigo-900/40 border-indigo-400 shadow-[0_0_100px_rgba(99,102,241,0.6)] z-50 scale-105'
+    ? 'bg-indigo-900/30 border-indigo-400/60 shadow-[0_0_80px_rgba(99,102,241,0.5)] z-50 scale-105'
     : isCritical
-    ? 'bg-red-950/60 border-red-500 shadow-[0_0_30px_rgba(220,38,38,0.5)]'
+    ? 'bg-red-950/40 border-red-500/60 shadow-[0_0_30px_rgba(220,38,38,0.4)]'
     : isOverdue
-    ? 'bg-orange-950/40 border-orange-500 shadow-[0_0_40px_rgba(249,115,22,0.4)] ring-4 ring-orange-500/20'
+    ? 'bg-orange-950/30 border-orange-500/60 shadow-[0_0_30px_rgba(249,115,22,0.35)] ring-2 ring-orange-500/15'
     : progress >= 100
-    ? 'bg-fuchsia-950/30 border-fuchsia-400/50 hover:border-fuchsia-300 hover:shadow-[0_0_25px_rgba(217,70,239,0.4)]'
+    ? 'bg-white/[0.02] border-fuchsia-400/30 hover:border-fuchsia-300/50 hover:shadow-[0_0_20px_rgba(217,70,239,0.3)]'
     : progress > 0
-    ? 'bg-emerald-950/30 border-emerald-400/50 hover:border-emerald-300 hover:shadow-[0_0_25px_rgba(52,211,153,0.4)]'
-    : 'bg-cyan-950/30 border-cyan-400/50 hover:border-cyan-300 hover:shadow-[0_0_25px_rgba(34,211,238,0.4)]';
+    ? 'bg-white/[0.02] border-emerald-400/30 hover:border-emerald-300/50 hover:shadow-[0_0_20px_rgba(52,211,153,0.3)]'
+    : 'bg-white/[0.02] border-white/8 hover:border-cyan-400/30 hover:shadow-[0_0_20px_rgba(34,211,238,0.25)]';
+
+  const accentStripeColor = isHighlighted
+    ? 'bg-indigo-400'
+    : isCritical || isOverdue
+    ? 'bg-red-500 animate-pulse'
+    : progress >= 100
+    ? 'bg-fuchsia-400'
+    : progress > 0
+    ? 'bg-emerald-400'
+    : 'bg-cyan-500/70';
 
   const progressColor =
     progress >= 100 ? 'bg-fuchsia-400 shadow-[0_0_20px_rgba(232,121,249,0.6)]'
@@ -183,29 +193,27 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       exit={{ opacity: 0, scale: 0.8 }}
       transition={{ duration: 0.4, type: 'spring', bounce: 0.3 }}
       id={`so-${order.name.replace(/\//g, '-')}`}
-      className={`flex flex-col rounded-3xl border-2 transition-all duration-500 relative overflow-hidden h-full min-h-0 ${cardBorder} ${isWide ? 'p-6 xl:p-8' : 'p-4 lg:p-5'}`}
+      className={`flex flex-col rounded-2xl border transition-all duration-500 relative overflow-hidden h-full min-h-0 ${cardBorder} ${isWide ? 'p-5 xl:p-7' : 'p-3.5 lg:p-4'}`}
+      style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
     >
+      {/* Left accent stripe */}
+      <div className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-l-2xl ${accentStripeColor}`} />
+
       {/* Overdue badge */}
       {isOverdue && (
-        <div className="absolute top-0 right-0 bg-orange-500 text-white px-4 py-1 rounded-bl-2xl font-black text-[10px] uppercase tracking-[0.2em] flex items-center gap-2 z-20 shadow-lg">
-          <AlertTriangle className="w-3 h-3 animate-bounce" />
+        <div className="absolute top-0 right-0 bg-orange-500/90 text-white px-3 py-1 rounded-bl-xl font-black text-[9px] uppercase tracking-[0.2em] flex items-center gap-1.5 z-20">
+          <AlertTriangle className="w-2.5 h-2.5 animate-bounce" />
           Vencida
         </div>
       )}
 
-      {/* Odoo badge */}
-      <div className="absolute top-0 left-0 px-3 py-1 rounded-br-2xl font-black text-[9px] uppercase tracking-[0.15em] flex items-center gap-1.5 z-20 bg-violet-500/20 text-violet-300 border-b border-r border-violet-500/30">
-        <DollarSign className="w-2.5 h-2.5" />
-        A Facturar
-      </div>
-
       {/* Background glow */}
-      <div className={`absolute -top-16 -right-16 w-48 h-48 blur-[80px] rounded-full opacity-20 pointer-events-none ${glowColor}`} />
+      <div className={`absolute -top-12 -right-12 w-40 h-40 blur-[60px] rounded-full opacity-15 pointer-events-none ${glowColor}`} />
 
       {/* Header: SO number + priority */}
-      <div className="flex justify-between items-start mb-3 lg:mb-4 relative z-10 mt-5 min-h-0">
-        <div className="flex-1 min-w-0">
-          <h3 className={`${isWide ? 'text-3xl xl:text-4xl' : 'text-xl lg:text-2xl'} font-black tracking-tighter text-white mb-1 drop-shadow-lg truncate`}>
+      <div className="flex justify-between items-start mb-2.5 lg:mb-3 relative z-10 mt-2 min-h-0">
+        <div className="flex-1 min-w-0 pl-2">
+          <h3 className={`${isWide ? 'text-2xl xl:text-3xl' : 'text-lg lg:text-xl'} font-bold tracking-tight text-white mb-1 truncate font-mono-data`}>
             {order.name}
           </h3>
           <div className="flex items-center gap-2 flex-wrap">
@@ -233,7 +241,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
 
       {/* Product name — SmartText con truncado inteligente */}
       <div
-        className={`${isWide ? 'text-xl xl:text-2xl' : 'text-sm lg:text-base'} font-bold text-zinc-100 mb-2 lg:mb-3 relative z-10 leading-tight flex items-start gap-2 min-h-0 overflow-hidden`}
+        className={`${isWide ? 'text-base xl:text-lg' : 'text-sm'} font-semibold text-zinc-200 mb-2 lg:mb-3 relative z-10 leading-tight flex items-start gap-2 min-h-0 overflow-hidden pl-2`}
       >
         <Package className={`${isWide ? 'w-5 h-5' : 'w-4 h-4'} flex-shrink-0 mt-0.5 text-zinc-500`} />
         <SmartText
@@ -244,29 +252,27 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       </div>
 
       {/* Progress bar */}
-      <div className="mt-auto relative z-10 min-h-0">
-        <div className="flex justify-between items-end mb-2 lg:mb-3">
-          <div className="flex items-center gap-2">
+      <div className="mt-auto relative z-10 min-h-0 pl-2">
+        <div className="flex justify-between items-end mb-2 lg:mb-2.5">
+          <div className="flex items-center gap-1.5">
             {StatusIcon}
-            <span className={`${isWide ? 'text-sm xl:text-base' : 'text-[10px] lg:text-xs'} font-black uppercase tracking-[0.15em] ${statusTextColor}`}>
+            <span className={`${isWide ? 'text-xs' : 'text-[9px] lg:text-[10px]'} font-bold uppercase tracking-[0.12em] ${statusTextColor}`}>
               {statusLabel}
             </span>
           </div>
-          <div className="text-right">
-            <span className={`${isWide ? 'text-3xl xl:text-4xl' : 'text-xl lg:text-2xl'} font-black text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]`}>
+          <div className="text-right flex items-baseline gap-1.5">
+            <span className={`${isWide ? 'text-2xl xl:text-3xl' : 'text-lg lg:text-xl'} font-black text-white font-mono-data`}>
               {progress}%
             </span>
+            {order.qty_total > 0 && (
+              <span className={`${isWide ? 'text-xs' : 'text-[9px]'} font-bold text-zinc-500 font-mono-data`}>
+                {order.qty_delivered}/{order.qty_total}
+              </span>
+            )}
           </div>
         </div>
 
-        {order.qty_total > 0 && (
-          <div className={`flex justify-between ${isWide ? 'text-sm' : 'text-[10px]'} font-bold text-zinc-500 mb-2 uppercase tracking-widest`}>
-            <span>Entregado: {order.qty_delivered}</span>
-            <span>Total: {order.qty_total}</span>
-          </div>
-        )}
-
-        <div className={`${isWide ? 'h-4 xl:h-5' : 'h-2.5 lg:h-3'} bg-black/40 rounded-full overflow-hidden border border-white/5 shadow-inner`}>
+        <div className={`${isWide ? 'h-3' : 'h-2 lg:h-2.5'} bg-black/50 rounded-full overflow-hidden border border-white/5`}>
           <div
             className={`h-full rounded-full transition-all duration-1000 relative ${progressColor}`}
             style={{ width: `${Math.max(progress, progress > 0 ? 4 : 0)}%` }}

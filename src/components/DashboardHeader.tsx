@@ -97,12 +97,26 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 }) => {
   const isTVMode = viewMode === 'tv';
 
+  const iconBtn = (onClick: () => void, isActive: boolean, title: string, children: React.ReactNode) => (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`p-2 rounded-lg border transition-all duration-200 ${isActive ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300' : 'border-white/8 text-zinc-500 hover:text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
+    >
+      {children}
+    </button>
+  );
+
   return (
-    <header className="flex justify-between items-end mb-4 lg:mb-6 border-b border-zinc-800 pb-4 relative z-10 flex-shrink-0">
+    <header
+      className="flex justify-between items-center mb-3 lg:mb-4 pb-3 relative z-10 flex-shrink-0"
+      style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
+    >
+      {/* Left: Brand + breadcrumbs */}
       <div>
         <h1
           onClick={onNavigateAdmin}
-          className="text-2xl lg:text-4xl font-bold tracking-tighter text-zinc-100 cursor-pointer hover:text-indigo-400 transition-colors"
+          className="font-display text-xl lg:text-3xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 cursor-pointer hover:from-indigo-300 hover:to-cyan-300 transition-all"
           title="Ir a Configuración"
         >
           FÁBRICA VISUAL
@@ -110,39 +124,41 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         <Breadcrumbs company={currentCompany} current={currentPageNum} total={totalPages} />
       </div>
 
-      {/* Speaking indicator */}
+      {/* Center: Speaking indicator */}
       <AnimatePresence>
         {isSpeaking && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.8, y: 10 }}
+            initial={{ opacity: 0, scale: 0.8, y: 6 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8, y: 10 }}
-            className="absolute left-1/2 -translate-x-1/2 top-6 flex items-center gap-4 bg-zinc-900/80 backdrop-blur-md px-6 py-3 rounded-full border border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.2)] z-50"
+            exit={{ opacity: 0, scale: 0.8, y: 6 }}
+            className="absolute left-1/2 -translate-x-1/2 top-3 flex items-center gap-3 px-5 py-2.5 rounded-full border border-emerald-500/30 shadow-[0_0_25px_rgba(16,185,129,0.2)] z-50"
+            style={{ backgroundColor: 'rgba(10,10,15,0.9)', backdropFilter: 'blur(16px)' }}
           >
-            <Volume2 className="w-5 h-5 text-emerald-400 animate-pulse" />
+            <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
             <SoundWave />
-            <span className="text-emerald-400 font-bold uppercase tracking-widest text-sm ml-2">IA Respondiendo</span>
+            <span className="text-emerald-400 font-mono-data font-bold uppercase tracking-widest text-xs">IA Respondiendo</span>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <div className="text-right flex items-center gap-3">
+      {/* Right: controls + clock */}
+      <div className="flex items-center gap-2 lg:gap-3">
         {(voiceFilter !== 'all' || clientFilter) && (
           <button
             onClick={onClearFilter}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-indigo-500/30 transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 rounded-lg font-mono-data font-bold text-[9px] uppercase tracking-widest hover:bg-indigo-500/25 transition-all"
             title="Quitar filtro de voz"
           >
-            <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-            Filtro: {[
+            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+            {[
               voiceFilter === 'overdue' ? 'Vencidas'
                 : voiceFilter === 'delivered' ? 'Entregadas'
                 : voiceFilter === 'pending' ? 'Pendientes'
                 : voiceFilter === 'critical' ? 'Críticas'
                 : null,
-              clientFilter ? `Cliente: ${clientFilter}` : null,
+              clientFilter ? `${clientFilter}` : null,
             ].filter(Boolean).join(' · ')}
-            <span className="ml-1 opacity-70 hover:opacity-100">×</span>
+            <span className="opacity-50">×</span>
           </button>
         )}
 
@@ -153,32 +169,17 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           isRefreshing={isRefreshing}
         />
 
-        <div className="w-px h-8 bg-zinc-800" />
+        <div className="w-px h-6" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
 
-        <button
-          onClick={onToggleGradient}
-          className={`p-2 rounded-lg border transition-all ${showGradient ? 'bg-indigo-500 border-indigo-400 text-white' : 'bg-zinc-900 border-white/5 text-zinc-500 hover:text-zinc-300'}`}
-          title="Alternar Gradiente de Fondo"
-        >
-          <Palette className="w-5 h-5" />
-        </button>
-        <button
-          onClick={onToggleFullscreen}
-          className={`p-2 rounded-lg border transition-all ${isFullscreen ? 'bg-indigo-500 border-indigo-400 text-white' : 'bg-zinc-900 border-white/5 text-zinc-500 hover:text-zinc-300'}`}
-          title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
-        >
-          {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
-        </button>
-        <button
-          onClick={() => onViewModeChange(isTVMode ? 'desktop' : 'tv')}
-          className={`p-2 rounded-lg border transition-all ${isTVMode ? 'bg-indigo-500 border-indigo-400 text-white' : 'bg-zinc-900 border-white/5 text-zinc-500 hover:text-zinc-300'}`}
-          title={isTVMode ? 'Modo Escritorio (con scroll)' : 'Modo TV (sin scroll)'}
-        >
-          <Monitor className="w-5 h-5" />
-        </button>
-        <div>
-          <div className="text-3xl font-bold text-emerald-400">{format(currentTime, 'HH:mm:ss')}</div>
-          <div className="text-zinc-500 uppercase tracking-widest text-sm">{format(currentTime, 'MMM dd, yyyy')}</div>
+        {iconBtn(onToggleGradient, showGradient, 'Alternar Gradiente', <Palette className="w-4 h-4" />)}
+        {iconBtn(onToggleFullscreen, isFullscreen, isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa', isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />)}
+        {iconBtn(() => onViewModeChange(isTVMode ? 'desktop' : 'tv'), isTVMode, isTVMode ? 'Modo Escritorio' : 'Modo TV', <Monitor className="w-4 h-4" />)}
+
+        <div className="w-px h-6 ml-1" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
+
+        <div className="text-right">
+          <div className="font-mono-data text-2xl lg:text-3xl font-bold text-cyan-400" style={{ textShadow: '0 0 20px rgba(6,182,212,0.5)' }}>{format(currentTime, 'HH:mm:ss')}</div>
+          <div className="font-mono-data text-zinc-600 uppercase tracking-widest text-[9px] lg:text-[10px] mt-0.5">{format(currentTime, "EEE dd MMM yyyy")}</div>
         </div>
       </div>
     </header>
