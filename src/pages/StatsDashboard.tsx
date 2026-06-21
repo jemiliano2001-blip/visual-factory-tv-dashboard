@@ -93,8 +93,10 @@ export default function StatsDashboard() {
           </div>
         ) : (
           <>
-            {/* Tarjetas KPI */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Tarjetas KPI — 4 en fila solo en pantallas anchas (2xl). En laptops el
+                sidebar reduce el ancho útil y 4 columnas recortan los montos largos,
+                así que se colapsan a 2 columnas. */}
+            <div className="grid grid-cols-2 2xl:grid-cols-4 gap-4">
               <StatCard icon={<Package className="w-5 h-5 text-indigo-400" />} label="Órdenes por facturar" value={String(totalOrders)} accentColor="#6366f1" />
               <StatCard icon={<AlertTriangle className="w-5 h-5 text-red-400" />} label="Vencidas" value={String(overdueCount)} accentColor="#ef4444" />
               <StatCard icon={<TrendingUp className="w-5 h-5 text-emerald-400" />} label="Avance de entrega" value={`${deliveryRate}%`} accentColor="#10b981" />
