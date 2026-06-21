@@ -182,6 +182,10 @@ export default function StatsDashboard() {
 }
 
 function StatCard({ icon, label, value, accentColor }: { icon: React.ReactNode; label: string; value: string; accentColor: string }) {
+  // Los montos de 7+ cifras (p. ej. "$3,539,982") desbordan la card a text-4xl y
+  // el overflow-hidden del contenedor los recorta. Bajamos a text-3xl cuando el
+  // valor es largo; los KPIs cortos (113, 0, 14%) conservan el text-4xl.
+  const valueSizeClass = value.length > 8 ? 'text-3xl' : 'text-4xl';
   return (
     <div
       className="glass-card rounded-2xl p-5 relative overflow-hidden"
@@ -191,7 +195,7 @@ function StatCard({ icon, label, value, accentColor }: { icon: React.ReactNode; 
       <div className="flex items-center gap-2 text-zinc-400 text-xs font-bold uppercase tracking-widest font-mono-data relative z-10">
         {icon} {label}
       </div>
-      <div className="font-display text-4xl font-extrabold mt-3 relative z-10 tracking-tight">{value}</div>
+      <div className={`font-display ${valueSizeClass} font-extrabold mt-3 relative z-10 tracking-tight`}>{value}</div>
     </div>
   );
 }
