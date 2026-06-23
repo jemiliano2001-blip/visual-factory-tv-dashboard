@@ -8,7 +8,17 @@ import {
   subscribeToCompanyConfigs, createCompanyConfig,
   updateCompanyConfig, deleteCompanyConfig
 } from '../../services/companyConfigs';
-import { Plus, Edit2, Trash2, X, Clock } from 'lucide-react';
+import { Plus, Edit2, Trash2, Clock } from 'lucide-react';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Card } from '../ui/card';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '../ui/dialog';
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from '../ui/select';
 
 interface ConfigTabProps {
   /** Nombres de cliente únicos (de las órdenes Odoo) para el selector */
@@ -26,6 +36,12 @@ export default function ConfigTab({ companyNames }: ConfigTabProps) {
     return () => unsub();
   }, []);
 
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setEditing(null);
+    setFormData({});
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.company_name || !formData.delivery_schedule) return;
@@ -39,9 +55,7 @@ export default function ConfigTab({ companyNames }: ConfigTabProps) {
       } else {
         await createCompanyConfig(cleanData);
       }
-      setIsModalOpen(false);
-      setEditing(null);
-      setFormData({});
+      closeModal();
     } catch (error) {
       console.error('Error guardando configuración', error);
     }
@@ -58,108 +72,92 @@ export default function ConfigTab({ companyNames }: ConfigTabProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            <Clock className="w-5 h-5 text-blue-400" /> Horarios de Entrega
+          <h3 className="flex items-center gap-2 font-display text-lg font-bold text-foreground">
+            <Clock className="size-5 text-primary" /> Horarios de Entrega
           </h3>
-          <p className="text-zinc-500 text-sm">Configuración por empresa — visible en la TV</p>
+          <p className="text-sm text-muted-foreground">Configuración por empresa — visible en la TV</p>
         </div>
-        <button
-          onClick={() => { setEditing(null); setFormData({}); setIsModalOpen(true); }}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold text-sm transition-colors flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" /> Nuevo horario
-        </button>
+        <Button onClick={() => { setEditing(null); setFormData({}); setIsModalOpen(true); }}>
+          <Plus /> Nuevo horario
+        </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {configs.length === 0 ? (
-          <p className="text-zinc-500 col-span-full text-center py-8">No hay horarios configurados</p>
+          <p className="col-span-full py-8 text-center text-muted-foreground">No hay horarios configurados</p>
         ) : (
           configs.map(config => (
-            <div key={config.id} className="bg-white/5 border border-white/5 rounded-2xl p-4 group hover:border-blue-500/30 transition-all">
-              <div className="flex items-start justify-between">
-                <h4 className="font-bold text-white">{config.company_name}</h4>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
+            <Card key={config.id} className="group p-4 transition-colors hover:border-primary/30">
+              <div className="flex items-start justify-between gap-2">
+                <h4 className="font-bold text-foreground">{config.company_name}</h4>
+                <div className="flex gap-1 opacity-70 transition-opacity group-hover:opacity-100">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     onClick={() => { setEditing(config); setFormData(config); setIsModalOpen(true); }}
-                    className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white"
+                    aria-label="Editar horario"
                   >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
+                    <Edit2 />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     onClick={() => handleDelete(config.id!)}
-                    className="p-1.5 hover:bg-red-500/20 rounded-lg text-zinc-400 hover:text-red-400"
+                    aria-label="Eliminar horario"
+                    className="hover:text-destructive"
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                    <Trash2 />
+                  </Button>
                 </div>
               </div>
-              <p className="text-sm text-zinc-400 mt-2">{config.delivery_schedule}</p>
-            </div>
+              <p className="mt-2 text-sm text-muted-foreground">{config.delivery_schedule}</p>
+            </Card>
           ))
         )}
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setIsModalOpen(false)} />
-          <div className="relative bg-zinc-900 border border-white/10 rounded-2xl max-w-md w-full p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-bold text-white">{editing ? 'Editar Horario' : 'Nuevo Horario'}</h3>
-              <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
-                <X className="w-5 h-5 text-zinc-400" />
-              </button>
-            </div>
-            <form onSubmit={handleSave} className="space-y-6">
-              <div>
-                <label className="block text-sm font-bold text-zinc-400 mb-2">Empresa</label>
-                <select
-                  value={formData.company_name || ''}
-                  onChange={e => setFormData({ ...formData, company_name: e.target.value })}
-                  className="w-full bg-zinc-800 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 focus:outline-none"
-                  required
-                >
-                  <option value="" disabled>Selecciona una empresa</option>
+      <Dialog open={isModalOpen} onOpenChange={open => (open ? setIsModalOpen(true) : closeModal())}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editing ? 'Editar horario' : 'Nuevo horario'}</DialogTitle>
+            <DialogDescription>Se mostrará en las tarjetas de la TV para esta empresa.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSave} className="space-y-5">
+            <div className="space-y-2">
+              <Label>Empresa</Label>
+              <Select
+                value={formData.company_name || undefined}
+                onValueChange={v => setFormData({ ...formData, company_name: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona una empresa" />
+                </SelectTrigger>
+                <SelectContent>
                   {editing && !companyNames.includes(editing.company_name) && (
-                    <option value={editing.company_name}>{editing.company_name}</option>
+                    <SelectItem value={editing.company_name}>{editing.company_name}</SelectItem>
                   )}
-                  {companyNames.map(name => (
-                    <option key={name} value={name}>{name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-zinc-400 mb-2">Horario de entrega</label>
-                <input
-                  type="text"
-                  placeholder="Lunes a Viernes: 08:00 - 17:00"
-                  value={formData.delivery_schedule || ''}
-                  onChange={e => setFormData({ ...formData, delivery_schedule: e.target.value })}
-                  className="w-full bg-zinc-800 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 focus:outline-none"
-                  required
-                />
-              </div>
-              <div className="flex gap-3 justify-end">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl font-bold text-sm transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold text-sm transition-colors"
-                >
-                  {editing ? 'Actualizar' : 'Crear'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+                  {companyNames.map(name => <SelectItem key={name} value={name}>{name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Horario de entrega</Label>
+              <Input
+                placeholder="Lunes a Viernes: 08:00 - 17:00"
+                value={formData.delivery_schedule || ''}
+                onChange={e => setFormData({ ...formData, delivery_schedule: e.target.value })}
+                required
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={closeModal}>Cancelar</Button>
+              <Button type="submit">{editing ? 'Actualizar' : 'Crear'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

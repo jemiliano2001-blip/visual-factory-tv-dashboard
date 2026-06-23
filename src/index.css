@@ -1,11 +1,70 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import "tailwindcss";
+@import "tw-animate-css";
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Sistema de diseño — OLED oscuro, premium. Tokens semánticos compatibles
+   con shadcn/ui + marca + estado + datos. Dark-only por diseño (pantalla de
+   planta). Los primitivos de src/components/ui consumen estos tokens.
+   ───────────────────────────────────────────────────────────────────────── */
 @theme {
+  /* Tipografía */
   --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Syne", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Superficies (elevación por niveles, no glass en todo) */
+  --color-background: #0a0a0f;
+  --color-foreground: #f4f4f5;
+  --color-card: #121218;
+  --color-card-foreground: #f4f4f5;
+  --color-popover: #16161d;
+  --color-popover-foreground: #f4f4f5;
   --color-factory-bg: #0a0a0f;
+
+  /* Marca / acción (un solo primario: índigo) */
+  --color-primary: #6366f1;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #1b1b22;
+  --color-secondary-foreground: #e4e4e7;
+  --color-muted: #18181f;
+  --color-muted-foreground: #9ca3af;
+  --color-accent: #20202a;
+  --color-accent-foreground: #f4f4f5;
+
+  /* Bordes / inputs / foco */
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-input: rgba(255, 255, 255, 0.12);
+  --color-ring: #818cf8;
+
+  /* Estado / datos (solo para semántica, no decoración) */
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-success: #10b981;
+  --color-success-foreground: #04211a;
+  --color-warning: #f59e0b;
+  --color-warning-foreground: #241a00;
+  --color-info: #3b82f6;
+  --color-info-foreground: #ffffff;
+  --color-data: #22d3ee;
+
+  /* Radios / sombra */
+  --radius: 0.75rem;
+  --shadow-card: 0 10px 30px -14px rgba(0, 0, 0, 0.7);
+  --shadow-overlay: 0 24px 60px -20px rgba(0, 0, 0, 0.8);
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
 }
 
 @layer utilities {
@@ -65,9 +124,10 @@
 
   /* ── Desktop Viewport: Scroll permitido, más espacio ──────────────────── */
   .desktop-viewport {
-    min-height: 100vh;
-    min-height: 100dvh;
+    height: 100vh;
+    height: 100dvh;
     overflow-y: auto;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
   }

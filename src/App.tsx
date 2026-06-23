@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
 
 import Layout from './components/Layout';
@@ -24,17 +24,8 @@ export default function App() {
     };
     checkApiKey();
     
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setIsAuthReady(true);
-      } else {
-        // Login anónimo automático para que el TV Dashboard funcione sin credenciales,
-        // pero manteniendo la seguridad de Firebase.
-        signInAnonymously(auth).catch(err => {
-          console.error("Error al autenticar de forma anónima:", err);
-          setIsAuthReady(true);
-        });
-      }
+    const unsubscribe = onAuthStateChanged(auth, () => {
+      setIsAuthReady(true);
     });
     return () => unsubscribe();
   }, []);
@@ -85,7 +76,11 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           
           <Route path="/" element={<Layout />}>
-            <Route index element={<TVDashboard />} />
+            <Route index element={
+              <ProtectedRoute>
+                <TVDashboard />
+              </ProtectedRoute>
+            } />
             
             <Route path="admin" element={
               <ProtectedRoute>

@@ -23,10 +23,20 @@ const ABBREVIATIONS: [RegExp, string][] = [
   [/\bNeum[aá]tico\b/gi, 'Neum.'],
   [/\bEl[eé]ctrico\b/gi, 'Eléc.'],
   [/\bIndustrial\b/gi, 'Ind.'],
-  [/\bProducción\b/gi, 'Prod.'],
+  [/\bProducci[oó]n\b/gi, 'Prod.'],
   [/\bCertificado\b/gi, 'Cert.'],
   [/\bPulido\b/gi, 'Pul.'],
   [/\bTransporte\b/gi, 'Trans.'],
+  [/\bDiseño\b/gi, 'Dis.'],
+  [/\bSuministro\b/gi, 'Sum.'],
+  [/\bReparaci[oó]n\b/gi, 'Rep.'],
+  [/\bReemplazo\b/gi, 'Reemp.'],
+  [/\bRetrabajo\b/gi, 'Retr.'],
+  [/\bModificaci[oó]n\b/gi, 'Mod.'],
+  [/\bEstructura\b/gi, 'Estr.'],
+  [/\bConector\b/gi, 'Conect.'],
+  [/\bTornillos?\b/gi, 'Torn.'],
+  [/\bTransportador\b/gi, 'Transp.'],
 ];
 
 // Palabras sin información clave que se pueden eliminar en nivel agresivo
@@ -80,6 +90,8 @@ interface SmartTextProps {
   className?: string;
   /** Si es true, deshabilita la lógica inteligente y muestra el texto completo */
   disableSmart?: boolean;
+  /** Nivel inicial de resumen a aplicar (0=completo, 1=abreviaciones, 2=sin conectores) */
+  defaultLevel?: number;
 }
 
 // ─── Componente ─────────────────────────────────────────────────────────────────
@@ -89,18 +101,20 @@ const SmartText: React.FC<SmartTextProps> = ({
   maxLines = 2,
   className = '',
   disableSmart = false,
+  defaultLevel = 0,
 }) => {
   const containerRef = useRef<HTMLSpanElement>(null);
-  const [levelIndex, setLevelIndex] = useState(0);
-
+  
   const levels = useMemo(() => generateTextLevels(text), [text]);
+  const initialLevel = Math.min(defaultLevel, levels.length - 1);
+  const [levelIndex, setLevelIndex] = useState(initialLevel);
 
   // Detectar overflow y avanzar niveles
   useEffect(() => {
     if (disableSmart || !containerRef.current) return;
 
-    // Reset al nivel 0 cuando cambia el texto
-    setLevelIndex(0);
+    // Reset al nivel por defecto cuando cambia el texto
+    setLevelIndex(initialLevel);
 
     const el = containerRef.current;
 
@@ -122,19 +136,24 @@ const SmartText: React.FC<SmartTextProps> = ({
       checkOverflow();
     });
 
-    // También escuchar cambios de tamaño del contenedor
-    const observer = new ResizeObserver(() => {
-      // Al cambiar tamaño, re-evaluar desde nivel 0
-      setLevelIndex(0);
-      requestAnimationFrame(checkOverflow);
-    });
-    observer.observe(el);
+    // Escuchar cambios de tamaño de ventana en lugar del span para evitar loop infinito
+    let resizeTimer: ReturnType<typeof setTimeout>;
+    const handleResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        setLevelIndex(initialLevel);
+        requestAnimationFrame(checkOverflow);
+      }, 250);
+    };
+    
+    window.addEventListener('resize', handleResize);
 
     return () => {
       cancelAnimationFrame(raf);
-      observer.disconnect();
+      clearTimeout(resizeTimer);
+      window.removeEventListener('resize', handleResize);
     };
-  }, [text, disableSmart, levels.length]);
+  }, [text, disableSmart, levels.length, initialLevel]);
 
   // Re-check overflow cuando cambia el levelIndex (necesario para cascada)
   useEffect(() => {

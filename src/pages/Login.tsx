@@ -1,27 +1,31 @@
 import React, { useState } from 'react';
 import { auth } from '../firebase';
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { Tv } from 'lucide-react';
 
 export default function Login() {
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
+  const [email, setEmail]       = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError]       = useState('');
+  const [loading, setLoading]   = useState(false);
+  const navigate  = useNavigate();
+  const location  = useLocation();
+  const from = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/';
 
   if (auth.currentUser) {
-    return <Navigate to="/admin" replace />;
+    return <Navigate to={from} replace />;
   }
 
-  const handleGoogleLogin = async () => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
       setLoading(true);
       setError('');
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-      navigate('/admin');
-    } catch (err: any) {
-      setError(err.message || 'Error al iniciar sesión');
+      await signInWithEmailAndPassword(auth, email, password);
+      navigate(from, { replace: true });
+    } catch {
+      setError('Correo o contraseña incorrectos.');
     } finally {
       setLoading(false);
     }
@@ -39,29 +43,52 @@ export default function Login() {
             <Tv className="w-10 h-10 text-indigo-400" />
           </div>
           <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-zinc-400 tracking-tight">Fábrica Visual</h1>
-          <p className="text-zinc-400 mt-3 text-center font-medium">Inicie sesión para gestionar órdenes de trabajo y ver análisis.</p>
+          <p className="text-zinc-400 mt-3 text-center font-medium">Acceso exclusivo para personal SMV.</p>
         </div>
 
         {error && (
-          <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-2xl mb-8 text-sm font-medium">
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-2xl mb-6 text-sm font-medium">
             {error}
           </div>
         )}
 
-        <button
-          onClick={handleGoogleLogin}
-          disabled={loading}
-          className="w-full flex items-center justify-center gap-3 bg-white text-zinc-900 py-4 px-6 rounded-2xl font-bold hover:bg-zinc-100 transition-all disabled:opacity-50 shadow-xl hover:shadow-2xl hover:-translate-y-0.5"
-        >
-          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-6 h-6" />
-          {loading ? 'Iniciando sesión...' : 'Iniciar sesión con Google'}
-        </button>
-        
-        <div className="mt-8 text-center">
-          <a href="/" className="text-sm text-zinc-500 hover:text-white transition-colors font-medium">
-            Volver al Panel de TV
-          </a>
-        </div>
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-2">
+              Correo electrónico
+            </label>
+            <input
+              type="email"
+              required
+              autoComplete="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              className="w-full bg-zinc-800/60 border border-white/10 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 placeholder-zinc-600"
+              placeholder="usuario@empresa.com"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-2">
+              Contraseña
+            </label>
+            <input
+              type="password"
+              required
+              autoComplete="current-password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              className="w-full bg-zinc-800/60 border border-white/10 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 placeholder-zinc-600"
+              placeholder="••••••••"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all disabled:opacity-50 shadow-xl shadow-indigo-500/20 mt-2"
+          >
+            {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
+          </button>
+        </form>
       </div>
     </div>
   );

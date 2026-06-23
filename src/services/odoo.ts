@@ -4,11 +4,18 @@
  * Hace polling automático y retorna las órdenes de venta a facturar.
  */
 
+import { auth } from '../firebase';
+
 // Base del proxy Express de Odoo. Vacío = mismo origen: en dev/preview Vite
 // reenvía /api al proxy (vite.config.ts), por lo que funciona también desde
 // otros dispositivos de la red (la TV). VITE_ODOO_PROXY_URL permite apuntar a
 // un proxy desplegado en otro host (sin barra final).
 const PROXY_BASE = import.meta.env.VITE_ODOO_PROXY_URL || '';
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const token = await auth.currentUser?.getIdToken().catch(() => '');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -101,9 +108,7 @@ export async function checkOdooStatus(): Promise<OdooConnectionStatus> {
   try {
     const response = await fetch(`${PROXY_BASE}/api/odoo/status`, {
       signal: AbortSignal.timeout(8000),
-      headers: {
-        'Authorization': `Bearer ${import.meta.env.VITE_API_SECRET || ''}`
-      }
+      headers: await getAuthHeaders(),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null) as { message?: string; error?: string } | null;
@@ -128,9 +133,7 @@ export async function fetchInvoiceableOrders(): Promise<OdooOrdersResponse> {
       // El proxy encadena varias llamadas RPC contra Odoo (auth + search + read
       // + líneas en lotes); su techo combinado supera los 20s con Odoo lento.
       signal: AbortSignal.timeout(45000),
-      headers: {
-        'Authorization': `Bearer ${import.meta.env.VITE_API_SECRET || ''}`
-      }
+      headers: await getAuthHeaders(),
     });
 
     if (!response.ok) {

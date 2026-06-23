@@ -65,6 +65,7 @@ interface DashboardHeaderProps {
   // Voice filter
   voiceFilter: string;
   clientFilter?: string | null;
+  textFilter?: string;
   onClearFilter: () => void;
   // Speaking
   isSpeaking: boolean;
@@ -91,6 +92,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   onToggleFullscreen,
   voiceFilter,
   clientFilter,
+  textFilter,
   onClearFilter,
   isSpeaking,
   onNavigateAdmin,
@@ -109,7 +111,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 
   return (
     <header
-      className="flex justify-between items-center mb-3 lg:mb-4 pb-3 relative z-10 flex-shrink-0"
+      className="flex justify-between items-center mb-3 lg:mb-4 pt-4 lg:pt-6 pb-3 sticky top-0 z-[60] bg-background flex-shrink-0"
       style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
     >
       {/* Left: Brand + breadcrumbs */}
@@ -143,11 +145,11 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 
       {/* Right: controls + clock */}
       <div className="flex items-center gap-2 lg:gap-3">
-        {(voiceFilter !== 'all' || clientFilter) && (
+        {(voiceFilter !== 'all' || clientFilter || textFilter) && (
           <button
             onClick={onClearFilter}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 rounded-lg font-mono-data font-bold text-[9px] uppercase tracking-widest hover:bg-indigo-500/25 transition-all"
-            title="Quitar filtro de voz"
+            title="Quitar filtros"
           >
             <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
             {[
@@ -157,6 +159,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 : voiceFilter === 'critical' ? 'Críticas'
                 : null,
               clientFilter ? `${clientFilter}` : null,
+              textFilter ? `"${textFilter}"` : null,
             ].filter(Boolean).join(' · ')}
             <span className="opacity-50">×</span>
           </button>

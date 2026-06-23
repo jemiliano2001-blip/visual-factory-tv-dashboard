@@ -20,6 +20,8 @@ import type { ViewMode } from '../components/OdooOrderCard';
 import SkeletonCard from '../components/SkeletonCard';
 import DashboardHeader from '../components/DashboardHeader';
 import DashboardFooter from '../components/DashboardFooter';
+import TVControlBar from '../components/TVControlBar';
+import { usePersistedState } from '../hooks/usePersistedState';
 
 // ─── Audio helpers ─────────────────────────────────────────────────────────────
 
@@ -95,6 +97,88 @@ const playErrorSound = () => {
 const VALID_VOICE_FILTERS = ['all', 'overdue', 'pending', 'delivered', 'critical'] as const;
 type VoiceFilter = typeof VALID_VOICE_FILTERS[number];
 
+type PageData =
+  | { type: 'single'; company: string; orders: OdooSaleOrder[]; current: number; total: number }
+  | { type: 'split'; left: { company: string; orders: OdooSaleOrder[] }; right: { company: string; orders: OdooSaleOrder[] }; current: number; total: number };
+
+const CompanyTVSection: React.FC<{
+  company: string;
+  orders: OdooSaleOrder[];
+  isWide: boolean;
+  isDense: boolean;
+  gridCols: number;
+  gridRows: number;
+  companyConfigs: CompanyConfig[];
+  highlightedSO: string | null;
+}> = ({ company, orders, isWide, isDense, gridCols, gridRows, companyConfigs, highlightedSO }) => (
+  <div className="flex flex-col h-full min-h-0 w-full">
+    <div className="mb-3 lg:mb-4 flex items-center justify-between flex-shrink-0">
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-3 lg:gap-5">
+          <AnimatePresence mode="wait">
+            {getCustomerLogo(company) && (
+              <motion.div
+                key={company}
+                initial={{ opacity: 0, scale: 0.85, x: -10 }}
+                animate={{ opacity: 1, scale: 1, x: 0 }}
+                exit={{ opacity: 0, scale: 0.85, x: -10 }}
+                transition={{ duration: 0.4, ease: 'easeOut' }}
+                className={`flex-shrink-0 flex items-center justify-center rounded-2xl bg-white/8 border border-white/10 backdrop-blur-sm shadow-[0_0_20px_rgba(255,255,255,0.05)] ${
+                  isWide ? 'h-20 px-5 py-2' : 'h-12 px-3 py-1.5'
+                }`}
+              >
+                <img
+                  src={getCustomerLogo(company)!}
+                  alt={company}
+                  className={`object-contain ${
+                    isWide ? 'max-h-16 max-w-[200px]' : 'max-h-9 max-w-[120px]'
+                  }`}
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <h2 className={`${isWide ? 'text-4xl lg:text-5xl' : 'text-xl lg:text-2xl'} font-black text-white tracking-tight uppercase`}>
+            {company}
+          </h2>
+        </div>
+        {companyConfigs.find(c => c.company_name === company) && (
+          <div className="flex items-center gap-2 mt-1 text-zinc-400">
+            <Clock className={`${isWide ? 'w-6 h-6' : 'w-4 h-4'}`} />
+            <span className={`${isWide ? 'text-lg' : 'text-xs lg:text-sm'} font-bold uppercase tracking-widest`}>
+              Horario: {companyConfigs.find(c => c.company_name === company)?.delivery_schedule}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+
+    <motion.div
+      key={`${company}-grid`}
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -20 }}
+      transition={{ duration: 0.5 }}
+      className="grid gap-3 lg:gap-4 flex-1 min-h-0"
+      style={{
+        gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${gridRows}, minmax(0, 1fr))`,
+      }}
+    >
+      {orders.map((order) => (
+        <OdooOrderCard
+          key={order.id}
+          order={order}
+          isHighlighted={highlightedSO === order.name}
+          isWide={isWide}
+          isDense={isDense}
+          viewMode="tv"
+        />
+      ))}
+    </motion.div>
+  </div>
+);
+
 export default function TVDashboard() {
   const navigate = useNavigate();
 
@@ -116,7 +200,7 @@ export default function TVDashboard() {
   const [currentTime, setCurrentTime]       = useState(new Date());
   const [highlightedSO, setHighlightedSO]   = useState<string | null>(null);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
-  const [viewMode, setViewMode]             = useState<ViewMode>('tv');
+  const [viewMode, setViewMode]             = usePersistedState<ViewMode>('vftv:tv:viewMode', 'tv');
   const [isFullscreen, setIsFullscreen]     = useState(false);
   const [showGradient, setShowGradient]     = useState(true);
   const containerRef                        = useRef<HTMLDivElement>(null);
@@ -127,7 +211,9 @@ export default function TVDashboard() {
   const [isDense, setIsDense]               = useState(false);
   const [toast, setToast]                   = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [voiceFilter, setVoiceFilter]       = useState<VoiceFilter>('all');
-  const [clientFilter, setClientFilter]     = useState<string | null>(null);
+  const [clientFilter, setClientFilter]     = usePersistedState<string | null>('vftv:tv:client', null);
+  const [textFilter, setTextFilter]         = usePersistedState<string>('vftv:tv:text', '');
+  const [rotationPaused, setRotationPaused] = usePersistedState<boolean>('vftv:tv:paused', false);
 
   // ── Voice ────────────────────────────────────────────────────────────────────
   const [isRecording, setIsRecording]           = useState(false);
@@ -234,19 +320,32 @@ export default function TVDashboard() {
   }, [highlightedSO]);
 
   // ── Paginación ───────────────────────────────────────────────────────────────
+  const uniqueClients = useMemo(
+    () => Array.from(new Set(odooOrders.map(o => o.partner_name))).sort(),
+    [odooOrders],
+  );
+
   const filteredOdooOrders = useMemo(() => {
     const matchesClient = (order: OdooSaleOrder) =>
       !clientFilter || order.partner_name.toLowerCase().includes(clientFilter.toLowerCase());
 
+    const q = textFilter.trim().toLowerCase();
+    const matchesText = (order: OdooSaleOrder) =>
+      !q ||
+      order.name.toLowerCase().includes(q) ||
+      order.main_product.toLowerCase().includes(q) ||
+      order.partner_name.toLowerCase().includes(q);
+
     // Override: el filtro de voz 'entregadas' muestra SOLO las totalmente entregadas.
     if (voiceFilter === 'delivered') {
-      return odooOrders.filter(o => isOrderFullyDelivered(o) && matchesClient(o));
+      return odooOrders.filter(o => isOrderFullyDelivered(o) && matchesClient(o) && matchesText(o));
     }
 
     // Por defecto: ocultar de la vista TV las órdenes totalmente entregadas.
     return odooOrders.filter(order => {
       if (isOrderFullyDelivered(order)) return false;
       if (!matchesClient(order)) return false;
+      if (!matchesText(order)) return false;
       if (voiceFilter === 'all') return true;
       const isOverdue = isOrderOverdue(order);
       const progress = getDeliveryProgress(order);
@@ -258,7 +357,7 @@ export default function TVDashboard() {
       }
       return true;
     });
-  }, [odooOrders, voiceFilter, clientFilter]);
+  }, [odooOrders, voiceFilter, clientFilter, textFilter]);
 
   const groupedOrders = useMemo(() =>
     filteredOdooOrders.reduce((acc, order) => {
@@ -271,25 +370,52 @@ export default function TVDashboard() {
   );
 
   const pages = useMemo(() => {
-    const result: { company: string; orders: OdooSaleOrder[]; current: number; total: number }[] = [];
+    const result: PageData[] = [];
     if (isTVMode) {
-      // TV: paginación por cliente, respetando ordersPerPage
+      const smallCompanies: { company: string; orders: OdooSaleOrder[] }[] = [];
+      const threshold = Math.floor(gridCols / 2) * gridRows;
+
       Object.entries(groupedOrders).forEach(([company, companyOrders]) => {
-        const totalPages = Math.ceil(companyOrders.length / ordersPerPage);
-        for (let i = 0; i < totalPages; i++) {
-          result.push({
-            company,
-            orders: companyOrders.slice(i * ordersPerPage, (i + 1) * ordersPerPage),
-            current: i + 1,
-            total: totalPages,
-          });
+        if (gridCols >= 4 && companyOrders.length <= threshold) {
+          smallCompanies.push({ company, orders: companyOrders });
+        } else {
+          const totalPages = Math.ceil(companyOrders.length / ordersPerPage);
+          for (let i = 0; i < totalPages; i++) {
+            result.push({
+              type: 'single',
+              company,
+              orders: companyOrders.slice(i * ordersPerPage, (i + 1) * ordersPerPage),
+              current: i + 1,
+              total: totalPages,
+            });
+          }
         }
       });
+
+      for (let i = 0; i < smallCompanies.length; i += 2) {
+        if (i + 1 < smallCompanies.length) {
+          result.push({
+            type: 'split',
+            left: smallCompanies[i],
+            right: smallCompanies[i + 1],
+            current: 1,
+            total: 1,
+          });
+        } else {
+          result.push({
+            type: 'single',
+            company: smallCompanies[i].company,
+            orders: smallCompanies[i].orders,
+            current: 1,
+            total: 1,
+          });
+        }
+      }
     } else {
-      // Desktop: una sola "página" con todas las órdenes agrupadas por cliente
-      // Usamos la primera compañía como referencia, pero renderizamos todo
+      // Desktop: una sola "página" con todas las órdenes
       Object.entries(groupedOrders).forEach(([company, companyOrders]) => {
         result.push({
+          type: 'single',
           company,
           orders: companyOrders,
           current: 1,
@@ -298,20 +424,25 @@ export default function TVDashboard() {
       });
     }
     return result;
-  }, [groupedOrders, ordersPerPage, isTVMode]);
+  }, [groupedOrders, ordersPerPage, gridCols, gridRows, isTVMode]);
 
   // ── Auto-rotate pages (solo en modo TV) ──────────────────────────────────────
   useEffect(() => {
-    if (!isTVMode || pages.length <= 1 || highlightedSO) return;
+    if (!isTVMode || pages.length <= 1 || highlightedSO || rotationPaused) return;
     const interval = setInterval(() => {
       setCurrentPageIndex(prev => (prev + 1) % pages.length);
     }, 10000);
     return () => clearInterval(interval);
-  }, [pages.length, highlightedSO, isTVMode]);
+  }, [pages.length, highlightedSO, isTVMode, rotationPaused]);
 
   useEffect(() => {
     if (currentPageIndex >= pages.length && pages.length > 0) setCurrentPageIndex(0);
   }, [pages.length, currentPageIndex]);
+
+  // Al cambiar el filtro de cliente o la búsqueda, volver a la primera página.
+  useEffect(() => {
+    setCurrentPageIndex(0);
+  }, [clientFilter, textFilter]);
 
   useEffect(() => {
     return () => {
@@ -397,7 +528,10 @@ export default function TVDashboard() {
                   odooOrders.find(o => o.name === result.po_number || o.name.includes(result.po_number));
                 if (found) {
                   const soId = found.name;
-                  const pageIdx = pages.findIndex(p => p.orders.some(o => o.name === soId));
+                  const pageIdx = pages.findIndex(p => 
+                    p.type === 'single' ? p.orders.some(o => o.name === soId) 
+                    : (p.left.orders.some(o => o.name === soId) || p.right.orders.some(o => o.name === soId))
+                  );
                   if (pageIdx !== -1) setCurrentPageIndex(pageIdx);
                   playSuccessSound();
                   setHighlightedSO(soId);
@@ -433,15 +567,22 @@ export default function TVDashboard() {
     }
   };
 
+  const handleClearControls = () => {
+    setClientFilter(null);
+    setTextFilter('');
+    setRotationPaused(false);
+    setVoiceFilter('all');
+    setCurrentPageIndex(0);
+  };
+
   // ─────────────────────────────────────────────────────────────────────────────
   // RENDER
   // ─────────────────────────────────────────────────────────────────────────────
 
   return (
     <div
-      style={{ backgroundColor: '#0a0a0f' }}
-      className={`text-white p-4 lg:p-6 font-sans transition-all duration-700 relative ${
-        isTVMode ? 'tv-viewport' : 'desktop-viewport'
+      className={`bg-background text-foreground px-4 lg:px-6 font-sans transition-all duration-700 relative ${
+        isTVMode ? 'tv-viewport' : 'desktop-viewport custom-scrollbar'
       } ${isFullscreen ? 'w-full h-full' : ''}`}
     >
       {/* Background gradient */}
@@ -451,9 +592,8 @@ export default function TVDashboard() {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="absolute inset-0 pointer-events-none z-0"
           >
-            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-500/10 blur-[120px] rounded-full animate-pulse" />
-            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-fuchsia-500/10 blur-[120px] rounded-full animate-pulse" style={{ animationDelay: '2s' }} />
-            <div className="absolute top-[30%] right-[10%] w-[30%] h-[30%] bg-violet-500/5 blur-[100px] rounded-full animate-pulse" style={{ animationDelay: '4s' }} />
+            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/8 blur-[130px] rounded-full" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[35%] h-[35%] bg-fuchsia-500/6 blur-[130px] rounded-full" />
           </motion.div>
         )}
       </AnimatePresence>
@@ -461,7 +601,7 @@ export default function TVDashboard() {
       {/* ── Header ─────────────────────────────────────────────────────────────── */}
       <DashboardHeader
         currentTime={currentTime}
-        currentCompany={currentPage?.company}
+        currentCompany={currentPage?.type === 'single' ? currentPage.company : (currentPage?.type === 'split' ? 'MÚLTIPLES CLIENTES' : undefined)}
         currentPageNum={currentPage?.current}
         totalPages={currentPage?.total}
         odooStatus={odooStatus}
@@ -476,7 +616,8 @@ export default function TVDashboard() {
         onToggleFullscreen={toggleFullscreen}
         voiceFilter={voiceFilter}
         clientFilter={clientFilter}
-        onClearFilter={() => { setVoiceFilter('all'); setClientFilter(null); setCurrentPageIndex(0); }}
+        textFilter={textFilter}
+        onClearFilter={() => { setVoiceFilter('all'); setClientFilter(null); setTextFilter(''); setRotationPaused(false); setCurrentPageIndex(0); }}
         isSpeaking={isSpeaking}
         onNavigateAdmin={() => navigate('/admin')}
       />
@@ -484,10 +625,24 @@ export default function TVDashboard() {
       {/* ── Main grid ──────────────────────────────────────────────────────────── */}
       <div
         ref={containerRef}
-        className={`flex-1 pb-4 relative flex flex-col z-10 ${
-          isTVMode ? 'overflow-hidden' : 'overflow-visible min-h-0'
+        className={`flex-1 pb-1 relative flex flex-col z-10 ${
+          isTVMode ? 'min-h-0 overflow-hidden' : ''
         }`}
       >
+        {odooOrders.length > 0 && (
+          <TVControlBar
+            isTVMode={isTVMode}
+            clients={uniqueClients}
+            clientFilter={clientFilter}
+            onClient={setClientFilter}
+            textFilter={textFilter}
+            onText={setTextFilter}
+            isPaused={rotationPaused}
+            onTogglePause={() => setRotationPaused(p => !p)}
+            onClear={handleClearControls}
+          />
+        )}
+
         {highlightedSO && (
           <div className="fixed inset-0 bg-black/70 z-40 backdrop-blur-sm transition-opacity duration-500 pointer-events-none" />
         )}
@@ -544,81 +699,59 @@ export default function TVDashboard() {
           </div>
         ) : isTVMode && currentPage ? (
           /* ── Modo TV: paginación con cards que caben en viewport ──── */
-          <div className="flex flex-col h-full min-h-0">
-            <div className="mb-3 lg:mb-4 flex items-center justify-between flex-shrink-0">
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-3 lg:gap-5">
-                  <AnimatePresence mode="wait">
-                    {getCustomerLogo(currentPage.company) && (
-                      <motion.div
-                        key={currentPage.company}
-                        initial={{ opacity: 0, scale: 0.85, x: -10 }}
-                        animate={{ opacity: 1, scale: 1, x: 0 }}
-                        exit={{ opacity: 0, scale: 0.85, x: -10 }}
-                        transition={{ duration: 0.4, ease: 'easeOut' }}
-                        className={`flex-shrink-0 flex items-center justify-center rounded-2xl bg-white/8 border border-white/10 backdrop-blur-sm shadow-[0_0_20px_rgba(255,255,255,0.05)] ${
-                          isWide ? 'h-20 px-5 py-2' : 'h-12 px-3 py-1.5'
-                        }`}
-                      >
-                        <img
-                          src={getCustomerLogo(currentPage.company)!}
-                          alt={currentPage.company}
-                          className={`object-contain ${
-                            isWide ? 'max-h-16 max-w-[200px]' : 'max-h-9 max-w-[120px]'
-                          }`}
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                  <h2 className={`${isWide ? 'text-5xl' : 'text-2xl lg:text-3xl'} font-black text-white tracking-tight uppercase`}>
-                    {currentPage.company}
-                  </h2>
-                </div>
-                {companyConfigs.find(c => c.company_name === currentPage.company) && (
-                  <div className="flex items-center gap-2 mt-1 text-zinc-400">
-                    <Clock className={`${isWide ? 'w-6 h-6' : 'w-4 h-4'}`} />
-                    <span className={`${isWide ? 'text-lg' : 'text-xs lg:text-sm'} font-bold uppercase tracking-widest`}>
-                      Horario: {companyConfigs.find(c => c.company_name === currentPage.company)?.delivery_schedule}
-                    </span>
-                  </div>
-                )}
+          <div className="flex flex-col h-full min-h-0 relative">
+            {currentPage.total > 1 && (
+              <div className="absolute top-0 right-0 z-10 text-zinc-500 font-bold uppercase tracking-widest text-xs lg:text-sm bg-background/50 px-2 py-1 rounded backdrop-blur-sm">
+                Página {currentPage.current} de {currentPage.total}
               </div>
-              {currentPage.total > 1 && (
-                <span className={`${isWide ? 'text-xl' : 'text-xs lg:text-sm'} text-zinc-500 font-bold uppercase tracking-widest`}>
-                  Página {currentPage.current} de {currentPage.total}
-                </span>
-              )}
-            </div>
-
-            <motion.div
-              key={`${currentPage.company}-${currentPage.current}`}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.5 }}
-              className="grid gap-3 lg:gap-4 flex-1 min-h-0"
-              style={{
-                gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
-                gridTemplateRows: `repeat(${gridRows}, minmax(0, 1fr))`,
-              }}
-            >
-              {currentPage.orders.map((order) => (
-                <OdooOrderCard
-                  key={order.id}
-                  order={order}
-                  isHighlighted={highlightedSO === order.name}
-                  isWide={isWide}
-                  isDense={isDense}
-                  viewMode="tv"
-                />
-              ))}
-            </motion.div>
+            )}
+            
+            {currentPage.type === 'single' ? (
+              <CompanyTVSection 
+                company={currentPage.company}
+                orders={currentPage.orders}
+                isWide={isWide}
+                isDense={isDense}
+                gridCols={gridCols}
+                gridRows={gridRows}
+                companyConfigs={companyConfigs}
+                highlightedSO={highlightedSO}
+              />
+            ) : (
+              <div className="flex w-full h-full gap-6 lg:gap-8">
+                <div className="flex-1 min-w-0 pr-6 lg:pr-8 border-r border-white/5">
+                  <CompanyTVSection 
+                    company={currentPage.left.company}
+                    orders={currentPage.left.orders}
+                    isWide={isWide}
+                    isDense={isDense}
+                    gridCols={Math.floor(gridCols / 2)}
+                    gridRows={gridRows}
+                    companyConfigs={companyConfigs}
+                    highlightedSO={highlightedSO}
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <CompanyTVSection 
+                    company={currentPage.right.company}
+                    orders={currentPage.right.orders}
+                    isWide={isWide}
+                    isDense={isDense}
+                    gridCols={Math.ceil(gridCols / 2)}
+                    gridRows={gridRows}
+                    companyConfigs={companyConfigs}
+                    highlightedSO={highlightedSO}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         ) : !isTVMode && pages.length > 0 ? (
           /* ── Modo Desktop: todas las órdenes con scroll, agrupadas ── */
           <div className="flex flex-col gap-8">
-            {pages.map((pageData) => (
+            {pages.map((p) => {
+              const pageData = p as Extract<PageData, { type: 'single' }>;
+              return (
               <div key={pageData.company} className="flex flex-col gap-4">
                 {/* Company header */}
                 <div className="flex items-center justify-between">
@@ -672,7 +805,7 @@ export default function TVDashboard() {
                   ))}
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         ) : null}
       </div>

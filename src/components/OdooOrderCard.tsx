@@ -2,10 +2,10 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   Clock, AlertTriangle, CheckCircle2, PlayCircle,
-  DollarSign, Package, User, Calendar, FileText,
+  DollarSign, Package, User, Calendar, FileText, Check,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { OdooSaleOrder, getOrderPriority, getDeliveryProgress, isOrderOverdue, parseOdooDate } from '../services/odoo';
+import { OdooSaleOrder, OdooOrderLine, getOrderPriority, getDeliveryProgress, isOrderOverdue, parseOdooDate, getOrderAgeDays, formatOrderAge, STALE_AGE_DAYS } from '../services/odoo';
 import SmartText from './SmartText';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────────
@@ -64,6 +64,8 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   const isOverdue = isOrderOverdue(order);
   const commitmentDate = parseOdooDate(order.commitment_date);
   const isDesktop = viewMode === 'desktop';
+  const ageDays = getOrderAgeDays(order);
+  const isStale = ageDays !== null && ageDays > STALE_AGE_DAYS;
 
   // ── Resumen de remisiones (excluye canceladas) ─────────────────────────────
   const deliveries = order.deliveries ?? [];
@@ -79,36 +81,40 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
 
   // ── Colores por estado ──────────────────────────────────────────────────────
   const cardBorder = isHighlighted
-    ? 'bg-indigo-900/30 border-indigo-400/60 shadow-[0_0_80px_rgba(99,102,241,0.5)] z-50 scale-105'
+    ? 'bg-primary/10 border-primary/60 shadow-[0_0_45px_rgba(99,102,241,0.35)] z-50 scale-105'
     : isCritical
-    ? 'bg-red-950/40 border-red-500/60 shadow-[0_0_30px_rgba(220,38,38,0.4)]'
+    ? 'bg-red-950/40 border-red-500/55 shadow-[0_0_18px_rgba(220,38,38,0.28)]'
     : isOverdue
-    ? 'bg-orange-950/30 border-orange-500/60 shadow-[0_0_30px_rgba(249,115,22,0.35)] ring-2 ring-orange-500/15'
+    ? 'bg-orange-950/25 border-orange-500/55 ring-1 ring-orange-500/20'
     : progress >= 100
-    ? 'bg-white/[0.02] border-fuchsia-400/30 hover:border-fuchsia-300/50 hover:shadow-[0_0_20px_rgba(217,70,239,0.3)]'
+    ? 'bg-card/70 border-fuchsia-400/30 hover:border-fuchsia-300/50'
     : progress > 0
-    ? 'bg-white/[0.02] border-emerald-400/30 hover:border-emerald-300/50 hover:shadow-[0_0_20px_rgba(52,211,153,0.3)]'
-    : 'bg-white/[0.02] border-white/8 hover:border-cyan-400/30 hover:shadow-[0_0_20px_rgba(34,211,238,0.25)]';
+    ? 'bg-card/70 border-emerald-400/30 hover:border-emerald-300/50'
+    : 'bg-card/70 border-border hover:border-cyan-400/30';
 
   const accentStripeColor = isHighlighted
-    ? 'bg-indigo-400'
+    ? 'bg-primary'
     : isCritical || isOverdue
-    ? 'bg-red-500 animate-pulse'
+    ? 'bg-red-500'
     : progress >= 100
     ? 'bg-fuchsia-400'
     : progress > 0
     ? 'bg-emerald-400'
-    : 'bg-cyan-500/70';
+    : 'bg-cyan-500/80';
 
   const progressColor =
-    progress >= 100 ? 'bg-fuchsia-400 shadow-[0_0_20px_rgba(232,121,249,0.6)]'
-    : progress > 0   ? 'bg-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.6)]'
-    : 'bg-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.6)]';
+    progress >= 100 ? 'bg-fuchsia-400'
+    : progress > 0   ? 'bg-emerald-400'
+    : 'bg-cyan-400';
 
   const glowColor =
     progress >= 100 ? 'bg-fuchsia-500'
     : progress > 0   ? 'bg-emerald-500'
     : 'bg-cyan-500';
+
+  // Distintivo de antigüedad (>1 mes): ring ámbar ADITIVO, sin tapar el color de
+  // estado. Se omite si la card ya tiene su propio realce (resaltada/crítica/vencida).
+  const staleRing = isStale && !isHighlighted && !isCritical && !isOverdue ? 'ring-1 ring-amber-500/40' : '';
 
   const StatusIcon = progress >= 100
     ? <CheckCircle2 className="w-5 h-5 text-fuchsia-400 drop-shadow-[0_0_8px_rgba(232,121,249,0.5)]" />
@@ -130,13 +136,12 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   if (isDense) {
     return (
       <motion.div
-        layout
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: isHighlighted ? 1.02 : 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
         transition={{ duration: 0.3 }}
         id={`so-${order.name.replace(/\//g, '-')}`}
-        className={`flex items-center rounded-2xl border-2 transition-all duration-300 relative overflow-hidden h-full ${cardBorder} p-3 lg:p-4 gap-3 lg:gap-4 min-h-0`}
+        className={`flex items-center rounded-2xl border-2 transition-all duration-300 relative overflow-hidden h-full ${cardBorder} ${staleRing} p-3 lg:p-4 gap-3 lg:gap-4 min-h-0`}
       >
         {isOverdue && (
           <div className="absolute top-0 right-0 bg-orange-500 w-2 h-full z-20" title="Vencida" />
@@ -150,17 +155,29 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
             <h3 className="text-sm lg:text-base font-black tracking-tight text-white truncate pr-2">
               {order.name}
             </h3>
-            <span className={`text-[8px] lg:text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border flex-shrink-0 ${PRIORITY_COLORS[priority]}`}>
-              {PRIORITY_LABELS[priority]}
-            </span>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {isStale && (
+                <span className="text-[8px] lg:text-[9px] font-black px-1 py-0.5 rounded border bg-amber-500/15 text-amber-400 border-amber-500/40" title={`Creada hace ${formatOrderAge(ageDays!)}`}>
+                  {formatOrderAge(ageDays!)}
+                </span>
+              )}
+              <span className={`text-[8px] lg:text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${PRIORITY_COLORS[priority]}`}>
+                {PRIORITY_LABELS[priority]}
+              </span>
+            </div>
           </div>
           
-          <div className="text-[10px] lg:text-xs font-bold text-zinc-300 mb-1.5 min-h-0 overflow-hidden">
+          <div className="text-[10px] lg:text-xs font-bold text-zinc-300 mb-1.5 min-h-0 overflow-hidden flex items-center gap-1">
             <SmartText
-              text={order.main_product}
+              text={order.lines[0]?.name || order.main_product}
               maxLines={1}
-              disableSmart={isDesktop}
+              defaultLevel={2}
             />
+            {order.lines.length > 1 && (
+              <span className="text-[8px] lg:text-[9px] font-black px-1 py-0.5 rounded bg-zinc-700/60 text-zinc-400 border border-zinc-600/50 flex-shrink-0">
+                +{order.lines.length - 1}
+              </span>
+            )}
           </div>
           
           <div className="flex items-center gap-2">
@@ -187,13 +204,12 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   // ── Normal / Wide layout ────────────────────────────────────────────────────
   return (
     <motion.div
-      layout
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: isHighlighted ? 1.05 : 1 }}
       exit={{ opacity: 0, scale: 0.8 }}
       transition={{ duration: 0.4, type: 'spring', bounce: 0.3 }}
       id={`so-${order.name.replace(/\//g, '-')}`}
-      className={`flex flex-col rounded-2xl border transition-all duration-500 relative overflow-hidden h-full min-h-0 ${cardBorder} ${isWide ? 'p-5 xl:p-7' : 'p-3.5 lg:p-4'}`}
+      className={`flex flex-col rounded-2xl border transition-all duration-500 relative overflow-hidden h-full min-h-0 ${cardBorder} ${staleRing} ${isWide ? 'p-5 xl:p-7' : 'p-3.5 lg:p-4'}`}
       style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
     >
       {/* Left accent stripe */}
@@ -208,7 +224,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       )}
 
       {/* Background glow */}
-      <div className={`absolute -top-12 -right-12 w-40 h-40 blur-[60px] rounded-full opacity-15 pointer-events-none ${glowColor}`} />
+      <div className={`absolute -top-12 -right-12 w-40 h-40 blur-[70px] rounded-full opacity-10 pointer-events-none ${glowColor}`} />
 
       {/* Header: SO number + priority */}
       <div className="flex justify-between items-start mb-2.5 lg:mb-3 relative z-10 mt-2 min-h-0">
@@ -222,14 +238,20 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
               <SmartText
                 text={order.partner_name}
                 maxLines={1}
-                className={`${isWide ? 'text-sm' : 'text-xs'} font-bold text-zinc-400 uppercase tracking-[0.15em]`}
-                disableSmart={isDesktop}
+                className={`${isWide ? 'text-sm' : 'text-xs'} font-bold text-zinc-300 uppercase tracking-[0.15em]`}
+                defaultLevel={2}
               />
             </div>
             {commitmentDate && (
               <span className={`text-[10px] font-black px-2 py-0.5 rounded flex items-center gap-1 bg-zinc-800 border flex-shrink-0 ${isOverdue ? 'text-red-400 border-red-500/30' : 'text-zinc-500 border-zinc-700'}`}>
                 <Calendar className="w-2.5 h-2.5" />
                 {format(commitmentDate, 'dd/MM/yy')}
+              </span>
+            )}
+            {isStale && (
+              <span className="text-[10px] font-black px-2 py-0.5 rounded flex items-center gap-1 bg-amber-500/15 text-amber-400 border border-amber-500/40 flex-shrink-0" title={`Creada hace ${formatOrderAge(ageDays!)}`}>
+                <Clock className="w-2.5 h-2.5" />
+                {formatOrderAge(ageDays!)}
               </span>
             )}
           </div>
@@ -239,16 +261,35 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
         </span>
       </div>
 
-      {/* Product name — SmartText con truncado inteligente */}
-      <div
-        className={`${isWide ? 'text-base xl:text-lg' : 'text-sm'} font-semibold text-zinc-200 mb-2 lg:mb-3 relative z-10 leading-tight flex items-start gap-2 min-h-0 overflow-hidden pl-2`}
-      >
-        <Package className={`${isWide ? 'w-5 h-5' : 'w-4 h-4'} flex-shrink-0 mt-0.5 text-zinc-500`} />
-        <SmartText
-          text={order.main_product}
-          maxLines={isWide ? 2 : 2}
-          disableSmart={isDesktop}
-        />
+      {/* Product lines — lista compacta de todas las líneas */}
+      <div className={`relative z-10 mb-2 lg:mb-3 pl-2 min-h-0 overflow-hidden`}>
+        <div className="flex flex-col gap-1">
+          {(isDesktop ? order.lines : order.lines.slice(0, 3)).map((line: OdooOrderLine, idx: number) => {
+            const lineComplete = line.qty > 0 && line.delivered >= line.qty;
+            return (
+              <div key={idx} className="flex items-center gap-1.5 min-w-0">
+                {lineComplete
+                  ? <Check className={`${isWide ? 'w-3.5 h-3.5' : 'w-3 h-3'} flex-shrink-0 text-fuchsia-400`} />
+                  : <Package className={`${isWide ? 'w-3.5 h-3.5' : 'w-3 h-3'} flex-shrink-0 text-zinc-500`} />
+                }
+                <SmartText
+                  text={line.name}
+                  className={`${isWide ? 'text-sm' : 'text-xs'} font-semibold ${lineComplete ? 'text-zinc-500 line-through' : 'text-zinc-100'} leading-tight`}
+                  maxLines={1}
+                  defaultLevel={2}
+                />
+                <span className={`${isWide ? 'text-[10px]' : 'text-[9px]'} font-black flex-shrink-0 font-mono-data ${lineComplete ? 'text-fuchsia-400/70' : 'text-zinc-500'}`}>
+                  {line.delivered}/{line.qty}
+                </span>
+              </div>
+            );
+          })}
+          {!isDesktop && order.lines.length > 3 && (
+            <span className={`${isWide ? 'text-xs' : 'text-[10px]'} text-zinc-500 font-bold pl-5`}>
+              +{order.lines.length - 3} más
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Progress bar */}

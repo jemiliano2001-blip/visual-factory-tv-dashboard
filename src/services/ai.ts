@@ -13,8 +13,6 @@ const simplifyOrder = (o: OdooSaleOrder) => ({
   so: o.name,
   cliente: o.partner_name,
   producto: o.main_product,
-  monto: o.amount_total,
-  moneda: o.currency,
   avance_entrega: `${o.qty_delivered}/${o.qty_total}`,
   porcentaje_entrega: getDeliveryProgress(o),
   fecha_orden: parseOdooDate(o.date_order)?.toISOString().split('T')[0] ?? null,
@@ -27,7 +25,7 @@ const simplifyOrder = (o: OdooSaleOrder) => ({
 export const generateShiftSummary = async (orders: OdooSaleOrder[]) => {
   const response = await ai.models.generateContent({
     model: 'gemini-3.5-flash',
-    contents: `You are a manufacturing plant manager. Analyze the following Odoo sale orders pending invoicing and provide a brief executive summary of the current state: highlight overdue orders, clients with the largest backlog, total pending amount, and overall delivery progress. Use markdown. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders.map(simplifyOrder))}`,
+    contents: `You are a manufacturing plant manager. Analyze the following Odoo sale orders pending invoicing and provide a brief executive summary of the current state: highlight overdue orders, clients with the largest backlog (by number of orders), and overall delivery progress. Do NOT mention or estimate any monetary amounts. Use markdown. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders.map(simplifyOrder))}`,
   });
   return response.text;
 };
@@ -35,7 +33,7 @@ export const generateShiftSummary = async (orders: OdooSaleOrder[]) => {
 export const generateClientReport = async (order: OdooSaleOrder) => {
   const response = await ai.models.generateContent({
     model: 'gemini-3.5-flash',
-    contents: `Draft a professional, concise email in SPANISH to the client (${order.partner_name}) updating them on sale order ${order.name} for "${order.main_product}". Delivery progress is ${order.qty_delivered}/${order.qty_total} units${order.commitment_date ? `, committed delivery date is ${order.commitment_date}` : ''}. Total amount: ${order.amount_total} ${order.currency}.`,
+    contents: `Draft a professional, concise email in SPANISH to the client (${order.partner_name}) updating them on sale order ${order.name} for "${order.main_product}". Delivery progress is ${order.qty_delivered}/${order.qty_total} units${order.commitment_date ? `, committed delivery date is ${order.commitment_date}` : ''}. Focus on delivery status and dates only; do NOT include prices or monetary amounts.`,
   });
   return response.text;
 };
@@ -43,7 +41,7 @@ export const generateClientReport = async (order: OdooSaleOrder) => {
 export const analyzeOrderAnomalies = async (orders: OdooSaleOrder[]) => {
   const response = await ai.models.generateContent({
     model: 'gemini-3.5-flash',
-    contents: `You are a manufacturing operations analyst. Analyze this set of Odoo sale orders pending invoicing and identify anomalies and red flags: overdue orders with 0% delivery, unusually large or stale orders, clients accumulating backlog, orders without commitment date. Be brief and actionable, use markdown bullet points. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders.map(simplifyOrder))}`,
+    contents: `You are a manufacturing operations analyst. Analyze this set of Odoo sale orders pending invoicing and identify anomalies and red flags: overdue orders with 0% delivery, orders with unusually large quantities or that are stale (old), clients accumulating backlog, orders without commitment date. Do NOT mention or estimate any monetary amounts. Be brief and actionable, use markdown bullet points. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders.map(simplifyOrder))}`,
   });
   return response.text;
 };

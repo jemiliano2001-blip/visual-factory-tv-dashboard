@@ -11,7 +11,7 @@
 
 import express, { Request, Response, NextFunction } from 'express';
 import * as dotenv from 'dotenv';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'node:path';
 import { startNotifications } from './src/services/notificationService.js';
 
@@ -47,25 +47,71 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// ─── Seguridad (Auth Middleware) ──────────────────────────────────────────────
-// Solo gatea /api: los archivos estáticos del frontend los protege Cloudflare
-// Access en el borde. El bearer es defensa en profundidad para el proxy de Odoo.
-app.use('/api', (req: Request, res: Response, next: NextFunction) => {
-  const apiSecret = process.env.API_SECRET;
+// ─── Firebase API Key (para verificar ID tokens sin firebase-admin) ───────────
+let FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || '';
+if (!FIREBASE_API_KEY && existsSync('./firebase-applet-config.json')) {
+  try {
+    const cfg = JSON.parse(readFileSync('./firebase-applet-config.json', 'utf-8')) as { apiKey?: string };
+    FIREBASE_API_KEY = cfg.apiKey || '';
+  } catch {
+    console.warn('[Auth] No se pudo leer firebase-applet-config.json');
+  }
+}
 
-  // Sin secreto configurado → solo se permite acceso local (conveniencia de dev).
-  // En cuanto se define API_SECRET (despliegue real) se EXIGE siempre: nunca se
-  // confía en la dirección de origen, que un reverse proxy reescribe a 127.0.0.1.
-  if (!apiSecret) {
+// Caché en memoria de tokens ya verificados (clave → expiración). Evita una
+// llamada a Google por cada poll (cada 30s × usuarios activos).
+const tokenCache = new Map<string, number>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, exp] of tokenCache) if (now > exp) tokenCache.delete(k);
+}, 10 * 60 * 1000);
+
+async function verifyFirebaseToken(token: string): Promise<boolean> {
+  const cached = tokenCache.get(token);
+  if (cached && Date.now() < cached) return true;
+  try {
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token }),
+        signal: AbortSignal.timeout(5000),
+      }
+    );
+    if (!res.ok) return false;
+    const data = await res.json() as { users?: unknown[] };
+    if (!data.users?.length) return false;
+    tokenCache.set(token, Date.now() + 5 * 60 * 1000); // caché 5 min
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Seguridad (Auth Middleware) ──────────────────────────────────────────────
+// Verifica Firebase ID tokens en producción. En desarrollo, las conexiones
+// locales (Vite proxy) se omiten para comodidad.
+app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
+  if (process.env.NODE_ENV !== 'production') {
     const addr = req.socket.localAddress ?? '';
     if (addr === '127.0.0.1' || addr === '::1') return next();
-    res.status(500).json({ error: 'Server misconfiguration: API_SECRET no configurado.' });
+  }
+
+  const token = req.headers.authorization?.replace('Bearer ', '') || '';
+  if (!token) {
+    res.status(401).json({ error: 'Se requiere autenticación.' });
     return;
   }
 
-  const clientSecret = req.headers.authorization?.replace('Bearer ', '');
-  if (clientSecret !== apiSecret) {
-    res.status(401).json({ error: 'Unauthorized' });
+  if (!FIREBASE_API_KEY) {
+    res.status(500).json({ error: 'Server misconfiguration: FIREBASE_API_KEY no configurado.' });
+    return;
+  }
+
+  const valid = await verifyFirebaseToken(token).catch(() => false);
+  if (!valid) {
+    res.status(401).json({ error: 'Token inválido o expirado. Vuelve a iniciar sesión.' });
     return;
   }
 

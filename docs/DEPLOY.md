@@ -2,13 +2,19 @@
 
 Arquitectura: **un solo origen**. `server.ts` sirve el frontend compilado (`dist/`)
 y el proxy de Odoo (`/api/odoo/*`) en el mismo puerto (3001). Cloudflare Tunnel lo
-expone sin abrir puertos, y Cloudflare Access lo gatea a correos autorizados.
+expone al exterior. La seguridad de acceso la da **Firebase Authentication** (email
++ contraseña) — no hace falta Cloudflare Access.
 
 ```
-Navegador / TV  ──HTTPS──>  Cloudflare (Access: login SMV)  ──Tunnel──>  host:3001
-                                                                          ├── /            → dist/ (SPA)
-                                                                          └── /api/odoo/*  → Odoo (bearer API_SECRET)
+Navegador / TV  ──HTTPS──>  Cloudflare Tunnel  ──>  host:3001
+                                                      ├── /            → dist/ (SPA, requiere login)
+                                                      └── /api/odoo/*  → Odoo (verifica Firebase ID token)
 ```
+
+**Cuentas de acceso:** se crean en Firebase Console → Authentication → Users → Add user.
+No es necesario agregar correos en ninguna lista de código — solo las cuentas que existen
+en Firebase pueden iniciar sesión. Para la TV del taller, crea una cuenta dedicada
+(p. ej. `tv-taller@tuempresa.com`) y déjala con sesión iniciada permanentemente.
 
 ---
 
@@ -26,21 +32,21 @@ ODOO_USERNAME=tablero_readonly@maquinadosvazquez.com
 ODOO_PASSWORD=<contraseña fuerte y nueva>
 ODOO_PROXY_PORT=3001
 
-# Secreto del proxy — MISMO valor en ambos. VITE_ se hornea al hacer build.
-# Genera uno con:  node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-API_SECRET=<secreto-aleatorio-de-64-hex>
-VITE_API_SECRET=<el-mismo-secreto-aleatorio>
-
 # Gemini (features de IA)
 GEMINI_API_KEY=<tu key de Gemini>
 
 # Discord (notificaciones)
 DISCORD_WEBHOOK_URL=<webhook>
 NOTIFICATIONS_ENABLED=true
+
+# Firebase — el servidor la usa para verificar los ID tokens del login.
+# Cópiala de firebase-applet-config.json (campo "apiKey") o de Firebase Console.
+FIREBASE_API_KEY=<apiKey de firebase-applet-config.json>
 ```
 
-> El frontend manda `VITE_API_SECRET` en el header. Debe ser igual a `API_SECRET`
-> y debe estar presente **antes del `npm run build`** (Vite lo hornea en el bundle).
+> `API_SECRET` / `VITE_API_SECRET` ya no existen — la autenticación la hace
+> Firebase. El frontend envía el ID token de la sesión; el servidor lo verifica
+> contra Google. **No hay secretos de autenticación que hornear en el bundle.**
 
 `firebase-applet-config.json` también debe existir en el host (con la API key nueva).
 No está en git — cópialo manualmente.
@@ -127,14 +133,28 @@ Self-hosted**:
 
 ---
 
+## 5. Cuentas de usuario (Firebase Console)
+
+1. Entra a [Firebase Console](https://console.firebase.google.com) → tu proyecto → **Authentication** → **Users**
+2. Habilita el proveedor **Email/Password** en la pestaña Sign-in method (si no está activado)
+3. Haz clic en **Add user** y crea una cuenta por persona del personal
+4. Crea una cuenta adicional para la TV del taller (p. ej. `tv-taller@tuempresa.com`)
+5. Configura esa cuenta en el navegador/kiosko de la TV — déjala con sesión iniciada y la página como homepage
+
+Cuando quieras revocar el acceso de alguien: borra su cuenta en Firebase Console. No hay nada que cambiar en el código.
+
+---
+
 ## Checklist final
 
 - [ ] Usuario Odoo dedicado **de solo-lectura** (no la cuenta de una persona)
 - [ ] Contraseña de Odoo rotada a una fuerte
-- [ ] `API_SECRET` y `VITE_API_SECRET` con el mismo valor, build hecho después
-- [ ] `NODE_ENV=production`
+- [ ] `NODE_ENV=production` en `.env.local`
+- [ ] `FIREBASE_API_KEY` en `.env.local` (igual al campo `apiKey` de `firebase-applet-config.json`)
 - [ ] Puerto 3001 **no** abierto a internet (solo lo alcanza el túnel)
-- [ ] `firebase-applet-config.json` copiado al host con la API key nueva
-- [ ] Política Access "Allow" con los correos del personal
-- [ ] Política Access "Bypass" (o service token) para la TV
+- [ ] `firebase-applet-config.json` copiado al host
+- [ ] Proveedor **Email/Password** habilitado en Firebase → Authentication → Sign-in method
+- [ ] Cuentas de personal creadas en Firebase → Authentication → Users
+- [ ] Cuenta de kiosko TV creada y con sesión iniciada en el kiosko
+- [ ] Reglas de Firestore desplegadas: `firebase deploy --only firestore:rules`
 - [ ] HTTPS verificado (Cloudflare lo da automático)

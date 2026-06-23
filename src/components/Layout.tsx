@@ -3,6 +3,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { auth } from '../firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { LayoutDashboard, BarChart3, LogOut, Tv } from 'lucide-react';
+import { Button } from './ui/button';
 
 export default function Layout() {
   const [user, setUser] = useState(auth.currentUser);
@@ -10,9 +11,7 @@ export default function Layout() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-    });
+    const unsubscribe = onAuthStateChanged(auth, setUser);
     return () => unsubscribe();
   }, []);
 
@@ -25,7 +24,7 @@ export default function Layout() {
 
   if (isTvDashboard) {
     return (
-      <div className="min-h-screen text-white" style={{ backgroundColor: '#0a0a0f' }}>
+      <div className="h-screen overflow-hidden bg-background text-foreground">
         <Outlet />
       </div>
     );
@@ -36,86 +35,98 @@ export default function Layout() {
     return (
       <Link
         to={to}
-        className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-semibold text-sm ${
+        className={`group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
           isActive
-            ? 'bg-white/8 text-indigo-300 border-l-4 border-indigo-500 shadow-[inset_0_0_12px_rgba(99,102,241,0.15)] pl-3'
-            : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border-l-4 border-transparent'
+            ? 'bg-primary/12 text-foreground'
+            : 'text-muted-foreground hover:bg-accent hover:text-foreground'
         }`}
       >
-        <span className={isActive ? 'text-indigo-400' : 'text-zinc-500'}>{icon}</span>
+        {isActive && (
+          <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary" />
+        )}
+        <span className={isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}>
+          {icon}
+        </span>
         {label}
       </Link>
     );
   };
 
   return (
-    <div className="flex h-screen text-white font-sans overflow-hidden relative" style={{ backgroundColor: '#0a0a0f' }}>
-      {/* Background orbs */}
-      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-600/8 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-fuchsia-600/8 rounded-full blur-[140px] pointer-events-none" />
+    <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
+      {/* Glow sutil de profundidad — un solo foco, no neón en todo */}
+      <div className="pointer-events-none absolute left-0 top-0 h-[40%] w-[35%] rounded-full bg-primary/5 blur-[120px]" />
 
       {/* Sidebar */}
-      <aside className="w-64 flex flex-col relative z-20 shrink-0" style={{ backgroundColor: 'rgba(10,10,15,0.85)', backdropFilter: 'blur(24px)', borderRight: '1px solid rgba(255,255,255,0.07)' }}>
-        {/* Brand */}
-        <div className="px-5 py-6 border-b border-white/8">
-          <h1 className="font-display text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 flex items-center gap-2.5 tracking-tight">
-            <Tv className="w-6 h-6 text-indigo-400 shrink-0" />
-            Fábrica Visual
-          </h1>
-          <p className="text-zinc-600 text-[10px] font-mono-data uppercase tracking-widest mt-1.5 pl-8">Control Room v2</p>
+      <aside className="relative z-20 flex w-64 shrink-0 flex-col border-r border-border bg-card/70 backdrop-blur-xl">
+        {/* Marca */}
+        <div className="flex items-center gap-3 border-b border-border px-5 py-5">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 ring-1 ring-primary/25">
+            <Tv className="size-5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="font-display text-base font-extrabold leading-none tracking-tight text-foreground">
+              Fábrica Visual
+            </h1>
+            <p className="mt-1 font-mono-data text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              Control Room v2
+            </p>
+          </div>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 px-3 py-5 space-y-1">
-          {navItem('/admin', <LayoutDashboard className="w-4 h-4" />, 'Panel de Admin')}
-          {navItem('/stats', <BarChart3 className="w-4 h-4" />, 'Estadísticas')}
+        {/* Navegación */}
+        <nav className="flex-1 space-y-1 px-3 py-5">
+          {navItem('/admin', <LayoutDashboard className="size-[18px]" />, 'Panel de Admin')}
+          {navItem('/stats', <BarChart3 className="size-[18px]" />, 'Estadísticas')}
 
-          <div className="pt-5 mt-4 border-t border-white/8">
-            <p className="px-4 text-[9px] font-mono-data font-bold text-zinc-600 uppercase tracking-[0.2em] mb-2">Vistas en Vivo</p>
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="mb-2 px-3 font-mono-data text-[9px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70">
+              Vistas en vivo
+            </p>
             <Link
               to="/"
               target="_blank"
-              className="group flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-semibold text-sm text-emerald-300/80 hover:text-emerald-200 hover:bg-emerald-500/8 border-l-4 border-emerald-500/40 hover:border-emerald-400 pl-3"
+              className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
-              <Tv className="w-4 h-4 text-emerald-500 shrink-0" />
+              <Tv className="size-[18px] text-success" />
               <span>TV Dashboard</span>
-              <span className="ml-auto flex items-center gap-1 text-[9px] font-mono-data text-emerald-500/60 group-hover:text-emerald-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                EN VIVO
+              <span className="ml-auto flex items-center gap-1.5 font-mono-data text-[9px] font-bold uppercase tracking-wider text-success">
+                <span className="size-1.5 animate-pulse rounded-full bg-success" />
+                Live
               </span>
             </Link>
           </div>
         </nav>
 
-        {/* User card */}
-        <div className="px-3 py-4 border-t border-white/8">
+        {/* Usuario */}
+        <div className="border-t border-border px-3 py-4">
           {user ? (
-            <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-white/4 border border-white/6">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-white font-bold text-xs shrink-0">
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-background/40 px-3 py-2.5">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
                 {(user.displayName || user.email || 'A')[0].toUpperCase()}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-white text-xs font-bold truncate">{user.displayName || 'Admin'}</p>
-                <p className="text-zinc-500 text-[10px] truncate font-mono-data">{user.email}</p>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-bold text-foreground">{user.displayName || 'Admin'}</p>
+                <p className="truncate font-mono-data text-[10px] text-muted-foreground">{user.email}</p>
               </div>
               <button
                 onClick={handleLogout}
-                className="p-1.5 hover:bg-red-500/20 rounded-lg text-zinc-500 hover:text-red-400 transition-colors shrink-0"
-                title="Cerrar Sesión"
+                title="Cerrar sesión"
+                className="shrink-0 cursor-pointer rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="size-4" />
               </button>
             </div>
           ) : (
-            <Link to="/login" className="block w-full text-center py-2.5 bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-400 hover:to-cyan-400 text-white rounded-xl transition-all font-bold text-sm shadow-lg">
-              Iniciar Sesión
-            </Link>
+            <Button asChild className="w-full">
+              <Link to="/login">Iniciar sesión</Link>
+            </Button>
           )}
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-auto relative z-10 custom-scrollbar">
+      {/* Contenido */}
+      <main className="custom-scrollbar relative z-10 flex-1 overflow-auto">
         <Outlet />
       </main>
     </div>

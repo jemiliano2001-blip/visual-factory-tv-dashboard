@@ -7,7 +7,7 @@ import { Mic, MicOff, Volume2 } from 'lucide-react';
 interface DashboardFooterProps {
   totalOrders: number;
   // Pagination
-  pages: { company: string }[];
+  pages: unknown[];
   currentPageIndex: number;
   onPageChange: (index: number) => void;
   // Toast
@@ -33,7 +33,7 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
   onToggleRecording,
 }) => {
   return (
-    <footer className="mt-auto pt-3 flex justify-between items-center text-[9px] lg:text-[10px] text-zinc-600 uppercase tracking-widest relative z-10 flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+    <footer className="mt-auto pt-3 pb-2 lg:pb-3 bg-background flex justify-between items-center text-[9px] lg:text-[10px] text-zinc-600 uppercase tracking-widest sticky bottom-0 z-[60] flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
       <div className="flex items-center gap-4">
         <div className="font-mono-data">
           <span className="text-zinc-600">Total:</span>{' '}

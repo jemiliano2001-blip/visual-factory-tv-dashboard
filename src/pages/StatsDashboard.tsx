@@ -1,19 +1,24 @@
 import React, { useState } from 'react';
 import { useOdooOrders } from '../hooks/useOdooOrders';
 import { generateShiftSummary } from '../services/ai';
-import { getOrderPriority, isOrderOverdue, formatCurrency } from '../services/odoo';
+import { getOrderPriority, isOrderOverdue, getOrderAgeDays, STALE_AGE_DAYS } from '../services/odoo';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
 } from 'recharts';
 import {
-  AlertTriangle, TrendingUp, DollarSign, Package,
+  AlertTriangle, TrendingUp, Clock, Package,
   Sparkles, MessageCircle, WifiOff, Loader2
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { Card } from '../components/ui/card';
+import { Button } from '../components/ui/button';
 
 const PRIORITY_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444'];
 const OVERDUE_COLORS = ['#ef4444', '#10b981'];
+const AGING_COLORS = ['#10b981', '#f59e0b', '#ef4444'];
+const CHART_TOOLTIP_STYLE = { backgroundColor: '#16161d', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 };
+const CHART_CURSOR = { fill: 'rgba(255,255,255,0.04)' };
 
 export default function StatsDashboard() {
   const { orders, error, isLoading } = useOdooOrders();
@@ -37,14 +42,16 @@ export default function StatsDashboard() {
     window.open(`https://wa.me/?text=${text}`, '_blank');
   };
 
-  // ── Métricas ────────────────────────────────────────────────────────────────
+  // ── Métricas (sin información monetaria — confidencial) ───────────────────────
   const totalOrders = orders.length;
   const overdueCount = orders.filter(isOrderOverdue).length;
   const totalQty = orders.reduce((s, o) => s + o.qty_total, 0);
   const deliveredQty = orders.reduce((s, o) => s + o.qty_delivered, 0);
   const deliveryRate = totalQty > 0 ? Math.round((deliveredQty / totalQty) * 100) : 0;
-  const totalAmount = orders.reduce((s, o) => s + o.amount_total, 0);
-  const currency = orders[0]?.currency || 'MXN';
+  const staleCount = orders.filter(o => {
+    const age = getOrderAgeDays(o);
+    return age !== null && age > STALE_AGE_DAYS;
+  }).length;
 
   const priorityData = [
     { name: 'Baja', value: orders.filter(o => getOrderPriority(o) === 'low').length },
@@ -58,53 +65,81 @@ export default function StatsDashboard() {
     { name: 'En tiempo', value: totalOrders - overdueCount },
   ];
 
-  const clientVolume = orders.reduce((acc, o) => {
-    acc[o.partner_name] = (acc[o.partner_name] || 0) + o.amount_total;
-    return acc;
-  }, {} as Record<string, number>);
-
-  const clientData = Object.entries(clientVolume)
-    .map(([name, amount]) => ({ name, amount: Math.round(amount) }))
-    .sort((a, b) => b.amount - a.amount)
+  // Top clientes por NÚMERO de órdenes (qué compañía genera más), no por monto.
+  const clientData = Object.entries(
+    orders.reduce((acc, o) => {
+      acc[o.partner_name] = (acc[o.partner_name] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>)
+  )
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
     .slice(0, 5);
+
+  // Carga de trabajo por vendedor (conteo de órdenes).
+  const salespersonData = Object.entries(
+    orders.reduce((acc, o) => {
+      const k = o.salesperson || 'Sin asignar';
+      acc[k] = (acc[k] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>)
+  )
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+
+  // Distribución por antigüedad desde date_order (acumulación / atascos).
+  const agingData = (() => {
+    const b = { nueva: 0, media: 0, vieja: 0 };
+    orders.forEach(o => {
+      const age = getOrderAgeDays(o);
+      if (age === null) return;
+      if (age < 30) b.nueva++;
+      else if (age < 90) b.media++;
+      else b.vieja++;
+    });
+    return [
+      { name: '< 1 mes', value: b.nueva },
+      { name: '1–3 meses', value: b.media },
+      { name: '> 3 meses', value: b.vieja },
+    ];
+  })();
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen text-white relative overflow-hidden font-sans" style={{ backgroundColor: '#0a0a0f' }}>
-      <div className="absolute top-[-10%] right-[-10%] w-[45%] h-[45%] bg-indigo-600/10 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-fuchsia-600/10 rounded-full blur-[140px] pointer-events-none" />
+    <div className="relative min-h-screen overflow-hidden bg-background font-sans text-foreground">
+      <div className="pointer-events-none absolute right-[-10%] top-[-10%] h-[45%] w-[45%] rounded-full bg-primary/5 blur-[140px]" />
 
-      <div className="relative z-10 p-6 lg:p-8 max-w-7xl mx-auto space-y-8">
-        <div className="border-b border-white/8 pb-6">
-          <h1 className="font-display text-3xl font-extrabold tracking-tight text-white">Estadísticas de Producción</h1>
-          <p className="text-zinc-500 mt-1.5 font-mono-data text-xs uppercase tracking-widest">Órdenes por facturar en Odoo — datos en vivo</p>
+      <div className="relative z-10 mx-auto max-w-7xl space-y-8 p-6 lg:p-8">
+        <div className="border-b border-border pb-6">
+          <h1 className="font-display text-3xl font-extrabold tracking-tight text-foreground">Estadísticas de Producción</h1>
+          <p className="mt-1.5 font-mono-data text-xs uppercase tracking-widest text-muted-foreground">Órdenes por facturar en Odoo — datos en vivo</p>
         </div>
 
         {error && (
-          <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-2xl p-4">
-            <WifiOff className="w-5 h-5 shrink-0" />
+          <div className="flex items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-destructive">
+            <WifiOff className="size-5 shrink-0" />
             <span className="font-bold">SIN CONEXIÓN A ODOO — {error}</span>
           </div>
         )}
 
         {isLoading ? (
-          <div className="flex items-center justify-center py-24 text-zinc-500 gap-3">
-            <Loader2 className="w-6 h-6 animate-spin" /> Cargando órdenes de Odoo…
+          <div className="flex items-center justify-center gap-3 py-24 text-muted-foreground">
+            <Loader2 className="size-6 animate-spin" /> Cargando órdenes de Odoo…
           </div>
         ) : (
           <>
-            {/* Tarjetas KPI — 4 en fila solo en pantallas anchas (2xl). En laptops el
-                sidebar reduce el ancho útil y 4 columnas recortan los montos largos,
-                así que se colapsan a 2 columnas. */}
-            <div className="grid grid-cols-2 2xl:grid-cols-4 gap-4">
-              <StatCard icon={<Package className="w-5 h-5 text-indigo-400" />} label="Órdenes por facturar" value={String(totalOrders)} accentColor="#6366f1" />
-              <StatCard icon={<AlertTriangle className="w-5 h-5 text-red-400" />} label="Vencidas" value={String(overdueCount)} accentColor="#ef4444" />
-              <StatCard icon={<TrendingUp className="w-5 h-5 text-emerald-400" />} label="Avance de entrega" value={`${deliveryRate}%`} accentColor="#10b981" />
-              <StatCard icon={<DollarSign className="w-5 h-5 text-cyan-400" />} label="Monto por facturar" value={formatCurrency(totalAmount, currency)} accentColor="#06b6d4" />
+            {/* Tarjetas KPI — sin montos. 4 en fila solo en pantallas anchas (2xl);
+                en laptops el sidebar reduce el ancho útil, así que 2 columnas. */}
+            <div className="grid grid-cols-2 gap-4 2xl:grid-cols-4">
+              <StatCard icon={<Package className="size-5 text-indigo-400" />} label="Órdenes por facturar" value={String(totalOrders)} accent="#6366f1" />
+              <StatCard icon={<AlertTriangle className="size-5 text-red-400" />} label="Vencidas" value={String(overdueCount)} accent="#ef4444" />
+              <StatCard icon={<TrendingUp className="size-5 text-emerald-400" />} label="Avance de entrega" value={`${deliveryRate}%`} accent="#10b981" />
+              <StatCard icon={<Clock className="size-5 text-amber-400" />} label="Antiguas (+1 mes)" value={String(staleCount)} accent="#f59e0b" />
             </div>
 
-            {/* Gráficas */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Distribuciones por prioridad y vencimiento */}
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <ChartCard title="Distribución por prioridad">
                 <ResponsiveContainer width="100%" height={260}>
                   <PieChart>
@@ -112,7 +147,7 @@ export default function StatsDashboard() {
                       {priorityData.map((_, i) => <Cell key={i} fill={PRIORITY_COLORS[i % PRIORITY_COLORS.length]} />)}
                     </Pie>
                     <Legend />
-                    <Tooltip contentStyle={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', borderRadius: 12 }} />
+                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
                   </PieChart>
                 </ResponsiveContainer>
               </ChartCard>
@@ -124,58 +159,78 @@ export default function StatsDashboard() {
                       {overdueData.map((_, i) => <Cell key={i} fill={OVERDUE_COLORS[i % OVERDUE_COLORS.length]} />)}
                     </Pie>
                     <Legend />
-                    <Tooltip contentStyle={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', borderRadius: 12 }} />
+                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
                   </PieChart>
                 </ResponsiveContainer>
               </ChartCard>
             </div>
 
-            <ChartCard title={`Top 5 clientes por monto (${currency})`}>
+            {/* Top clientes por número de órdenes */}
+            <ChartCard title="Top 5 clientes por número de órdenes">
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={clientData} layout="vertical" margin={{ left: 40 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                  <XAxis type="number" stroke="#71717a" tickFormatter={(v: number | string) => formatCurrency(Number(v), currency)} />
+                  <XAxis type="number" stroke="#71717a" allowDecimals={false} />
                   <YAxis type="category" dataKey="name" stroke="#71717a" width={140} tick={{ fontSize: 12 }} />
-                  <Tooltip
-                    formatter={(v: number | string) => formatCurrency(Number(v), currency)}
-                    contentStyle={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', borderRadius: 12 }}
-                  />
-                  <Bar dataKey="amount" fill="#3b82f6" radius={[0, 8, 8, 0]} />
+                  <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={CHART_CURSOR} />
+                  <Bar dataKey="count" name="Órdenes" fill="#6366f1" radius={[0, 8, 8, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>
 
+            {/* Carga por vendedor + antigüedad */}
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <ChartCard title="Órdenes por vendedor">
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={salespersonData} layout="vertical" margin={{ left: 40 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                    <XAxis type="number" stroke="#71717a" allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" stroke="#71717a" width={140} tick={{ fontSize: 12 }} />
+                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={CHART_CURSOR} />
+                    <Bar dataKey="count" name="Órdenes" fill="#22d3ee" radius={[0, 8, 8, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+
+              <ChartCard title="Órdenes por antigüedad">
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={agingData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                    <XAxis dataKey="name" stroke="#71717a" tick={{ fontSize: 12 }} />
+                    <YAxis stroke="#71717a" allowDecimals={false} />
+                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={CHART_CURSOR} />
+                    <Bar dataKey="value" name="Órdenes" radius={[8, 8, 0, 0]}>
+                      {agingData.map((_, i) => <Cell key={i} fill={AGING_COLORS[i % AGING_COLORS.length]} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </div>
+
             {/* Resumen IA */}
-            <div className="glass-card rounded-2xl p-6 space-y-4" style={{ borderTop: '2px solid rgba(139,92,246,0.4)' }}>
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <h3 className="text-lg font-display font-bold flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-violet-400" /> Resumen ejecutivo con IA
+            <Card className="space-y-4 p-6" style={{ borderTop: '2px solid rgba(139,92,246,0.45)' }}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="flex items-center gap-2 font-display text-lg font-bold text-foreground">
+                  <Sparkles className="size-5 text-violet-400" /> Resumen ejecutivo con IA
                 </h3>
                 <div className="flex gap-2">
-                  <button
-                    onClick={handleGenerateSummary}
-                    disabled={isGenerating || orders.length === 0}
-                    className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-xl font-bold text-sm transition-colors flex items-center gap-2"
-                  >
-                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  <Button onClick={handleGenerateSummary} disabled={isGenerating || orders.length === 0}>
+                    {isGenerating ? <Loader2 className="animate-spin" /> : <Sparkles />}
                     {isGenerating ? 'Generando…' : 'Generar resumen'}
-                  </button>
+                  </Button>
                   {aiSummary && (
-                    <button
-                      onClick={handleShareWhatsApp}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold text-sm transition-colors flex items-center gap-2"
-                    >
-                      <MessageCircle className="w-4 h-4" /> WhatsApp
-                    </button>
+                    <Button variant="secondary" onClick={handleShareWhatsApp}>
+                      <MessageCircle /> WhatsApp
+                    </Button>
                   )}
                 </div>
               </div>
               {aiSummary && (
-                <div className="prose prose-invert prose-sm max-w-none border-t border-white/10 pt-4">
+                <div className="prose prose-invert prose-sm max-w-none border-t border-border pt-4">
                   <ReactMarkdown>{aiSummary}</ReactMarkdown>
                 </div>
               )}
-            </div>
+            </Card>
           </>
         )}
       </div>
@@ -183,30 +238,23 @@ export default function StatsDashboard() {
   );
 }
 
-function StatCard({ icon, label, value, accentColor }: { icon: React.ReactNode; label: string; value: string; accentColor: string }) {
-  // Los montos de 7+ cifras (p. ej. "$3,539,982") desbordan la card a text-4xl y
-  // el overflow-hidden del contenedor los recorta. Bajamos a text-3xl cuando el
-  // valor es largo; los KPIs cortos (113, 0, 14%) conservan el text-4xl.
-  const valueSizeClass = value.length > 8 ? 'text-3xl' : 'text-4xl';
+function StatCard({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: string; accent: string }) {
   return (
-    <div
-      className="glass-card rounded-2xl p-5 relative overflow-hidden"
-      style={{ borderTop: `2px solid ${accentColor}40`, boxShadow: `0 0 30px ${accentColor}10` }}
-    >
-      <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-[40px] pointer-events-none" style={{ backgroundColor: `${accentColor}15` }} />
-      <div className="flex items-center gap-2 text-zinc-400 text-xs font-bold uppercase tracking-widest font-mono-data relative z-10">
+    <Card className="relative overflow-hidden p-5" style={{ borderTop: `2px solid ${accent}55` }}>
+      <div className="pointer-events-none absolute right-0 top-0 size-24 rounded-full blur-[40px]" style={{ backgroundColor: `${accent}14` }} />
+      <div className="relative z-10 flex items-center gap-2 font-mono-data text-xs font-bold uppercase tracking-widest text-muted-foreground">
         {icon} {label}
       </div>
-      <div className={`font-display ${valueSizeClass} font-extrabold mt-3 relative z-10 tracking-tight`}>{value}</div>
-    </div>
+      <div className="relative z-10 mt-3 font-display text-4xl font-extrabold tracking-tight tabular-nums text-foreground">{value}</div>
+    </Card>
   );
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="glass-card rounded-2xl p-6" style={{ borderLeft: '2px solid rgba(255,255,255,0.06)' }}>
-      <h3 className="font-display text-base font-bold mb-4 text-zinc-200 uppercase tracking-wider text-sm">{title}</h3>
+    <Card className="p-5">
+      <h3 className="mb-4 font-mono-data text-sm font-bold uppercase tracking-wider text-muted-foreground">{title}</h3>
       {children}
-    </div>
+    </Card>
   );
 }
