@@ -12,6 +12,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import * as dotenv from 'dotenv';
 import { existsSync } from 'fs';
+import { resolve } from 'node:path';
 import { startNotifications } from './src/services/notificationService.js';
 
 // Carga .env.local primero (alta prioridad, no se sube a git),
@@ -47,7 +48,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 // ─── Seguridad (Auth Middleware) ──────────────────────────────────────────────
-app.use((req: Request, res: Response, next: NextFunction) => {
+// Solo gatea /api: los archivos estáticos del frontend los protege Cloudflare
+// Access en el borde. El bearer es defensa en profundidad para el proxy de Odoo.
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
   const apiSecret = process.env.API_SECRET;
 
   // Sin secreto configurado → solo se permite acceso local (conveniencia de dev).
@@ -504,6 +507,20 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
   }
 });
 
+
+// ─── Frontend en producción ──────────────────────────────────────────────────
+// Si existe dist/ (tras `npm run build`), el mismo proceso sirve la SPA. Así todo
+// queda en un solo origen/puerto detrás del túnel de Cloudflare. En dev no existe
+// dist/, así que esto no interfiere con Vite.
+const distDir = resolve(process.cwd(), 'dist');
+if (existsSync(distDir)) {
+  app.use(express.static(distDir));
+  // SPA fallback: cualquier ruta de cliente (/admin, /stats) devuelve index.html.
+  app.get('*', (_req: Request, res: Response) => {
+    res.sendFile(resolve(distDir, 'index.html'));
+  });
+  console.log(`   Sirviendo frontend desde ${distDir}`);
+}
 
 app.listen(PORT, () => {
   console.log(`\n🚀 Odoo Proxy corriendo en http://localhost:${PORT}`);
