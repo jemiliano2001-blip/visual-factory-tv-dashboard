@@ -11,6 +11,10 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isGoogleUser() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+
     function hasOnlyAllowedFields(allowedFields) {
       return request.resource.data.keys().hasOnly(allowedFields);
     }
@@ -48,9 +52,9 @@ service cloud.firestore {
 
     match /company_configs/{configId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidCompanyConfig();
-      allow update: if isAuthenticated() && isValidCompanyConfig();
-      allow delete: if isAuthenticated();
+      allow create: if isGoogleUser() && isValidCompanyConfig();
+      allow update: if isGoogleUser() && isValidCompanyConfig();
+      allow delete: if isGoogleUser();
     }
 
     // Las órdenes ahora viven en Odoo. Los datos históricos de estas

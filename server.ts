@@ -48,7 +48,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // ─── Seguridad (Auth Middleware) ──────────────────────────────────────────────
 app.use((req: Request, res: Response, next: NextFunction) => {
-  const isLocal = req.hostname === 'localhost' || req.hostname === '127.0.0.1';
+  const addr = req.socket.localAddress ?? '';
+  const isLocal = addr === '127.0.0.1' || addr === '::1' || (process.env.NODE_ENV !== 'production' && !process.env.API_SECRET);
   
   if (isLocal) {
     return next(); // Bypass en modo debug
@@ -272,6 +273,7 @@ interface OdooRawPicking {
   id: number;
   name: string;
   sale_id: [number, string] | false;
+  origin: string | false;
   state: string;
   date_done: string | false;
 }
@@ -366,27 +368,70 @@ export async function fetchInvoiceableOrders() {
     lines.forEach(l => linesMap.set(l.id, l));
   }
 
-  // 4) Fetch remisiones (traslados de SALIDA) por sale_id
+  // 4) Fetch remisiones (traslados de SALIDA) por origin (nombre de la SO)
   const pickingsByOrder = new Map<number, OdooRawPicking[]>();
+  let allPickings: OdooRawPicking[] = [];
   try {
-    const saleOrderIds = orders.map(o => o.id);
-    const allPickings = await odooCall<OdooRawPicking[]>(
+    // Construir mapa nombre→id para vincular pickings por origin
+    const orderNameToId = new Map<string, number>();
+    for (const o of orders) orderNameToId.set(o.name, o.id);
+    const orderNames = orders.map(o => o.name);
+
+    allPickings = await odooCall<OdooRawPicking[]>(
       'stock.picking',
       'search_read',
       [[
-        ['sale_id', 'in', saleOrderIds],
+        ['origin', 'in', orderNames],
         ['picking_type_code', '=', 'outgoing'],
       ]],
-      { fields: ['name', 'sale_id', 'state', 'date_done'], limit: 5000 }
+      { fields: ['name', 'sale_id', 'origin', 'state', 'date_done'], limit: 5000 }
     );
     for (const p of allPickings) {
-      const saleId = Array.isArray(p.sale_id) ? p.sale_id[0] : null;
+      // Vincular por origin (nombre de la SO) → id de la orden
+      const originName = typeof p.origin === 'string' ? p.origin : null;
+      const saleId = originName ? orderNameToId.get(originName) : null;
       if (!saleId) continue;
       if (!pickingsByOrder.has(saleId)) pickingsByOrder.set(saleId, []);
       pickingsByOrder.get(saleId)!.push(p);
     }
   } catch (err) {
     console.warn('[Odoo] No se pudieron cargar remisiones (stock.picking):', err instanceof Error ? err.message : err);
+  }
+
+  // 4b) Fetch líneas de movimiento (stock.move) por sale_line_id para cantidad real entregada
+  const movesBySaleLine = new Map<number, number>();
+  let fetchedMoves = false;
+  try {
+    // Buscar movimientos done directamente por sale_line_id (más confiable que picking_id)
+    const allSaleLineIds = Array.from(linesMap.keys());
+    if (allSaleLineIds.length > 0) {
+      // Batches de 500 para no sobrecargar Odoo
+      const MOVE_BATCH = 500;
+      for (let i = 0; i < allSaleLineIds.length; i += MOVE_BATCH) {
+        const batch = allSaleLineIds.slice(i, i + MOVE_BATCH);
+        const moves = await odooCall<any[]>(
+          'stock.move',
+          'search_read',
+          [[
+            ['sale_line_id', 'in', batch],
+            ['state', '=', 'done'],
+            ['picking_code', '=', 'outgoing'],
+          ]],
+          { fields: ['sale_line_id', 'quantity_done'], limit: 10000 }
+        );
+
+        for (const m of moves) {
+          const saleLineId = Array.isArray(m.sale_line_id) ? m.sale_line_id[0] : null;
+          if (!saleLineId) continue;
+          const doneQty = m.quantity_done ?? 0;
+          const current = movesBySaleLine.get(saleLineId) || 0;
+          movesBySaleLine.set(saleLineId, current + doneQty);
+        }
+      }
+      fetchedMoves = true;
+    }
+  } catch (err) {
+    console.warn('[Odoo] No se pudieron cargar movimientos (stock.move):', err instanceof Error ? err.message : err);
   }
 
   // 5) Construir respuesta normalizada
@@ -399,7 +444,10 @@ export async function fetchInvoiceableOrders() {
     const mainProductName = mainLine?.name || 'Sin descripción';
 
     const totalQty     = lines.reduce((s, l) => s + l.product_uom_qty, 0);
-    const deliveredQty = lines.reduce((s, l) => s + l.qty_delivered, 0);
+    const deliveredQty = lines.reduce((s, l) => {
+      const realDone = fetchedMoves ? (movesBySaleLine.get(l.id) || 0) : l.qty_delivered;
+      return s + realDone;
+    }, 0);
 
     return {
       id:              order.id,
@@ -417,13 +465,16 @@ export async function fetchInvoiceableOrders() {
       state:           order.state,
       salesperson:     order.user_id ? order.user_id[1] : null,
       lines_count:     lines.length,
-      lines: lines.map(l => ({
-        name:       l.name,
-        qty:        l.product_uom_qty,
-        delivered:  l.qty_delivered,
-        price_unit: l.price_unit,
-        subtotal:   l.price_subtotal,
-      })),
+      lines: lines.map(l => {
+        const realDone = fetchedMoves ? (movesBySaleLine.get(l.id) || 0) : l.qty_delivered;
+        return {
+          name:       l.name,
+          qty:        l.product_uom_qty,
+          delivered:  realDone,
+          price_unit: l.price_unit,
+          subtotal:   l.price_subtotal,
+        };
+      }),
       deliveries: (pickingsByOrder.get(order.id) ?? []).map(p => ({
         name:      p.name,
         state:     p.state,

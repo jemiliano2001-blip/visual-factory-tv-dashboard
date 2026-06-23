@@ -9,4 +9,5 @@ coverage/
 .env*
 !.env.example
 notification_state.json
+firebase-applet-config.json
 .gstack/
