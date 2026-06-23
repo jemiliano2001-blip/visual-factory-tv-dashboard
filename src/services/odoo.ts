@@ -19,10 +19,7 @@ export interface OdooOrderLine {
   qty: number;
   /** Cantidad entregada */
   delivered: number;
-  /** Precio unitario */
-  price_unit: number;
-  /** Subtotal de la línea (sin impuestos) */
-  subtotal: number;
+  // Precios omitidos a propósito: son confidenciales y el proxy no los envía.
 }
 
 export interface OdooSaleOrder {
@@ -33,10 +30,8 @@ export interface OdooSaleOrder {
   partner_name: string;
   /** Descripción del producto principal */
   main_product: string;
-  /** Monto total con impuestos */
-  amount_total: number;
-  /** Monto sin impuestos */
-  amount_untaxed: number;
+  // Montos (amount_total/amount_untaxed) omitidos a propósito: confidenciales,
+  // el proxy no los envía al navegador.
   /** Fecha de creación de la orden (ISO string) */
   date_order: string;
   /** Fecha compromiso de entrega (null si no tiene) */
@@ -211,4 +206,23 @@ export function getDeliveryProgress(order: OdooSaleOrder): number {
 export function isOrderFullyDelivered(order: OdooSaleOrder): boolean {
   const active = (order.deliveries ?? []).filter(d => d.state !== 'cancel');
   return active.length > 0 && active.every(d => d.state === 'done');
+}
+
+// ─── Antigüedad de la orden ────────────────────────────────────────────────────
+
+/** Umbral de antigüedad: una orden con más de 1 mes (>30 días) se marca como "antigua". */
+export const STALE_AGE_DAYS = 30;
+
+/** Antigüedad en días desde la fecha de creación (date_order). null si no es parseable. */
+export function getOrderAgeDays(order: OdooSaleOrder): number | null {
+  const created = parseOdooDate(order.date_order);
+  if (!created) return null;
+  return Math.floor((Date.now() - created.getTime()) / 86_400_000);
+}
+
+/** Formatea la antigüedad de forma compacta para la TV: "12 d", "1 mes", "3 meses". */
+export function formatOrderAge(days: number): string {
+  if (days < 30) return `${days} d`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? '1 mes' : `${months} meses`;
 }

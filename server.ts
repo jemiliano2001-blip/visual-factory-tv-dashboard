@@ -48,17 +48,15 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // ─── Seguridad (Auth Middleware) ──────────────────────────────────────────────
 app.use((req: Request, res: Response, next: NextFunction) => {
-  const addr = req.socket.localAddress ?? '';
-  const isLocal = addr === '127.0.0.1' || addr === '::1' || (process.env.NODE_ENV !== 'production' && !process.env.API_SECRET);
-  
-  if (isLocal) {
-    return next(); // Bypass en modo debug
-  }
-
   const apiSecret = process.env.API_SECRET;
+
+  // Sin secreto configurado → solo se permite acceso local (conveniencia de dev).
+  // En cuanto se define API_SECRET (despliegue real) se EXIGE siempre: nunca se
+  // confía en la dirección de origen, que un reverse proxy reescribe a 127.0.0.1.
   if (!apiSecret) {
-    console.error('⚠️ [Odoo Proxy] No API_SECRET configured in environment.');
-    res.status(500).json({ error: 'Server misconfiguration.' });
+    const addr = req.socket.localAddress ?? '';
+    if (addr === '127.0.0.1' || addr === '::1') return next();
+    res.status(500).json({ error: 'Server misconfiguration: API_SECRET no configurado.' });
     return;
   }
 
@@ -449,13 +447,14 @@ export async function fetchInvoiceableOrders() {
       return s + realDone;
     }, 0);
 
+    // ponytail: montos y precios (amount_total/untaxed, price_unit/subtotal) son
+    // CONFIDENCIALES y la UI no los muestra — no se envían al navegador. Si algún
+    // día se necesita un KPI con montos, exponerlo por un endpoint aparte y con auth real.
     return {
       id:              order.id,
       name:            order.name,
       partner_name:    order.partner_id ? order.partner_id[1] : 'Desconocido',
       main_product:    mainProductName,
-      amount_total:    order.amount_total,
-      amount_untaxed:  order.amount_untaxed,
       date_order:      order.date_order,
       commitment_date: order.commitment_date || null,
       invoice_status:  order.invoice_status,
@@ -471,8 +470,6 @@ export async function fetchInvoiceableOrders() {
           name:       l.name,
           qty:        l.product_uom_qty,
           delivered:  realDone,
-          price_unit: l.price_unit,
-          subtotal:   l.price_subtotal,
         };
       }),
       deliveries: (pickingsByOrder.get(order.id) ?? []).map(p => ({
