@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { auth } from '../firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { LayoutDashboard, BarChart3, LogOut, Tv } from 'lucide-react';
@@ -131,32 +132,42 @@ export default function Layout() {
       </main>
 
       {/* Barra de navegación inferior — solo en móvil */}
-      <nav className="fixed bottom-0 inset-x-0 z-30 flex md:hidden border-t border-border bg-card/90 backdrop-blur-xl">
+      <nav
+        className="fixed bottom-0 inset-x-0 z-30 flex md:hidden backdrop-blur-2xl"
+        style={{ backgroundColor: 'rgba(10,10,16,0.93)', borderTop: '1px solid rgba(255,255,255,0.07)' }}
+      >
         {([
-          { to: '/admin', icon: <LayoutDashboard className="size-5" />, label: 'Admin' },
-          { to: '/stats', icon: <BarChart3 className="size-5" />, label: 'Stats' },
+          { to: '/admin', icon: <LayoutDashboard className="size-[22px]" />, label: 'Admin' },
+          { to: '/stats', icon: <BarChart3 className="size-[22px]" />, label: 'Stats' },
         ] as const).map(({ to, icon, label }) => {
           const isActive = location.pathname === to;
           return (
             <Link
               key={to}
               to={to}
-              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 min-h-[56px] text-[10px] font-semibold tracking-wide transition-colors ${
-                isActive ? 'text-primary' : 'text-muted-foreground'
+              className={`relative flex flex-1 flex-col items-center justify-center gap-1 py-2.5 min-h-[58px] transition-colors ${
+                isActive ? 'text-primary' : 'text-muted-foreground/60'
               }`}
             >
-              {icon}
-              {label}
+              {isActive && (
+                <motion.span
+                  layoutId="mobile-nav-active"
+                  className="absolute inset-x-4 top-0 h-[2px] rounded-b-full bg-primary"
+                  style={{ boxShadow: '0 0 10px rgba(99,102,241,0.9)' }}
+                />
+              )}
+              <span className={`transition-colors ${isActive ? 'text-primary' : 'text-muted-foreground/60'}`}>{icon}</span>
+              <span className="font-mono-data text-[9px] font-bold uppercase tracking-[0.15em]">{label}</span>
             </Link>
           );
         })}
         <Link
           to="/"
           target="_blank"
-          className="flex flex-1 flex-col items-center justify-center gap-0.5 py-2 min-h-[56px] text-[10px] font-semibold tracking-wide text-success transition-colors"
+          className="relative flex flex-1 flex-col items-center justify-center gap-1 py-2.5 min-h-[58px] text-success/80 transition-colors hover:text-success"
         >
-          <Tv className="size-5" />
-          TV Live
+          <Tv className="size-[22px]" />
+          <span className="font-mono-data text-[9px] font-bold uppercase tracking-[0.15em]">TV Live</span>
         </Link>
       </nav>
     </div>
