@@ -4,9 +4,8 @@
  * sin mouse, nunca aparece. Deja a los ingenieros filtrar al instante por
  * cliente / texto y pausar la rotación, sin usar voz.
  *
- * Es un overlay absolute: NO empuja el grid (no dispara el ResizeObserver). El
- * div ancla queda siempre montado (colapsa a un punto cuando la barra está
- * oculta) para poder detectar la cercanía del cursor y reaparecer.
+ * En móvil: siempre visible, layout compacto full-width con búsqueda inline
+ * y selector de cliente expandible.
  */
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -22,6 +21,7 @@ const ALL_CLIENTS = '__all__';
 
 interface TVControlBarProps {
   isTVMode: boolean;
+  isMobile?: boolean;
   clients: string[];
   clientFilter: string | null;
   onClient: (client: string | null) => void;
@@ -33,15 +33,71 @@ interface TVControlBarProps {
 }
 
 const TVControlBar: React.FC<TVControlBarProps> = ({
-  isTVMode, clients, clientFilter, onClient, textFilter, onText, isPaused, onTogglePause, onClear,
+  isTVMode, isMobile = false, clients, clientFilter, onClient, textFilter, onText, isPaused, onTogglePause, onClear,
 }) => {
   const [anchorRef, near] = useProximityVisible<HTMLDivElement>(160);
   const [focused, setFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  // TV: proximity-based (no molesta en pantalla de pared sin mouse).
-  // Desktop: siempre visible para que los ingenieros puedan filtrar.
-  const visible = isTVMode ? (near || focused || menuOpen) : true;
+  const [showClientSelect, setShowClientSelect] = useState(false);
+
   const hasFilters = !!clientFilter || !!textFilter || isPaused;
+
+  // ── Móvil: barra de búsqueda compacta siempre visible ─────────────────────────
+  if (isMobile) {
+    return (
+      <div className="mb-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={textFilter}
+              onChange={(e) => onText(e.target.value)}
+              placeholder="Buscar OV, producto o cliente…"
+              className="h-10 pl-9"
+            />
+          </div>
+
+          <Button
+            type="button"
+            variant={clientFilter ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowClientSelect(s => !s)}
+            className="relative h-10 shrink-0 px-3"
+            title="Filtrar por cliente"
+          >
+            <SlidersHorizontal className="size-4" />
+            {clientFilter && (
+              <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-primary ring-2 ring-background" />
+            )}
+          </Button>
+
+          {hasFilters && (
+            <Button type="button" variant="ghost" size="sm" onClick={onClear} className="h-10 shrink-0 px-2" title="Limpiar filtros">
+              <X className="size-4" />
+            </Button>
+          )}
+        </div>
+
+        {showClientSelect && (
+          <Select
+            value={clientFilter || ALL_CLIENTS}
+            onValueChange={(v) => { onClient(v === ALL_CLIENTS ? null : v); setShowClientSelect(false); }}
+          >
+            <SelectTrigger className="h-10 w-full">
+              <SelectValue placeholder="Todos los clientes" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_CLIENTS}>Todos los clientes</SelectItem>
+              {clients.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+    );
+  }
+
+  // ── Escritorio / TV: barra flotante por proximidad ─────────────────────────────
+  const visible = isTVMode ? (near || focused || menuOpen) : true;
 
   return (
     <div

@@ -13,7 +13,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import * as dotenv from 'dotenv';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'node:path';
-import { startNotifications } from './src/services/notificationService.js';
+import { GoogleGenAI } from '@google/genai';
 
 // Carga .env.local primero (alta prioridad, no se sube a git),
 // luego .env como fallback — mismo orden que Vite en desarrollo local.
@@ -116,6 +116,36 @@ app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
   }
 
   next();
+});
+
+// ─── Gemini AI Proxy ────────────────────────────────────────────────────────
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+app.post('/api/ai/generate', async (req: Request, res: Response) => {
+  if (!process.env.GEMINI_API_KEY) {
+    res.status(503).json({ error: 'GEMINI_API_KEY no configurada en el servidor.' });
+    return;
+  }
+
+  try {
+    const { model, contents, config } = req.body;
+    if (!model || !contents) {
+      res.status(400).json({ error: 'Faltan parámetros: model y contents son requeridos.' });
+      return;
+    }
+
+    const response = await ai.models.generateContent({ model, contents, config });
+    
+    // Retornamos la respuesta de forma que el cliente web pueda seguir usando el mismo
+    // esquema (ej. response.text o extraer audio de response.candidates)
+    res.json({
+      text: response.text,
+      candidates: response.candidates,
+    });
+  } catch (err) {
+    console.error('[Gemini AI Error]', err);
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 // ─── Configuración Odoo ────────────────────────────────────────────────────────
@@ -574,6 +604,4 @@ app.listen(PORT, () => {
   console.log(`   Endpoints:`);
   console.log(`     GET http://localhost:${PORT}/api/odoo/status`);
   console.log(`     GET http://localhost:${PORT}/api/odoo/invoiceable-orders\n`);
-
-  startNotifications(fetchInvoiceableOrders).catch(console.error);
 });

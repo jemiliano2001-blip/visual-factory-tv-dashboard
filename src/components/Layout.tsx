@@ -24,7 +24,7 @@ export default function Layout() {
 
   if (isTvDashboard) {
     return (
-      <div className="h-screen overflow-hidden bg-background text-foreground">
+      <div className="h-screen bg-background text-foreground">
         <Outlet />
       </div>
     );
@@ -57,8 +57,8 @@ export default function Layout() {
       {/* Glow sutil de profundidad — un solo foco, no neón en todo */}
       <div className="pointer-events-none absolute left-0 top-0 h-[40%] w-[35%] rounded-full bg-primary/5 blur-[120px]" />
 
-      {/* Sidebar */}
-      <aside className="relative z-20 flex w-64 shrink-0 flex-col border-r border-border bg-card/70 backdrop-blur-xl">
+      {/* Sidebar — oculto en móvil, visible en md+ */}
+      <aside className="relative z-20 hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-card/70 backdrop-blur-xl">
         {/* Marca */}
         <div className="flex items-center gap-3 border-b border-border px-5 py-5">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 ring-1 ring-primary/25">
@@ -126,9 +126,39 @@ export default function Layout() {
       </aside>
 
       {/* Contenido */}
-      <main className="custom-scrollbar relative z-10 flex-1 overflow-auto">
+      <main className="custom-scrollbar relative z-10 flex-1 overflow-auto pb-14 md:pb-0">
         <Outlet />
       </main>
+
+      {/* Barra de navegación inferior — solo en móvil */}
+      <nav className="fixed bottom-0 inset-x-0 z-30 flex md:hidden border-t border-border bg-card/90 backdrop-blur-xl">
+        {([
+          { to: '/admin', icon: <LayoutDashboard className="size-5" />, label: 'Admin' },
+          { to: '/stats', icon: <BarChart3 className="size-5" />, label: 'Stats' },
+        ] as const).map(({ to, icon, label }) => {
+          const isActive = location.pathname === to;
+          return (
+            <Link
+              key={to}
+              to={to}
+              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 min-h-[56px] text-[10px] font-semibold tracking-wide transition-colors ${
+                isActive ? 'text-primary' : 'text-muted-foreground'
+              }`}
+            >
+              {icon}
+              {label}
+            </Link>
+          );
+        })}
+        <Link
+          to="/"
+          target="_blank"
+          className="flex flex-1 flex-col items-center justify-center gap-0.5 py-2 min-h-[56px] text-[10px] font-semibold tracking-wide text-success transition-colors"
+        >
+          <Tv className="size-5" />
+          TV Live
+        </Link>
+      </nav>
     </div>
   );
 }

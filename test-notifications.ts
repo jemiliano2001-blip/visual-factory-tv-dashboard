@@ -15,7 +15,7 @@ import {
   sendWebhook, reportEmbed,
   sendWeekendReport, sendMonthlyReport, sendMorningReport,
   type NotifOrder,
-} from './src/services/notificationService.js';
+} from './functions/src/notifications.ts';
 
 const url = process.env.DISCORD_WEBHOOK_URL;
 if (!url) {

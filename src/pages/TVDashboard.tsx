@@ -14,7 +14,7 @@ import {
 } from '../services/odoo';
 import { formatPONumber } from '../utils/formatters';
 import { useOdooOrders } from '../hooks/useOdooOrders';
-import { processVoiceCommand, generateSpeech } from '../services/ai';
+import { processTextVoiceCommand, generateSpeech } from '../services/ai';
 import OdooOrderCard from '../components/OdooOrderCard';
 import type { ViewMode } from '../components/OdooOrderCard';
 import SkeletonCard from '../components/SkeletonCard';
@@ -22,6 +22,7 @@ import DashboardHeader from '../components/DashboardHeader';
 import DashboardFooter from '../components/DashboardFooter';
 import TVControlBar from '../components/TVControlBar';
 import { usePersistedState } from '../hooks/usePersistedState';
+import { useMobile } from '../hooks/useMobile';
 
 // ─── Audio helpers ─────────────────────────────────────────────────────────────
 
@@ -204,6 +205,7 @@ export default function TVDashboard() {
   const [isFullscreen, setIsFullscreen]     = useState(false);
   const [showGradient, setShowGradient]     = useState(true);
   const containerRef                        = useRef<HTMLDivElement>(null);
+  const mainViewportRef                     = useRef<HTMLDivElement>(null);
   const [gridCols, setGridCols]             = useState(4);
   const [gridRows, setGridRows]             = useState(2);
   const [ordersPerPage, setOrdersPerPage]   = useState(8);
@@ -223,13 +225,17 @@ export default function TVDashboard() {
   const mediaRecorderRef  = useRef<MediaRecorder | null>(null);
   const audioChunksRef    = useRef<Blob[]>([]);
   const streamRef         = useRef<MediaStream | null>(null);
+  const recognitionRef    = useRef<any>(null);
   const toastTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const transcriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Último turno para dar contexto conversacional a seguimientos ("¿y las de Bosch?")
   const lastVoiceTurnRef  = useRef<{ transcript: string; message: string } | null>(null);
 
-  const isTVMode = viewMode === 'tv';
+  const isMobile = useMobile();
+  // En móvil siempre modo escritorio: sin paginación ni auto-rotación
+  const effectiveViewMode: ViewMode = isMobile ? 'desktop' : viewMode;
+  const isTVMode = effectiveViewMode === 'tv';
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -257,6 +263,13 @@ export default function TVDashboard() {
     document.addEventListener('fullscreenchange', handler);
     return () => document.removeEventListener('fullscreenchange', handler);
   }, []);
+
+  // ── Reset scroll on mode change ──────────────────────────────────────────────
+  useEffect(() => {
+    if (mainViewportRef.current) {
+      mainViewportRef.current.scrollTop = 0;
+    }
+  }, [viewMode]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -451,6 +464,7 @@ export default function TVDashboard() {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
       mediaRecorderRef.current?.stop();
       streamRef.current?.getTracks().forEach(t => t.stop());
+      if (recognitionRef.current) recognitionRef.current.abort();
     };
   }, []);
 
@@ -459,111 +473,138 @@ export default function TVDashboard() {
   // ── Voice control ────────────────────────────────────────────────────────────
   const toggleRecording = async () => {
     if (isRecording) {
-      mediaRecorderRef.current?.stop();
+      if (recognitionRef.current) recognitionRef.current.stop();
       setIsRecording(false);
-    } else {
-      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-        showToast('Este navegador no soporta grabación de audio para comandos de voz.', 'error');
-        return;
-      }
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        streamRef.current = stream;
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        audioChunksRef.current = [];
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data.size > 0) audioChunksRef.current.push(e.data);
-        };
-        mediaRecorder.onstop = async () => {
-          setIsProcessingVoice(true);
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          const reader = new FileReader();
-          reader.readAsDataURL(audioBlob);
-          reader.onloadend = async () => {
-            const base64data = (reader.result as string).split(',')[1];
-            try {
-              const result = await processVoiceCommand(
-                base64data,
-                'audio/webm',
-                odooOrders,
-                lastVoiceTurnRef.current,
-              );
+      return;
+    }
 
-              // Mostrar la transcripción de lo que entendió la IA
-              if (result.transcript) {
-                if (transcriptTimerRef.current) clearTimeout(transcriptTimerRef.current);
-                setVoiceTranscript(result.transcript);
-                transcriptTimerRef.current = setTimeout(() => setVoiceTranscript(null), 8000);
-              }
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      showToast('Tu navegador no soporta la API de reconocimiento de voz. Usa Chrome o Edge.', 'error');
+      return;
+    }
 
-              // Guardar el turno para dar contexto a seguimientos
-              if (result.transcript && result.message) {
-                lastVoiceTurnRef.current = { transcript: result.transcript, message: result.message };
-              }
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'es-ES';
+      recognition.interimResults = true;
+      recognition.continuous = false;
+      recognitionRef.current = recognition;
 
-              if (result.message) {
-                showToast(result.message, result.action === 'answer' ? 'info' : 'success');
-                const audioBase64 = await generateSpeech(result.message);
-                if (audioBase64) {
-                  setIsSpeaking(true);
-                  playPCMBase64(audioBase64, () => setIsSpeaking(false));
-                }
-              }
-              if (result.action === 'filter') {
-                const ft = result.filter_type as string | null;
-                if (ft && (VALID_VOICE_FILTERS as readonly string[]).includes(ft)) {
-                  setVoiceFilter(ft as VoiceFilter);
-                  // 'all' (limpiar filtro) también resetea el filtro por cliente
-                  if (ft === 'all') setClientFilter(null);
-                }
-                if (result.filter_client) {
-                  setClientFilter(result.filter_client);
-                }
-                setCurrentPageIndex(0);
-              } else if (result.po_number) {
-                const target = formatPONumber(result.po_number);
-                const found =
-                  odooOrders.find(o => formatPONumber(o.name) === target) ??
-                  odooOrders.find(o => o.name === result.po_number || o.name.includes(result.po_number));
-                if (found) {
-                  const soId = found.name;
-                  const pageIdx = pages.findIndex(p => 
-                    p.type === 'single' ? p.orders.some(o => o.name === soId) 
-                    : (p.left.orders.some(o => o.name === soId) || p.right.orders.some(o => o.name === soId))
-                  );
-                  if (pageIdx !== -1) setCurrentPageIndex(pageIdx);
-                  playSuccessSound();
-                  setHighlightedSO(soId);
-                  if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-                  highlightTimerRef.current = setTimeout(() => setHighlightedSO(null), 10000);
-                } else {
-                  showToast(`No se encontró la orden ${result.po_number}.`, 'error');
-                  playErrorSound();
-                }
-              }
-            } catch (e) {
-              console.error('Error en el procesamiento de voz', e);
-              showToast('Hubo un error al procesar el comando de voz.', 'error');
-              playErrorSound();
-            } finally {
-              setIsProcessingVoice(false);
-            }
-          };
-          stream.getTracks().forEach(track => track.stop());
-        };
-        mediaRecorder.start();
-        setIsRecording(true);
-      } catch (err) {
-        const name = (err as DOMException)?.name;
-        if (name === 'NotAllowedError' || name === 'SecurityError') {
-          showToast('Permiso de micrófono denegado. Habilítalo en el navegador para usar comandos de voz.', 'error');
-        } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-          showToast('No se detectó ningún micrófono conectado.', 'error');
-        } else {
-          showToast('No se pudo acceder al micrófono para los comandos de voz.', 'error');
+      recognition.onstart = () => setIsRecording(true);
+
+      recognition.onresult = async (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
         }
-      }
+
+        // Mostrar lo que se va entendiendo en tiempo real
+        const currentText = finalTranscript || interimTranscript;
+        if (currentText) {
+          if (transcriptTimerRef.current) clearTimeout(transcriptTimerRef.current);
+          setVoiceTranscript(currentText);
+        }
+
+        if (finalTranscript) {
+          recognition.stop();
+          setIsRecording(false);
+          setIsProcessingVoice(true);
+
+          try {
+            const result = await processTextVoiceCommand(
+              finalTranscript,
+              odooOrders,
+              lastVoiceTurnRef.current,
+            );
+
+            if (transcriptTimerRef.current) clearTimeout(transcriptTimerRef.current);
+            setVoiceTranscript(result.transcript || finalTranscript);
+            transcriptTimerRef.current = setTimeout(() => setVoiceTranscript(null), 8000);
+
+            if (result.transcript && result.message) {
+              lastVoiceTurnRef.current = { transcript: result.transcript, message: result.message };
+            }
+
+            if (result.message) {
+              showToast(result.message, result.action === 'answer' ? 'info' : 'success');
+              // Fire-and-forget: Gemini TTS en background, no bloquea la acción visual
+              setIsSpeaking(true);
+              generateSpeech(result.message)
+                .then(audioBase64 => {
+                  if (audioBase64) playPCMBase64(audioBase64, () => setIsSpeaking(false));
+                  else setIsSpeaking(false);
+                })
+                .catch(() => setIsSpeaking(false));
+            }
+
+            if (result.action === 'filter') {
+              const ft = result.filter_type as string | null;
+              if (ft && (VALID_VOICE_FILTERS as readonly string[]).includes(ft)) {
+                setVoiceFilter(ft as VoiceFilter);
+                if (ft === 'all') setClientFilter(null);
+              }
+              if (result.filter_client) {
+                setClientFilter(result.filter_client);
+              }
+              setCurrentPageIndex(0);
+            } else if (result.po_number) {
+              const target = formatPONumber(result.po_number);
+              const found =
+                odooOrders.find(o => formatPONumber(o.name) === target) ??
+                odooOrders.find(o => o.name === result.po_number || o.name.includes(result.po_number));
+              if (found) {
+                const soId = found.name;
+                const pageIdx = pages.findIndex(p => 
+                  p.type === 'single' ? p.orders.some(o => o.name === soId) 
+                  : (p.left.orders.some(o => o.name === soId) || p.right.orders.some(o => o.name === soId))
+                );
+                if (pageIdx !== -1) setCurrentPageIndex(pageIdx);
+                playSuccessSound();
+                setHighlightedSO(soId);
+                if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+                highlightTimerRef.current = setTimeout(() => setHighlightedSO(null), 10000);
+              } else {
+                showToast(`No se encontró la orden ${result.po_number}.`, 'error');
+                playErrorSound();
+              }
+            }
+          } catch (e) {
+            console.error('Error en el procesamiento de voz', e);
+            showToast('Hubo un error al procesar el comando de voz.', 'error');
+            playErrorSound();
+          } finally {
+            setIsProcessingVoice(false);
+          }
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error', event.error);
+        if (event.error === 'not-allowed') {
+          showToast('Permiso de micrófono denegado. Habilítalo en el navegador.', 'error');
+        } else if (event.error !== 'aborted') {
+          showToast(`Error al escuchar: ${event.error}`, 'error');
+        }
+        setIsRecording(false);
+        setIsProcessingVoice(false);
+      };
+
+      recognition.onend = () => {
+        setIsRecording(false);
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.error('Error starting recognition', err);
+      showToast('No se pudo acceder al micrófono para los comandos de voz.', 'error');
+      setIsRecording(false);
     }
   };
 
@@ -581,9 +622,11 @@ export default function TVDashboard() {
 
   return (
     <div
+      ref={mainViewportRef}
       className={`bg-background text-foreground px-4 lg:px-6 font-sans transition-all duration-700 relative ${
         isTVMode ? 'tv-viewport' : 'desktop-viewport custom-scrollbar'
       } ${isFullscreen ? 'w-full h-full' : ''}`}
+      style={isMobile ? { paddingBottom: '0' } : undefined}
     >
       {/* Background gradient */}
       <AnimatePresence>
@@ -608,7 +651,7 @@ export default function TVDashboard() {
         odooLastUpdated={odooLastUpdated}
         isRefreshing={isRefreshing}
         onRefresh={loadOdooOrders}
-        viewMode={viewMode}
+        viewMode={effectiveViewMode}
         onViewModeChange={setViewMode}
         showGradient={showGradient}
         onToggleGradient={() => setShowGradient(!showGradient)}
@@ -632,6 +675,7 @@ export default function TVDashboard() {
         {odooOrders.length > 0 && (
           <TVControlBar
             isTVMode={isTVMode}
+            isMobile={isMobile}
             clients={uniqueClients}
             clientFilter={clientFilter}
             onClient={setClientFilter}

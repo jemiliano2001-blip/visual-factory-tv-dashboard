@@ -58,26 +58,29 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   isDense,
   viewMode,
 }) => {
-  const priority = getOrderPriority(order);
-  const progress = getDeliveryProgress(order);
+  const priority = React.useMemo(() => getOrderPriority(order), [order.commitment_date]);
+  const progress = React.useMemo(() => getDeliveryProgress(order), [order.qty_delivered, order.qty_total]);
   const isCritical = priority === 'critical';
-  const isOverdue = isOrderOverdue(order);
-  const commitmentDate = parseOdooDate(order.commitment_date);
+  const isOverdue = React.useMemo(() => isOrderOverdue(order), [order.commitment_date]);
+  const commitmentDate = React.useMemo(() => parseOdooDate(order.commitment_date), [order.commitment_date]);
   const isDesktop = viewMode === 'desktop';
-  const ageDays = getOrderAgeDays(order);
+  const ageDays = React.useMemo(() => getOrderAgeDays(order), [order.date_order]);
   const isStale = ageDays !== null && ageDays > STALE_AGE_DAYS;
 
   // ── Resumen de remisiones (excluye canceladas) ─────────────────────────────
-  const deliveries = order.deliveries ?? [];
-  const deliveryCounts: Record<string, number> = {};
-  for (const d of deliveries) {
-    if (d.state !== 'cancel') {
-      deliveryCounts[d.state] = (deliveryCounts[d.state] ?? 0) + 1;
+  const { deliveryCounts, deliveryStates } = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    const deliveries = order.deliveries ?? [];
+    for (const d of deliveries) {
+      if (d.state !== 'cancel') {
+        counts[d.state] = (counts[d.state] ?? 0) + 1;
+      }
     }
-  }
-  const deliveryStates = ['done', 'assigned', 'waiting', 'confirmed', 'draft'].filter(
-    s => (deliveryCounts[s] ?? 0) > 0,
-  );
+    const states = ['done', 'assigned', 'waiting', 'confirmed', 'draft'].filter(
+      s => (counts[s] ?? 0) > 0,
+    );
+    return { deliveryCounts: counts, deliveryStates: states };
+  }, [order.deliveries]);
 
   // ── Colores por estado ──────────────────────────────────────────────────────
   const cardBorder = isHighlighted

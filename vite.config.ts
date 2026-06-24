@@ -70,7 +70,11 @@ export default defineConfig(({mode}) => {
       })
     ],
     define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      // ponytail: key stripped from prod bundle to avoid exposure; AI features
+      // require proxying through Cloud Functions to work in production.
+      'process.env.GEMINI_API_KEY': JSON.stringify(
+        mode === 'production' ? '' : env.GEMINI_API_KEY
+      ),
     },
     resolve: {
       alias: {

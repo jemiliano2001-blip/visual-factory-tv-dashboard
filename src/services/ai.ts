@@ -1,12 +1,49 @@
-import { GoogleGenAI, Type, Modality } from '@google/genai';
 import type { RiskPrediction } from '../components/admin/riskTypes';
 import { formatPONumber } from '../utils/formatters';
 import { OdooSaleOrder, getOrderPriority, isOrderOverdue, getDeliveryProgress, parseOdooDate } from './odoo';
+import { auth } from '../firebase';
 
 export type { RiskPrediction };
 
-// Use the platform-injected API key
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const Type = {
+  STRING: 'STRING',
+  OBJECT: 'OBJECT',
+  ARRAY: 'ARRAY',
+  NUMBER: 'NUMBER',
+} as const;
+
+const Modality = {
+  AUDIO: 'AUDIO',
+} as const;
+
+export interface GeminiRequest {
+  model: string;
+  contents: any;
+  config?: any;
+}
+
+const PROXY_BASE = import.meta.env.VITE_ODOO_PROXY_URL || '';
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const token = await auth.currentUser?.getIdToken().catch(() => '');
+  return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+}
+
+async function generateContent(params: GeminiRequest) {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${PROXY_BASE}/api/ai/generate`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(params),
+  });
+  
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new Error(errorBody?.error || `AI Request failed: ${response.statusText}`);
+  }
+  return await response.json();
+}
 
 /** Proyección compacta de una orden Odoo para prompts (menos tokens, campos en español). */
 const simplifyOrder = (o: OdooSaleOrder) => ({
@@ -23,7 +60,7 @@ const simplifyOrder = (o: OdooSaleOrder) => ({
 });
 
 export const generateShiftSummary = async (orders: OdooSaleOrder[]) => {
-  const response = await ai.models.generateContent({
+  const response = await generateContent({
     model: 'gemini-3.5-flash',
     contents: `You are a manufacturing plant manager. Analyze the following Odoo sale orders pending invoicing and provide a brief executive summary of the current state: highlight overdue orders, clients with the largest backlog (by number of orders), and overall delivery progress. Do NOT mention or estimate any monetary amounts. Use markdown. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders.map(simplifyOrder))}`,
   });
@@ -31,7 +68,7 @@ export const generateShiftSummary = async (orders: OdooSaleOrder[]) => {
 };
 
 export const generateClientReport = async (order: OdooSaleOrder) => {
-  const response = await ai.models.generateContent({
+  const response = await generateContent({
     model: 'gemini-3.5-flash',
     contents: `Draft a professional, concise email in SPANISH to the client (${order.partner_name}) updating them on sale order ${order.name} for "${order.main_product}". Delivery progress is ${order.qty_delivered}/${order.qty_total} units${order.commitment_date ? `, committed delivery date is ${order.commitment_date}` : ''}. Focus on delivery status and dates only; do NOT include prices or monetary amounts.`,
   });
@@ -39,7 +76,7 @@ export const generateClientReport = async (order: OdooSaleOrder) => {
 };
 
 export const analyzeOrderAnomalies = async (orders: OdooSaleOrder[]) => {
-  const response = await ai.models.generateContent({
+  const response = await generateContent({
     model: 'gemini-3.5-flash',
     contents: `You are a manufacturing operations analyst. Analyze this set of Odoo sale orders pending invoicing and identify anomalies and red flags: overdue orders with 0% delivery, orders with unusually large quantities or that are stale (old), clients accumulating backlog, orders without commitment date. Do NOT mention or estimate any monetary amounts. Be brief and actionable, use markdown bullet points. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders.map(simplifyOrder))}`,
   });
@@ -47,7 +84,7 @@ export const analyzeOrderAnomalies = async (orders: OdooSaleOrder[]) => {
 };
 
 export const predictOrderRisk = async (order: OdooSaleOrder): Promise<RiskPrediction> => {
-  const response = await ai.models.generateContent({
+  const response = await generateContent({
     model: 'gemini-3.5-flash',
     contents: `You are a manufacturing delivery-risk AI. Analyze this Odoo sale order pending invoicing and predict potential delivery/invoicing issues.
     Order data: ${JSON.stringify(simplifyOrder(order))}
@@ -85,7 +122,7 @@ export const predictOrderRisk = async (order: OdooSaleOrder): Promise<RiskPredic
 };
 
 export const filterOrdersByNaturalLanguage = async (query: string, orders: OdooSaleOrder[]): Promise<number[]> => {
-  const response = await ai.models.generateContent({
+  const response = await generateContent({
     model: 'gemini-3.5-flash',
     contents: `Given the following JSON list of Odoo sale orders and a user query in SPANISH, return a JSON array of the 'id's (numbers) of the orders that match the query. Query: "${query}". Orders: ${JSON.stringify(orders.map(o => ({ id: o.id, ...simplifyOrder(o) })))}`,
     config: {
@@ -103,12 +140,21 @@ export const filterOrdersByNaturalLanguage = async (query: string, orders: OdooS
   }
 };
 
-export const processVoiceCommand = async (
-  audioBase64: string,
-  mimeType: string,
+export interface VoiceCommandResponse {
+  transcript?: string;
+  po_number: string | null;
+  action: 'highlight' | 'filter' | 'answer';
+  filter_type?: 'all' | 'overdue' | 'delivered' | 'pending' | 'critical' | null;
+  filter_client?: string | null;
+  message: string;
+}
+
+async function executeVoiceCommand(
+  basePrompt: string,
+  inputParts: any[],
   activeOrders: OdooSaleOrder[],
-  previousContext?: { transcript: string; message: string } | null,
-) => {
+  previousContext?: { transcript: string; message: string } | null
+): Promise<VoiceCommandResponse> {
   const simplifiedOrders = activeOrders.map(o => ({
     po: formatPONumber(o.name),
     client: o.partner_name,
@@ -124,12 +170,7 @@ export const processVoiceCommand = async (
     ? `\n\nPREVIOUS TURN (for follow-up context): the operator said "${previousContext.transcript}" and you replied "${previousContext.message}". If the current command is a follow-up (e.g. "¿y las de Bosch?", "ahora las vencidas"), interpret it relative to this previous turn.`
     : '';
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.5-flash',
-    contents: {
-      parts: [
-        { inlineData: { data: audioBase64, mimeType } },
-        { text: `Listen to the audio command in SPANISH. The user is a factory operator talking to you, their AI assistant. They might ask to highlight/find a specific order, filter the view (by status, by client, or by priority), or ask a general question about the active orders. Active orders data: ${JSON.stringify(simplifiedOrders)}.${contextBlock} Return a JSON object with 'transcript' (the literal transcription in SPANISH of what the operator said), 'po_number' (the matched PO exactly as it appears, or null), 'action' ('highlight', 'filter', or 'answer'), 'filter_type' ('all', 'overdue', 'delivered', 'pending', 'critical', or null), 'filter_client' (a client name to filter by, or null), and 'message' (a natural, helpful, conversational response in SPANISH to speak back to the user).
+  const instructions = ` Active orders data: ${JSON.stringify(simplifiedOrders)}.${contextBlock} Return a JSON object with 'transcript' (the exact text provided or transcription in SPANISH of what the operator said), 'po_number' (the matched PO exactly as it appears, or null), 'action' ('highlight', 'filter', or 'answer'), 'filter_type' ('all', 'overdue', 'delivered', 'pending', 'critical', or null), 'filter_client' (a client name to filter by, or null), and 'message' (a natural, helpful, conversational response in SPANISH to speak back to the user).
 
 IMPORTANT INSTRUCTIONS:
 1. DELAY LOGIC: Use 'fecha_promesa' (commitment/delivery date) and 'vencida' to determine if an order is delayed/vencida. If the user asks for the oldest or most delayed order, find the one with the oldest 'fecha_promesa' or 'fecha_creacion' that is incomplete. Do NOT rely just on the PO number.
@@ -137,7 +178,14 @@ IMPORTANT INSTRUCTIONS:
 3. CLIENT FILTER: If the user asks to filter by a client/customer (e.g. "muéstrame las de Bosch", "filtra por cliente Nissan"), return action="filter" and set 'filter_client' to that client's name. You may combine 'filter_client' with a 'filter_type'.
 4. PO FORMATTING NOTE: Some POs might look like "546" or "5460" (4 digits) but should be interpreted as part of the sequence. The standard format is "2026/S00546" (5 digits padded with zeros).
 5. If you find a specific order, mention its PO number in the 'message'.
-6. Keep the 'message' very short, direct, and concise to ensure fast processing.` }
+6. Keep the 'message' EXTREMELY short (maximum 12 words). Examples: "Aquí está la orden 546, avance del 60%", "Filtrando 3 órdenes vencidas", "No encontré esa orden".`;
+
+  const response = await generateContent({
+    model: 'gemini-3.5-flash',
+    contents: {
+      parts: [
+        ...inputParts,
+        { text: basePrompt + instructions }
       ]
     },
     config: {
@@ -156,18 +204,46 @@ IMPORTANT INSTRUCTIONS:
       }
     }
   });
+
   try {
     return JSON.parse(response.text || '{"po_number":null,"action":"answer","message":"No pude entender el comando."}');
   } catch {
     return { po_number: null, action: 'answer', message: 'No pude entender el comando.' };
   }
+}
+
+export const processVoiceCommand = async (
+  audioBase64: string,
+  mimeType: string,
+  activeOrders: OdooSaleOrder[],
+  previousContext?: { transcript: string; message: string } | null,
+) => {
+  return executeVoiceCommand(
+    "Listen to the audio command in SPANISH. The user is a factory operator talking to you, their AI assistant. They might ask to highlight/find a specific order, filter the view (by status, by client, or by priority), or ask a general question about the active orders.",
+    [{ inlineData: { data: audioBase64, mimeType } }],
+    activeOrders,
+    previousContext
+  );
+};
+
+export const processTextVoiceCommand = async (
+  transcript: string,
+  activeOrders: OdooSaleOrder[],
+  previousContext?: { transcript: string; message: string } | null,
+) => {
+  return executeVoiceCommand(
+    `The user is a factory operator talking to you, their AI assistant. They said the following (transcribed from voice): "${transcript}". They might ask to highlight/find a specific order, filter the view (by status, by client, or by priority), or ask a general question about the active orders.`,
+    [],
+    activeOrders,
+    previousContext
+  );
 };
 
 export const generateSpeech = async (text: string) => {
-  const response = await ai.models.generateContent({
+  const response = await generateContent({
     // TTS requiere un modelo dedicado de audio: un flash de texto (gemini-3.5-flash)
     // NO produce audio y deja la respuesta sin voz. No cambiar a un modelo de texto.
-    model: "gemini-2.5-flash-preview-tts",
+    model: "gemini-3.1-flash-tts-preview",
     contents: [{ parts: [{ text }] }],
     config: {
       responseModalities: [Modality.AUDIO],

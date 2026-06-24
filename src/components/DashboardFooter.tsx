@@ -76,7 +76,7 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
         onClick={onToggleRecording}
         disabled={isProcessingVoice || isSpeaking}
         title={isRecording ? 'Detener grabación' : 'Comando de Voz'}
-        className={`relative w-10 h-10 lg:w-12 lg:h-12 rounded-full flex items-center justify-center transition-all duration-300 ${
+        className={`relative w-11 h-11 md:w-10 md:h-10 lg:w-12 lg:h-12 rounded-full flex items-center justify-center transition-all duration-300 ${
           isRecording
             ? 'bg-red-500/20 border-2 border-red-500/60 text-red-400 shadow-[0_0_20px_rgba(239,68,68,0.4)] animate-pulse'
             : isProcessingVoice
@@ -97,7 +97,7 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
         )}
       </button>
 
-      <div className="flex gap-4 lg:gap-5 items-center font-mono-data">
+      <div className="hidden md:flex gap-4 lg:gap-5 items-center font-mono-data">
         <span className="flex items-center gap-1.5">
           <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_6px_rgba(6,182,212,0.7)]" />
           <span className="text-zinc-600">Pendiente</span>

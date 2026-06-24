@@ -17,6 +17,11 @@ service cloud.firestore {
         request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
 
+    // Correo verificado: Google siempre lo es; Email/Password solo tras verificación
+    function isVerifiedUser() {
+      return isRealUser() && request.auth.token.email_verified == true;
+    }
+
     function hasOnlyAllowedFields(allowedFields) {
       return request.resource.data.keys().hasOnly(allowedFields);
     }
@@ -54,9 +59,9 @@ service cloud.firestore {
 
     match /company_configs/{configId} {
       allow read: if isAuthenticated();
-      allow create: if isRealUser() && isValidCompanyConfig();
-      allow update: if isRealUser() && isValidCompanyConfig();
-      allow delete: if isRealUser();
+      allow create: if isVerifiedUser() && isValidCompanyConfig();
+      allow update: if isVerifiedUser() && isValidCompanyConfig();
+      allow delete: if isVerifiedUser();
     }
 
     // Las órdenes ahora viven en Odoo. Los datos históricos de estas

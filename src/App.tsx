@@ -10,6 +10,7 @@ import AdminPanel from './pages/AdminPanel';
 import StatsDashboard from './pages/StatsDashboard';
 import Login from './pages/Login';
 import ErrorBoundary from './components/ErrorBoundary';
+import { TooltipProvider } from './components/ui/tooltip';
 
 export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -71,31 +72,33 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          
-          <Route path="/" element={<Layout />}>
-            <Route index element={
-              <ProtectedRoute>
-                <TVDashboard />
-              </ProtectedRoute>
-            } />
+      <TooltipProvider delayDuration={300}>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
             
-            <Route path="admin" element={
-              <ProtectedRoute>
-                <AdminPanel />
-              </ProtectedRoute>
-            } />
-            
-            <Route path="stats" element={
-              <ProtectedRoute>
-                <StatsDashboard />
-              </ProtectedRoute>
-            } />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+            <Route path="/" element={<Layout />}>
+              <Route index element={
+                <ProtectedRoute>
+                  <TVDashboard />
+                </ProtectedRoute>
+              } />
+              
+              <Route path="admin" element={
+                <ProtectedRoute>
+                  <AdminPanel />
+                </ProtectedRoute>
+              } />
+              
+              <Route path="stats" element={
+                <ProtectedRoute>
+                  <StatsDashboard />
+                </ProtectedRoute>
+              } />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
     </ErrorBoundary>
   );
 }

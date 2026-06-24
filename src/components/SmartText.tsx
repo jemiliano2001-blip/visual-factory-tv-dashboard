@@ -1,4 +1,5 @@
-import React, { useRef, useState, useEffect, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useLayoutEffect } from 'react';
+import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
 
 // ─── Diccionario de abreviaciones comunes en español (manufactura) ──────────
 const ABBREVIATIONS: [RegExp, string][] = [
@@ -37,6 +38,15 @@ const ABBREVIATIONS: [RegExp, string][] = [
   [/\bConector\b/gi, 'Conect.'],
   [/\bTornillos?\b/gi, 'Torn.'],
   [/\bTransportador\b/gi, 'Transp.'],
+  [/\bCalibraci[oó]n\b/gi, 'Calib.'],
+  [/\bProgramaci[oó]n\b/gi, 'Prog.'],
+  [/\bInspecci[oó]n\b/gi, 'Insp.'],
+  [/\bMec[aá]nico\b/gi, 'Mec.'],
+  [/\bProyecto\b/gi, 'Proy.'],
+  [/\bEnsamblaje\b/gi, 'Ens.'],
+  [/\bSoldadura\b/gi, 'Sold.'],
+  [/\bPintura\b/gi, 'Pint.'],
+  [/\bComponentes?\b/gi, 'Comp.'],
 ];
 
 // Palabras sin información clave que se pueden eliminar en nivel agresivo
@@ -104,71 +114,45 @@ const SmartText: React.FC<SmartTextProps> = ({
   defaultLevel = 0,
 }) => {
   const containerRef = useRef<HTMLSpanElement>(null);
+  const lastWidthRef = useRef<number>(0);
   
   const levels = useMemo(() => generateTextLevels(text), [text]);
   const initialLevel = Math.min(defaultLevel, levels.length - 1);
   const [levelIndex, setLevelIndex] = useState(initialLevel);
 
-  // Detectar overflow y avanzar niveles
-  useEffect(() => {
-    if (disableSmart || !containerRef.current) return;
-
-    // Reset al nivel por defecto cuando cambia el texto
+  // 1. Reset al nivel inicial cuando cambia el texto
+  useLayoutEffect(() => {
     setLevelIndex(initialLevel);
+  }, [text, initialLevel]);
 
-    const el = containerRef.current;
-
-    const checkOverflow = () => {
-      if (!el) return;
-      // Determinar si el texto desborda el contenedor
-      const isOverflowing = el.scrollHeight > el.clientHeight + 2 || el.scrollWidth > el.clientWidth + 2;
-
-      if (isOverflowing) {
-        setLevelIndex((prev) => {
-          const next = prev + 1;
-          return next < levels.length ? next : prev;
-        });
-      }
-    };
-
-    // Verificar después de que el layout se estabilice
-    const raf = requestAnimationFrame(() => {
-      checkOverflow();
-    });
-
-    // Escuchar cambios de tamaño de ventana en lugar del span para evitar loop infinito
-    let resizeTimer: ReturnType<typeof setTimeout>;
-    const handleResize = () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        setLevelIndex(initialLevel);
-        requestAnimationFrame(checkOverflow);
-      }, 250);
-    };
-    
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      clearTimeout(resizeTimer);
-      window.removeEventListener('resize', handleResize);
-    };
-  }, [text, disableSmart, levels.length, initialLevel]);
-
-  // Re-check overflow cuando cambia el levelIndex (necesario para cascada)
-  useEffect(() => {
+  // 2. Cascada síncrona si hay overflow
+  useLayoutEffect(() => {
     if (disableSmart || !containerRef.current) return;
-
     const el = containerRef.current;
-    const timer = setTimeout(() => {
-      const isOverflowing = el.scrollHeight > el.clientHeight + 2 || el.scrollWidth > el.clientWidth + 2;
-      if (isOverflowing && levelIndex < levels.length - 1) {
-        setLevelIndex((prev) => prev + 1);
-      }
-    }, 50);
-
-    return () => clearTimeout(timer);
+    
+    const isOverflowing = el.scrollHeight > el.clientHeight + 2 || el.scrollWidth > el.clientWidth + 2;
+    if (isOverflowing && levelIndex < levels.length - 1) {
+      setLevelIndex((prev) => prev + 1);
+    }
   }, [levelIndex, disableSmart, levels.length]);
+
+  // 3. ResizeObserver para recalcular si cambia el ancho del contenedor
+  useLayoutEffect(() => {
+    if (disableSmart || !containerRef.current) return;
+    const el = containerRef.current;
+    
+    const observer = new ResizeObserver((entries) => {
+      const newWidth = entries[0].contentRect.width;
+      // Solo reiniciar si el ancho cambió significativamente (ignora cambios de altura por wrapping)
+      if (lastWidthRef.current !== 0 && Math.abs(newWidth - lastWidthRef.current) > 2) {
+        setLevelIndex(initialLevel);
+      }
+      lastWidthRef.current = newWidth;
+    });
+    
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [disableSmart, initialLevel]);
 
   const displayText = disableSmart ? text : (levels[levelIndex] || text);
   const isAbbreviated = levelIndex > 0;
@@ -182,14 +166,22 @@ const SmartText: React.FC<SmartTextProps> = ({
   };
 
   return (
-    <span
-      ref={containerRef}
-      className={`${className} ${isAbbreviated ? 'cursor-help' : ''}`}
-      style={disableSmart ? undefined : lineClampStyle}
-      title={isAbbreviated ? text : undefined}
-    >
-      {displayText}
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          ref={containerRef}
+          className={`${className} ${isAbbreviated ? 'cursor-help' : ''}`}
+          style={disableSmart ? undefined : lineClampStyle}
+        >
+          {displayText}
+        </span>
+      </TooltipTrigger>
+      {isAbbreviated && (
+        <TooltipContent>
+          <p className="max-w-xs text-center leading-relaxed">{text}</p>
+        </TooltipContent>
+      )}
+    </Tooltip>
   );
 };
 

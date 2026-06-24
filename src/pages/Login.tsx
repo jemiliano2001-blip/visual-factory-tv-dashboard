@@ -89,6 +89,7 @@ export default function Login() {
             {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
           </button>
         </form>
+
       </div>
     </div>
   );

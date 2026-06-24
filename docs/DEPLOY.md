@@ -33,6 +33,8 @@ ODOO_PASSWORD=<contraseña fuerte y nueva>
 ODOO_PROXY_PORT=3001
 
 # Gemini (features de IA)
+# Nota: La API key ya NO se expone en el código frontend por seguridad. 
+# Solo el servidor Express (server.ts) la lee para fungir como proxy seguro hacia Google.
 GEMINI_API_KEY=<tu key de Gemini>
 
 # Discord (notificaciones)

@@ -172,17 +172,18 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           isRefreshing={isRefreshing}
         />
 
-        <div className="w-px h-6" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
-
-        {iconBtn(onToggleGradient, showGradient, 'Alternar Gradiente', <Palette className="w-4 h-4" />)}
-        {iconBtn(onToggleFullscreen, isFullscreen, isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa', isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />)}
-        {iconBtn(() => onViewModeChange(isTVMode ? 'desktop' : 'tv'), isTVMode, isTVMode ? 'Modo Escritorio' : 'Modo TV', <Monitor className="w-4 h-4" />)}
-
-        <div className="w-px h-6 ml-1" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
+        {/* Controles de escritorio — ocultos en móvil */}
+        <div className="hidden md:flex items-center gap-2">
+          <div className="w-px h-6" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
+          {iconBtn(onToggleGradient, showGradient, 'Alternar Gradiente', <Palette className="w-4 h-4" />)}
+          {iconBtn(onToggleFullscreen, isFullscreen, isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa', isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />)}
+          {iconBtn(() => onViewModeChange(isTVMode ? 'desktop' : 'tv'), isTVMode, isTVMode ? 'Modo Escritorio' : 'Modo TV', <Monitor className="w-4 h-4" />)}
+          <div className="w-px h-6 ml-1" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
+        </div>
 
         <div className="text-right">
-          <div className="font-mono-data text-2xl lg:text-3xl font-bold text-cyan-400" style={{ textShadow: '0 0 20px rgba(6,182,212,0.5)' }}>{format(currentTime, 'HH:mm:ss')}</div>
-          <div className="font-mono-data text-zinc-600 uppercase tracking-widest text-[9px] lg:text-[10px] mt-0.5">{format(currentTime, "EEE dd MMM yyyy")}</div>
+          <div className="font-mono-data text-lg md:text-2xl lg:text-3xl font-bold text-cyan-400" style={{ textShadow: '0 0 20px rgba(6,182,212,0.5)' }}>{format(currentTime, 'HH:mm')}</div>
+          <div className="hidden md:block font-mono-data text-zinc-600 uppercase tracking-widest text-[9px] lg:text-[10px] mt-0.5">{format(currentTime, "EEE dd MMM yyyy")}</div>
         </div>
       </div>
     </header>
