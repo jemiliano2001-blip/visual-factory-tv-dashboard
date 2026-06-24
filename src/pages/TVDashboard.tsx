@@ -626,7 +626,6 @@ export default function TVDashboard() {
       className={`bg-background text-foreground px-4 lg:px-6 font-sans transition-all duration-700 relative ${
         isTVMode ? 'tv-viewport' : 'desktop-viewport custom-scrollbar'
       } ${isFullscreen ? 'w-full h-full' : ''}`}
-      style={isMobile ? { paddingBottom: '0' } : undefined}
     >
       {/* Background gradient */}
       <AnimatePresence>
@@ -668,8 +667,8 @@ export default function TVDashboard() {
       {/* ── Main grid ──────────────────────────────────────────────────────────── */}
       <div
         ref={containerRef}
-        className={`flex-1 pb-1 relative flex flex-col z-10 ${
-          isTVMode ? 'min-h-0 overflow-hidden' : ''
+        className={`flex-1 relative flex flex-col z-10 ${
+          isTVMode ? 'min-h-0 overflow-hidden pb-1' : isMobile ? 'pb-20' : 'pb-1'
         }`}
       >
         {odooOrders.length > 0 && (
