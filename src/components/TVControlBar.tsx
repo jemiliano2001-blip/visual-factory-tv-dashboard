@@ -45,53 +45,64 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
   // ── Móvil: barra de búsqueda compacta siempre visible ─────────────────────────
   if (isMobile) {
     return (
-      <div className="mb-3 space-y-2">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={textFilter}
-              onChange={(e) => onText(e.target.value)}
-              placeholder="Buscar OV, producto o cliente…"
-              className="h-10 pl-9"
-            />
+      <div className="mb-3">
+        <div
+          className="glass-panel rounded-2xl px-3 py-2.5 shadow-overlay space-y-2"
+        >
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/60" />
+              <Input
+                value={textFilter}
+                onChange={(e) => onText(e.target.value)}
+                placeholder="Buscar OV, producto o cliente…"
+                className="h-10 pl-9 bg-transparent border-white/8 focus-visible:border-primary/40 focus-visible:ring-0 focus-visible:ring-offset-0"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowClientSelect(s => !s)}
+              title="Filtrar por cliente"
+              className={`relative h-10 w-10 shrink-0 flex items-center justify-center rounded-xl border transition-all duration-200 ${
+                clientFilter || showClientSelect
+                  ? 'bg-primary/20 border-primary/50 text-primary'
+                  : 'border-white/10 text-muted-foreground/60 hover:border-white/20 hover:text-muted-foreground'
+              }`}
+            >
+              <SlidersHorizontal className="size-4" />
+              {clientFilter && (
+                <span className="absolute -right-1 -top-1 size-2 rounded-full bg-primary ring-2 ring-background" />
+              )}
+            </button>
+
+            {hasFilters && (
+              <button
+                type="button"
+                onClick={onClear}
+                title="Limpiar filtros"
+                className="h-10 w-10 shrink-0 flex items-center justify-center rounded-xl border border-white/10 text-muted-foreground/60 transition-colors hover:border-red-500/40 hover:text-red-400"
+              >
+                <X className="size-4" />
+              </button>
+            )}
           </div>
 
-          <Button
-            type="button"
-            variant={clientFilter ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setShowClientSelect(s => !s)}
-            className="relative h-10 shrink-0 px-3"
-            title="Filtrar por cliente"
-          >
-            <SlidersHorizontal className="size-4" />
-            {clientFilter && (
-              <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-primary ring-2 ring-background" />
-            )}
-          </Button>
-
-          {hasFilters && (
-            <Button type="button" variant="ghost" size="sm" onClick={onClear} className="h-10 shrink-0 px-2" title="Limpiar filtros">
-              <X className="size-4" />
-            </Button>
+          {showClientSelect && (
+            <Select
+              value={clientFilter || ALL_CLIENTS}
+              onValueChange={(v) => { onClient(v === ALL_CLIENTS ? null : v); setShowClientSelect(false); }}
+            >
+              <SelectTrigger className="h-10 w-full bg-transparent border-white/8 focus:ring-0">
+                <SelectValue placeholder="Todos los clientes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_CLIENTS}>Todos los clientes</SelectItem>
+                {clients.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
           )}
         </div>
-
-        {showClientSelect && (
-          <Select
-            value={clientFilter || ALL_CLIENTS}
-            onValueChange={(v) => { onClient(v === ALL_CLIENTS ? null : v); setShowClientSelect(false); }}
-          >
-            <SelectTrigger className="h-10 w-full">
-              <SelectValue placeholder="Todos los clientes" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_CLIENTS}>Todos los clientes</SelectItem>
-              {clients.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
       </div>
     );
   }
