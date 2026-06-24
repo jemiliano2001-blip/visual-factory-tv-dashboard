@@ -29,7 +29,7 @@ const SoundWave = () => (
 const Breadcrumbs = ({ company, current, total }: { company?: string; current?: number; total?: number }) => {
   if (!company) return null;
   return (
-    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 mt-2">
+    <div className="hidden md:flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 mt-2">
       <span className="text-zinc-600">Dashboard</span>
       <ChevronRight className="w-3 h-3 text-zinc-700" />
       <span className="text-indigo-400/80">{company}</span>
