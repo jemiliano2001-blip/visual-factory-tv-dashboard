@@ -35,9 +35,9 @@ const PRIORITY_LABELS: Record<string, string> = {
 };
 
 export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isOpen, onClose }) => {
-  if (!order) return null;
-
   const isMobile = useMobile();
+
+  if (!order) return null;
 
   const orderDate = parseOdooDate(order.date_order);
   const commitmentDate = parseOdooDate(order.commitment_date);
