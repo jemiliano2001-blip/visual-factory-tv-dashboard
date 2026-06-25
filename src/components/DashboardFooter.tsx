@@ -33,22 +33,31 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
   onToggleRecording,
 }) => {
   return (
-    <footer className="mt-auto pt-3 pb-2 lg:pb-3 bg-background flex items-center text-[9px] lg:text-[10px] text-zinc-600 uppercase tracking-widest sticky bottom-0 z-[60] flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-      <div className="flex flex-1 items-center gap-4">
+    <footer className="mt-auto pt-2 pb-2 lg:pt-3 lg:pb-3 bg-background flex items-center text-[9px] lg:text-[10px] text-zinc-600 uppercase tracking-widest sticky bottom-0 z-[60] flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+      <div className="flex flex-1 items-center gap-2 lg:gap-4">
         <div className="font-mono-data">
-          <span className="text-zinc-600">Total:</span>{' '}
+          <span className="hidden sm:inline text-zinc-600">Total:</span>{' '}
           <span className="text-indigo-300 font-bold">{totalOrders}</span>{' '}
           <span className="text-zinc-700">órdenes</span>
         </div>
 
         {pages.length > 1 && (
-          <div className="flex gap-1.5 ml-1">
+          <div className="flex ml-1">
             {pages.map((_, idx) => (
               <button
                 key={idx}
                 onClick={() => onPageChange(idx)}
-                className={`h-1 rounded-full transition-all duration-500 ${idx === currentPageIndex ? 'w-5 bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.6)]' : 'w-1 bg-zinc-700 hover:bg-zinc-500'}`}
-              />
+                aria-label={`Página ${idx + 1}`}
+                className="p-3 -m-3 flex items-center justify-center"
+              >
+                <div
+                  className={`h-1 rounded-full transition-all duration-500 ${
+                    idx === currentPageIndex
+                      ? 'w-5 bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.6)]'
+                      : 'w-1 bg-zinc-700 hover:bg-zinc-500'
+                  }`}
+                />
+              </button>
             ))}
           </div>
         )}
@@ -73,16 +82,19 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
       </div>
 
       <button
-        onClick={onToggleRecording}
+        onClick={() => {
+          if (!isRecording && 'vibrate' in navigator) navigator.vibrate(10);
+          onToggleRecording();
+        }}
         disabled={isProcessingVoice || isSpeaking}
         title={isRecording ? 'Detener grabación' : 'Comando de Voz'}
-        className={`relative w-12 h-12 md:w-10 md:h-10 lg:w-12 lg:h-12 rounded-full flex items-center justify-center transition-all duration-300 ${
+        className={`w-11 h-11 lg:w-12 lg:h-12 rounded-full flex items-center justify-center transition-all duration-300 ${
           isRecording
-            ? 'bg-red-500/20 border-2 border-red-500/60 text-red-400 shadow-[0_0_20px_rgba(239,68,68,0.4)] animate-pulse'
+            ? 'bg-red-500/15 border-2 border-red-500/60 text-red-400 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
             : isProcessingVoice
-            ? 'bg-indigo-500/15 border-2 border-indigo-500/40 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.3)]'
+            ? 'bg-indigo-500/15 border-2 border-indigo-500/40 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.5)]'
             : isSpeaking
-            ? 'bg-emerald-500/15 border-2 border-emerald-500/40 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse'
+            ? 'bg-emerald-500/15 border-2 border-emerald-500/40 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse'
             : 'bg-indigo-500/10 border-2 border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 hover:border-indigo-400/50 hover:shadow-[0_0_20px_rgba(99,102,241,0.3)]'
         }`}
       >
@@ -97,7 +109,7 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
         )}
       </button>
 
-      <div className="flex-1 flex invisible md:visible items-center justify-end gap-4 lg:gap-5 font-mono-data">
+      <div className="flex-1 flex max-md:hidden items-center justify-end gap-4 lg:gap-5 font-mono-data">
         <span className="flex items-center gap-1.5">
           <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_6px_rgba(6,182,212,0.7)]" />
           <span className="text-zinc-600">Pendiente</span>
