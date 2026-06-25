@@ -131,6 +131,15 @@
     display: flex;
     flex-direction: column;
   }
+
+  /* Utility: hide scrollbar visually on all platforms */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @keyframes borderPulse {
