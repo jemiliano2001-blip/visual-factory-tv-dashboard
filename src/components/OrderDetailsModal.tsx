@@ -9,6 +9,7 @@ import {
   DialogDescription,
 } from './ui/dialog';
 import { Calendar, User, Package, FileText, CheckCircle2, Clock } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import { useMobile } from '../hooks/useMobile';
 import {
   Drawer,
@@ -167,7 +168,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                 </div>
                 <div
                   className="p-4 rounded-2xl bg-zinc-900/40 border border-white/5 text-zinc-300 text-xs whitespace-pre-wrap font-medium leading-relaxed max-h-[150px] overflow-y-auto custom-scrollbar no-scrollbar"
-                  dangerouslySetInnerHTML={{ __html: order.note }}
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(order.note) }}
                 />
               </div>
             )}
@@ -290,7 +291,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
               </div>
               <div
                 className="p-4 sm:p-5 rounded-2xl bg-zinc-900/40 border border-white/5 text-zinc-300 text-xs sm:text-sm whitespace-pre-wrap font-medium leading-relaxed max-h-[150px] overflow-y-auto custom-scrollbar no-scrollbar hover:border-amber-500/20 transition-colors duration-300"
-                dangerouslySetInnerHTML={{ __html: order.note }}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(order.note) }}
               />
             </div>
           )}
