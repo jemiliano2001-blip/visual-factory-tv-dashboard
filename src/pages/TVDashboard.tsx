@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { CompanyConfig } from '../types';
 import { subscribeToCompanyConfigs } from '../services/companyConfigs';
 import { getCustomerLogo } from '../utils/customerLogos';
-import { Clock, RefreshCw, WifiOff, CheckCircle2 } from 'lucide-react';
+import { Clock, RefreshCw, WifiOff, CheckCircle2, Mic } from 'lucide-react';
 import {
   OdooSaleOrder,
   getDeliveryProgress,
@@ -18,6 +18,7 @@ import { processTextVoiceCommand, generateSpeech } from '../services/ai';
 import OdooOrderCard from '../components/OdooOrderCard';
 import type { ViewMode } from '../components/OdooOrderCard';
 import SkeletonCard from '../components/SkeletonCard';
+import { OrderDetailsModal } from '../components/OrderDetailsModal';
 import DashboardHeader from '../components/DashboardHeader';
 import DashboardFooter from '../components/DashboardFooter';
 import TVControlBar from '../components/TVControlBar';
@@ -111,7 +112,8 @@ const CompanyTVSection: React.FC<{
   gridRows: number;
   companyConfigs: CompanyConfig[];
   highlightedSO: string | null;
-}> = ({ company, orders, isWide, isDense, gridCols, gridRows, companyConfigs, highlightedSO }) => (
+  onOrderClick: (order: OdooSaleOrder) => void;
+}> = ({ company, orders, isWide, isDense, gridCols, gridRows, companyConfigs, highlightedSO, onOrderClick }) => (
   <div className="flex flex-col h-full min-h-0 w-full">
     <div className="mb-3 lg:mb-4 flex items-center justify-between flex-shrink-0">
       <div className="flex flex-col gap-1">
@@ -174,6 +176,7 @@ const CompanyTVSection: React.FC<{
           isWide={isWide}
           isDense={isDense}
           viewMode="tv"
+          onClick={() => onOrderClick(order)}
         />
       ))}
     </motion.div>
@@ -201,6 +204,7 @@ export default function TVDashboard() {
   const [currentTime, setCurrentTime]       = useState(new Date());
   const [highlightedSO, setHighlightedSO]   = useState<string | null>(null);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const [selectedOrder, setSelectedOrder]   = useState<OdooSaleOrder | null>(null);
   const [viewMode, setViewMode]             = usePersistedState<ViewMode>('vftv:tv:viewMode', 'tv');
   const [isFullscreen, setIsFullscreen]     = useState(false);
   const [showGradient, setShowGradient]     = useState(true);
@@ -668,7 +672,7 @@ export default function TVDashboard() {
       <div
         ref={containerRef}
         className={`flex-1 relative flex flex-col z-10 ${
-          isTVMode ? 'min-h-0 overflow-hidden pb-1' : isMobile ? 'pb-20' : 'pb-1'
+          isTVMode ? 'min-h-0 overflow-hidden pb-1' : 'pb-1'
         }`}
       >
         {odooOrders.length > 0 && (
@@ -759,6 +763,7 @@ export default function TVDashboard() {
                 gridRows={gridRows}
                 companyConfigs={companyConfigs}
                 highlightedSO={highlightedSO}
+                onOrderClick={setSelectedOrder}
               />
             ) : (
               <div className="flex w-full h-full gap-6 lg:gap-8">
@@ -772,6 +777,7 @@ export default function TVDashboard() {
                     gridRows={gridRows}
                     companyConfigs={companyConfigs}
                     highlightedSO={highlightedSO}
+                    onOrderClick={setSelectedOrder}
                   />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -784,6 +790,7 @@ export default function TVDashboard() {
                     gridRows={gridRows}
                     companyConfigs={companyConfigs}
                     highlightedSO={highlightedSO}
+                    onOrderClick={setSelectedOrder}
                   />
                 </div>
               </div>
@@ -791,7 +798,7 @@ export default function TVDashboard() {
           </div>
         ) : !isTVMode && pages.length > 0 ? (
           /* ── Modo Desktop: todas las órdenes con scroll, agrupadas ── */
-          <div className="flex flex-col gap-8">
+          <div className={`flex flex-col ${isMobile ? 'gap-4' : 'gap-8'}`}>
             {pages.map((p) => {
               const pageData = p as Extract<PageData, { type: 'single' }>;
               return (
@@ -810,7 +817,7 @@ export default function TVDashboard() {
                       </div>
                     )}
                     <div>
-                      <h2 className="text-2xl lg:text-3xl font-black text-white tracking-tight uppercase">
+                      <h2 className="text-xl md:text-2xl lg:text-3xl font-black text-white tracking-tight uppercase">
                         {pageData.company}
                       </h2>
                       {companyConfigs.find(c => c.company_name === pageData.company) && (
@@ -830,10 +837,10 @@ export default function TVDashboard() {
 
                 {/* Orders grid */}
                 <div
-                  className="grid gap-4 lg:gap-6"
+                  className={`grid ${isMobile ? 'gap-3' : 'gap-4 lg:gap-6'}`}
                   style={{
                     gridTemplateColumns: `repeat(${Math.min(gridCols, 4)}, minmax(0, 1fr))`,
-                    gridAutoRows: 'minmax(220px, auto)',
+                    gridAutoRows: isMobile ? 'auto' : 'minmax(220px, auto)',
                   }}
                 >
                   {pageData.orders.map((order) => (
@@ -843,7 +850,9 @@ export default function TVDashboard() {
                       isHighlighted={highlightedSO === order.name}
                       isWide={false}
                       isDense={false}
+                      isMobile={isMobile}
                       viewMode="desktop"
+                      onClick={() => setSelectedOrder(order)}
                     />
                   ))}
                 </div>
@@ -883,12 +892,20 @@ export default function TVDashboard() {
             exit={{ opacity: 0, y: 20 }}
             className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none max-w-[80vw] px-6 py-3 rounded-2xl bg-indigo-500/15 border border-indigo-500/40 backdrop-blur-md shadow-[0_0_30px_rgba(99,102,241,0.3)]"
           >
-            <span className="text-indigo-200 font-semibold text-base lg:text-lg">
-              🎙️ «{voiceTranscript}»
+            <span className="flex items-center gap-2 text-indigo-200 font-semibold text-base lg:text-lg">
+              <Mic className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+              «{voiceTranscript}»
             </span>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Modal de Detalles de Orden ───────────────────────────────────────── */}
+      <OrderDetailsModal
+        order={selectedOrder}
+        isOpen={!!selectedOrder}
+        onClose={() => setSelectedOrder(null)}
+      />
 
       {/* ── Footer ─────────────────────────────────────────────────────────────── */}
       <DashboardFooter

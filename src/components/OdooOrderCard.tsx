@@ -2,10 +2,10 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   Clock, AlertTriangle, CheckCircle2, PlayCircle,
-  DollarSign, Package, User, Calendar, FileText, Check,
+  DollarSign, Package, User, Calendar, FileText, Check, Timer,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { OdooSaleOrder, OdooOrderLine, getOrderPriority, getDeliveryProgress, isOrderOverdue, parseOdooDate, getOrderAgeDays, formatOrderAge, STALE_AGE_DAYS } from '../services/odoo';
+import { OdooSaleOrder, OdooOrderLine, getOrderPriority, getDeliveryProgress, isOrderOverdue, parseOdooDate, getOrderAgeDays, formatOrderAge, STALE_AGE_DAYS, getDeliveryTimeStatus, DeliveryTimeInfo } from '../services/odoo';
 import SmartText from './SmartText';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────────
@@ -17,7 +17,9 @@ interface OdooOrderCardProps {
   isHighlighted: boolean;
   isWide: boolean;
   isDense?: boolean;
+  isMobile?: boolean;
   viewMode: ViewMode;
+  onClick?: () => void;
 }
 
 // ─── Constantes de estilo ───────────────────────────────────────────────────────
@@ -49,6 +51,13 @@ const PRIORITY_LABELS: Record<string, string> = {
   low: 'Baja', normal: 'Normal', high: 'Alta', critical: 'Vencida',
 };
 
+const DELIVERY_TIME_STYLES: Record<DeliveryTimeInfo['status'], { bg: string; text: string; border: string; icon: string }> = {
+  'on-time':  { bg: 'bg-emerald-500/15', text: 'text-emerald-400', border: 'border-emerald-500/40', icon: 'text-emerald-400' },
+  'warning':  { bg: 'bg-amber-500/15',   text: 'text-amber-400',   border: 'border-amber-500/40',   icon: 'text-amber-400' },
+  'overdue':  { bg: 'bg-red-500/20',      text: 'text-red-400',     border: 'border-red-500/50',     icon: 'text-red-400' },
+  'unknown':  { bg: '',                   text: '',                 border: '',                      icon: '' },
+};
+
 // ─── Componente ─────────────────────────────────────────────────────────────────
 
 const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
@@ -56,7 +65,9 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   isHighlighted,
   isWide,
   isDense,
+  isMobile,
   viewMode,
+  onClick,
 }) => {
   const priority = React.useMemo(() => getOrderPriority(order), [order.commitment_date]);
   const progress = React.useMemo(() => getDeliveryProgress(order), [order.qty_delivered, order.qty_total]);
@@ -66,6 +77,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   const isDesktop = viewMode === 'desktop';
   const ageDays = React.useMemo(() => getOrderAgeDays(order), [order.date_order]);
   const isStale = ageDays !== null && ageDays > STALE_AGE_DAYS;
+  const deliveryTime = React.useMemo(() => getDeliveryTimeStatus(order), [order.note, order.date_order]);
 
   // ── Resumen de remisiones (excluye canceladas) ─────────────────────────────
   const { deliveryCounts, deliveryStates } = React.useMemo(() => {
@@ -135,6 +147,96 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
     : progress > 0  ? 'text-emerald-400'
     : 'text-cyan-400';
 
+  // ── Mobile layout (lista súper compacta para móviles) ──────────────────────
+  if (isMobile) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.2 }}
+        id={`so-${order.name.replace(/\//g, '-')}`}
+        onClick={onClick}
+        className={`flex flex-col rounded-xl border transition-all duration-300 relative overflow-hidden ${cardBorder} ${staleRing} p-3 gap-2 min-h-0 cursor-pointer active:scale-[0.98] active:bg-white/5`}
+      >
+        {isOverdue && (
+          <div className="absolute top-0 right-0 bg-orange-500 w-1.5 h-full z-20" title="Vencida" />
+        )}
+        
+        {/* Fila 1: Título, Prioridad y Edad */}
+        <div className="flex justify-between items-start gap-2 relative z-10">
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-black tracking-tight text-white truncate pr-2">
+              {order.name}
+            </h3>
+            <div className="text-[10px] text-zinc-400 font-medium truncate mt-0.5">
+              {order.partner_name}
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+            <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${PRIORITY_COLORS[priority]}`}>
+              {PRIORITY_LABELS[priority]}
+            </span>
+            {isStale && (
+              <span className="text-[10px] font-black px-2 py-0.5 rounded border bg-amber-500/15 text-amber-400 border-amber-500/40">
+                {formatOrderAge(ageDays!)}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Fila 2: Producto principal y badge de tiempo (si cabe) */}
+        <div className="flex items-start justify-between gap-2 z-10 mt-0.5">
+          <div className="flex-1 min-w-0 flex items-center gap-1">
+            <Package className="w-3 h-3 text-zinc-500 flex-shrink-0" />
+            <SmartText
+              text={order.lines[0]?.name || order.main_product}
+              maxLines={1}
+              className="text-xs text-zinc-300 font-medium"
+              defaultLevel={2}
+            />
+            {order.lines.length > 1 && (
+              <span className="text-[9px] font-black text-zinc-500 shrink-0">
+                +{order.lines.length - 1}
+              </span>
+            )}
+          </div>
+          
+          {deliveryTime.status !== 'unknown' && (
+            <span className={`text-[10px] font-black px-2 py-0.5 rounded border shrink-0 flex items-center gap-0.5 ${DELIVERY_TIME_STYLES[deliveryTime.status].bg} ${DELIVERY_TIME_STYLES[deliveryTime.status].text} ${DELIVERY_TIME_STYLES[deliveryTime.status].border}`}>
+              <Timer className="w-2.5 h-2.5" />
+              {deliveryTime.businessDaysRemaining !== null
+                ? `${deliveryTime.businessDaysRemaining}d`
+                : `${deliveryTime.daysRange?.min}-${deliveryTime.daysRange?.max}d`
+              }
+            </span>
+          )}
+        </div>
+
+        {/* Fila 3: Progreso y barra delgada */}
+        <div className="mt-1 relative z-10 flex items-center gap-2">
+          <div className="flex items-center gap-1 shrink-0">
+            {StatusIcon}
+            <span className={`text-[9px] font-bold uppercase tracking-wider ${statusTextColor}`}>
+              {statusLabel}
+            </span>
+          </div>
+          <div className="flex-1 bg-black/40 h-1 rounded-full overflow-hidden border border-white/5 mx-1">
+            <div
+              className={`h-full rounded-full transition-all duration-1000 ${progressColor}`}
+              style={{ width: `${Math.max(progress, progress > 0 ? 4 : 0)}%` }}
+            />
+          </div>
+          <div className="flex items-baseline gap-1 shrink-0">
+            <span className={`text-xs font-black ${statusTextColor} leading-none`}>
+              {progress}%
+            </span>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
   // ── Dense layout (muchas cards, poco espacio) ───────────────────────────────
   if (isDense) {
     return (
@@ -144,7 +246,8 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
         exit={{ opacity: 0, scale: 0.95 }}
         transition={{ duration: 0.3 }}
         id={`so-${order.name.replace(/\//g, '-')}`}
-        className={`flex items-center rounded-2xl border-2 transition-all duration-300 relative overflow-hidden h-full ${cardBorder} ${staleRing} p-3 lg:p-4 gap-3 lg:gap-4 min-h-0`}
+        onClick={onClick}
+        className={`flex items-center rounded-2xl border-2 transition-all duration-300 relative overflow-hidden h-full ${cardBorder} ${staleRing} p-3 lg:p-4 gap-3 lg:gap-4 min-h-0 ${onClick ? 'cursor-pointer hover:scale-[1.02] active:scale-[0.98]' : ''}`}
       >
         {isOverdue && (
           <div className="absolute top-0 right-0 bg-orange-500 w-2 h-full z-20" title="Vencida" />
@@ -183,6 +286,18 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
             )}
           </div>
           
+          {deliveryTime.status !== 'unknown' && (
+            <div className="flex items-center gap-1 mb-1">
+              <Timer className={`w-2.5 h-2.5 flex-shrink-0 ${DELIVERY_TIME_STYLES[deliveryTime.status].icon}`} />
+              <span className={`text-[8px] lg:text-[9px] font-black px-1 py-0.5 rounded border ${DELIVERY_TIME_STYLES[deliveryTime.status].bg} ${DELIVERY_TIME_STYLES[deliveryTime.status].text} ${DELIVERY_TIME_STYLES[deliveryTime.status].border}`}>
+                {deliveryTime.businessDaysRemaining !== null
+                  ? `${deliveryTime.businessDaysRemaining}d háb`
+                  : `${deliveryTime.daysRange?.min}-${deliveryTime.daysRange?.max}d`
+                }
+              </span>
+            </div>
+          )}
+          
           <div className="flex items-center gap-2">
             <div className="flex-1 bg-black/40 h-1.5 lg:h-2 rounded-full overflow-hidden border border-white/5">
               <div
@@ -212,7 +327,8 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       exit={{ opacity: 0, scale: 0.8 }}
       transition={{ duration: 0.4, type: 'spring', bounce: 0.3 }}
       id={`so-${order.name.replace(/\//g, '-')}`}
-      className={`flex flex-col rounded-2xl border transition-all duration-500 relative overflow-hidden h-full min-h-0 ${cardBorder} ${staleRing} ${isWide ? 'p-5 xl:p-7' : 'p-3.5 lg:p-4'}`}
+      onClick={onClick}
+      className={`flex flex-col rounded-2xl border transition-all duration-500 relative overflow-hidden h-full min-h-0 ${cardBorder} ${staleRing} ${isWide ? 'p-5 xl:p-7' : 'p-3.5 lg:p-4'} ${onClick ? 'cursor-pointer hover:scale-[1.02] active:scale-[0.98]' : ''}`}
       style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
     >
       {/* Left accent stripe */}
@@ -255,6 +371,18 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
               <span className="text-[10px] font-black px-2 py-0.5 rounded flex items-center gap-1 bg-amber-500/15 text-amber-400 border border-amber-500/40 flex-shrink-0" title={`Creada hace ${formatOrderAge(ageDays!)}`}>
                 <Clock className="w-2.5 h-2.5" />
                 {formatOrderAge(ageDays!)}
+              </span>
+            )}
+            {deliveryTime.status !== 'unknown' && (
+              <span
+                className={`text-[10px] font-black px-2 py-0.5 rounded flex items-center gap-1 border flex-shrink-0 ${DELIVERY_TIME_STYLES[deliveryTime.status].bg} ${DELIVERY_TIME_STYLES[deliveryTime.status].text} ${DELIVERY_TIME_STYLES[deliveryTime.status].border}`}
+                title={`Entrega: ${deliveryTime.daysRange?.min}-${deliveryTime.daysRange?.max} días hábiles${deliveryTime.businessDaysRemaining !== null ? ` (${deliveryTime.businessDaysRemaining >= 0 ? deliveryTime.businessDaysRemaining + ' restantes' : Math.abs(deliveryTime.businessDaysRemaining) + ' vencidos'})` : ''}`}
+              >
+                <Timer className="w-2.5 h-2.5" />
+                {deliveryTime.businessDaysRemaining !== null
+                  ? `${deliveryTime.businessDaysRemaining}d háb`
+                  : `${deliveryTime.daysRange?.min}-${deliveryTime.daysRange?.max}d`
+                }
               </span>
             )}
           </div>
