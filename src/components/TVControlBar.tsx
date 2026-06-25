@@ -16,6 +16,12 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from './ui/select';
 import { useProximityVisible } from '../hooks/useProximityVisible';
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from './ui/drawer';
 
 const ALL_CLIENTS = '__all__';
 
@@ -38,7 +44,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
   const [anchorRef, near] = useProximityVisible<HTMLDivElement>(160);
   const [focused, setFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [showClientSelect, setShowClientSelect] = useState(false);
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
   const hasFilters = !!clientFilter || !!textFilter || isPaused;
 
@@ -46,10 +52,9 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
   if (isMobile) {
     return (
       <div className="mb-3">
-        <div
-          className="glass-panel rounded-2xl px-3 py-2.5 shadow-overlay space-y-2"
-        >
+        <div className="glass-panel rounded-2xl px-3 py-2.5 shadow-overlay">
           <div className="flex items-center gap-2">
+            {/* Search input — always visible */}
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/60" />
               <Input
@@ -60,12 +65,13 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
               />
             </div>
 
+            {/* Filter button — opens Drawer */}
             <button
               type="button"
-              onClick={() => setShowClientSelect(s => !s)}
+              onClick={() => setFilterDrawerOpen(true)}
               title="Filtrar por cliente"
               className={`relative h-10 w-10 shrink-0 flex items-center justify-center rounded-xl border transition-all duration-200 ${
-                clientFilter || showClientSelect
+                clientFilter
                   ? 'bg-primary/20 border-primary/50 text-primary'
                   : 'border-white/10 text-muted-foreground/60 hover:border-white/20 hover:text-muted-foreground'
               }`}
@@ -76,6 +82,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
               )}
             </button>
 
+            {/* Clear button */}
             {hasFilters && (
               <button
                 type="button"
@@ -87,22 +94,37 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
               </button>
             )}
           </div>
-
-          {showClientSelect && (
-            <Select
-              value={clientFilter || ALL_CLIENTS}
-              onValueChange={(v) => { onClient(v === ALL_CLIENTS ? null : v); setShowClientSelect(false); }}
-            >
-              <SelectTrigger className="h-10 w-full bg-transparent border-white/8 focus:ring-0">
-                <SelectValue placeholder="Todos los clientes" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_CLIENTS}>Todos los clientes</SelectItem>
-                {clients.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          )}
         </div>
+
+        {/* Client filter Drawer */}
+        <Drawer open={filterDrawerOpen} onOpenChange={setFilterDrawerOpen}>
+          <DrawerContent className="bg-[#050505]/98 border-white/5">
+            <DrawerHeader className="pb-2">
+              <DrawerTitle className="text-sm font-bold uppercase tracking-widest text-zinc-300">
+                Filtrar por cliente
+              </DrawerTitle>
+            </DrawerHeader>
+            <div className="px-4 pb-8 space-y-1 overflow-y-auto no-scrollbar max-h-[60dvh]">
+              {[null, ...clients].map((c) => (
+                <button
+                  key={c ?? '__all__'}
+                  type="button"
+                  onClick={() => {
+                    onClient(c);
+                    setFilterDrawerOpen(false);
+                  }}
+                  className={`w-full min-h-[44px] px-4 py-3 rounded-xl text-left text-sm font-medium transition-colors ${
+                    (clientFilter ?? null) === c
+                      ? 'bg-primary/15 text-primary border border-primary/30'
+                      : 'text-zinc-300 hover:bg-white/5'
+                  }`}
+                >
+                  {c ?? 'Todos los clientes'}
+                </button>
+              ))}
+            </div>
+          </DrawerContent>
+        </Drawer>
       </div>
     );
   }
