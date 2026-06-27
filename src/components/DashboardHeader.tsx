@@ -111,14 +111,14 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 
   return (
     <header
-      className="flex justify-between items-center mb-3 lg:mb-4 pt-4 lg:pt-6 pb-3 sticky top-0 z-[60] bg-background flex-shrink-0"
+      className="flex justify-between items-center mb-2 lg:mb-4 pt-2 lg:pt-6 pb-2 lg:pb-3 sticky top-0 z-[60] bg-background flex-shrink-0"
       style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
     >
       {/* Left: Brand + breadcrumbs */}
       <div>
         <h1
           onClick={onNavigateAdmin}
-          className="font-display text-xl lg:text-3xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 cursor-pointer hover:from-indigo-300 hover:to-cyan-300 transition-all"
+          className="font-display text-lg lg:text-3xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 cursor-pointer hover:from-indigo-300 hover:to-cyan-300 transition-all"
           title="Ir a Configuración"
         >
           FÁBRICA VISUAL
@@ -133,7 +133,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             initial={{ opacity: 0, scale: 0.8, y: 6 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: 6 }}
-            className="absolute left-1/2 -translate-x-1/2 top-3 flex items-center gap-3 px-5 py-2.5 rounded-full border border-emerald-500/30 shadow-[0_0_25px_rgba(16,185,129,0.2)] z-50"
+            className="absolute left-1/2 -translate-x-1/2 top-full mt-2 md:top-3 md:mt-0 flex items-center gap-3 px-5 py-2.5 rounded-full border border-emerald-500/30 shadow-[0_0_25px_rgba(16,185,129,0.2)] z-50"
             style={{ backgroundColor: 'rgba(10,10,15,0.9)', backdropFilter: 'blur(16px)' }}
           >
             <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
@@ -182,7 +182,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         </div>
 
         <div className="text-right">
-          <div className="font-mono-data text-lg md:text-2xl lg:text-3xl font-bold text-cyan-400" style={{ textShadow: '0 0 20px rgba(6,182,212,0.5)' }}>{format(currentTime, 'HH:mm')}</div>
+          <div className="font-mono-data text-base md:text-2xl lg:text-3xl font-bold text-cyan-300">{format(currentTime, 'HH:mm')}</div>
           <div className="hidden md:block font-mono-data text-zinc-600 uppercase tracking-widest text-[9px] lg:text-[10px] mt-0.5">{format(currentTime, "EEE dd MMM yyyy")}</div>
         </div>
       </div>

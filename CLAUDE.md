@@ -115,6 +115,9 @@ Voice filter types accepted by `setVoiceFilter`: `'all' | 'overdue' | 'pending' 
 - **HMR** is controlled by `DISABLE_HMR` env var (set by AI Studio to prevent flicker during agent edits) — leave the `server.hmr` logic in `vite.config.ts` alone.
 - The `@` import alias resolves to the **repo root** (`vite.config.ts` + `tsconfig.json`), but `src/` code currently uses relative imports throughout — match the surrounding style.
 - Odoo datetimes arrive as non-ISO strings (`"YYYY-MM-DD HH:MM:SS"` in UTC); always parse them through `parseOdooDate` (`src/services/odoo.ts`), which normalizes to a JS `Date` (or `null`). Don't `new Date()` raw Odoo strings — Safari rejects them and Chrome misreads the timezone.
+- **`order.note` is HTML**: Odoo sends `order.note` as raw HTML. Always sanitize with `DOMPurify.sanitize()` before `dangerouslySetInnerHTML`. Never render it raw.
+- **Mobile layout**: `useMobile()` (breakpoint: `< 768px`) drives two separate rendering paths. `OrderDetailsModal` renders as a shadcn `Drawer` (bottom sheet) on mobile, `Dialog` on desktop. The client filter in `TVDashboard` is also a `Drawer` on mobile. When adding new interactive UI, check `useMobile()` and handle both paths.
+- **shadcn/ui primitives**: New UI components go in `src/components/ui/` following the existing shadcn pattern. Don't install a new component library for something shadcn already covers.
 
 ## Project Structure
 
@@ -126,11 +129,17 @@ Voice filter types accepted by `setVoiceFilter`: `'all' | 'overdue' | 'pending' 
 │   ├── firebase.ts        # Firebase & Firestore initialization
 │   ├── types.ts           # Shared TypeScript types (CompanyConfig, Odoo re-exports)
 │   ├── pages/             # Route components (Admin, Stats, TV Dashboard)
-│   ├── hooks/
-│   │   └── useOdooOrders.ts  # Shared React Query hook (TV, Admin, Stats)
 │   ├── components/
 │   │   ├── admin/         # OrdersTable, ConfigTab, AIModal, riskTypes
-│   │   └── ...            # Reusable UI components
+│   │   ├── ui/            # shadcn/ui primitives (dialog, drawer, badge, button, …)
+│   │   ├── useOdooOrders.ts  # Shared React Query hook (TV, Admin, Stats)
+│   │   ├── useMobile.ts   # Breakpoint hook (< 768 px) — drives mobile vs. desktop layout
+│   │   ├── usePersistedState.ts  # localStorage-backed useState
+│   │   ├── useProximityVisible.ts
+│   │   ├── TVControlBar.tsx  # Voice mic + filter controls overlay
+│   │   ├── OdooStatusBadge.tsx
+│   │   ├── ErrorBoundary.tsx
+│   │   └── ...            # Other reusable UI components
 │   ├── services/
 │   │   ├── companyConfigs.ts  # Firestore CRUD for delivery schedules
 │   │   ├── odoo.ts        # Odoo API client (via proxy)
@@ -161,4 +170,10 @@ Regla: usar siempre `/browse` para navegación web — **nunca** usar herramient
 Skills disponibles:
 `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/setup-gbrain`, `/retro`, `/investigate`, `/document-release`, `/document-generate`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`
 ```
+
+## Design System
+Always read `DESIGN.md` before making any visual or UI decisions.
+All font choices, colors, spacing, status/urgency rules, and aesthetic direction are defined there.
+The implemented tokens live in `src/index.css` (`@theme`); `DESIGN.md` explains intent and the rules code must follow.
+Do not deviate without explicit user approval. In QA/review, flag any code that doesn't match `DESIGN.md`.
 

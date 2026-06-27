@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -8,8 +8,9 @@
    planta). Los primitivos de src/components/ui consumen estos tokens.
    ───────────────────────────────────────────────────────────────────────── */
 @theme {
-  /* Tipografía */
-  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  /* Tipografía — Inter para UI (alta legibilidad a distancia), Syne para marca,
+     JetBrains Mono para datos (SO, %, cantidades). */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Syne", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
@@ -48,6 +49,15 @@
   --color-info-foreground: #ffffff;
   --color-data: #22d3ee;
 
+  /* Estado de urgencia — sistema de color ÚNICO del Dashboard (color = urgencia).
+     Colores sólidos y vivos para legibilidad a distancia en TV de planta. */
+  /* Jerarquía de alarma (DESIGN.md): base tranquila, excepción ruidosa.
+     Solo "Atrasada" (rojo) es ruidosa; "En tiempo" se atenúa para que ceda. */
+  --color-status-overdue: #ef4444;   /* rojo        — Atrasada (ÚNICO estado ruidoso) */
+  --color-status-warning: #f59e0b;   /* ámbar       — Por vencer (señal media) */
+  --color-status-ontime:  #3f6b54;   /* verde tenue — En tiempo (atenuado, debe ceder) */
+  --color-status-none:    #64748b;   /* gris        — Sin fecha */
+
   /* Radios / sombra */
   --radius: 0.75rem;
   --shadow-card: 0 10px 30px -14px rgba(0, 0, 0, 0.7);
@@ -73,6 +83,7 @@
   }
   .font-mono-data {
     font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
   }
   .glass-panel {
     background-color: rgba(10, 10, 15, 0.8);

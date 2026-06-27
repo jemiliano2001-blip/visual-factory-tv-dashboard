@@ -25,7 +25,7 @@ export default function Layout() {
 
   if (isTvDashboard) {
     return (
-      <div className="h-screen bg-background text-foreground">
+      <div className="h-dvh bg-background text-foreground">
         <Outlet />
       </div>
     );

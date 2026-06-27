@@ -344,6 +344,7 @@ interface OdooRawOrder {
   order_line: number[];
   state: string;
   user_id: [number, string] | false;
+  note: string | false;
 }
 
 interface OdooRawPicking {
@@ -417,6 +418,7 @@ export async function fetchInvoiceableOrders() {
         'order_line',
         'state',
         'user_id',
+        'note',
       ],
     }
   );
@@ -542,6 +544,7 @@ export async function fetchInvoiceableOrders() {
       qty_delivered:   deliveredQty,
       state:           order.state,
       salesperson:     order.user_id ? order.user_id[1] : null,
+      note:            typeof order.note === 'string' ? order.note : null,
       lines_count:     lines.length,
       lines: lines.map(l => {
         const realDone = fetchedMoves ? (movesBySaleLine.get(l.id) || 0) : l.qty_delivered;

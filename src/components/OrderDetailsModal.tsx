@@ -8,7 +8,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from './ui/dialog';
-import { Calendar, User, Package, FileText, CheckCircle2, Clock } from 'lucide-react';
+import { Calendar, User, Package, FileText, CheckCircle2, Clock, X } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { useMobile } from '../hooks/useMobile';
 import {
@@ -16,6 +16,7 @@ import {
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
+  DrawerClose,
 } from './ui/drawer';
 
 interface OrderDetailsModalProps {
@@ -63,98 +64,99 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
   if (isMobile) {
     return (
       <Drawer open={isOpen} onOpenChange={(open) => !open && onClose()}>
-        <DrawerContent className="max-h-[92dvh] flex flex-col bg-[#050505]/98 border-white/5 rounded-t-2xl">
+        <DrawerContent className="z-[70] max-h-[92dvh] flex flex-col bg-[#050505]/98 border-white/5 rounded-t-2xl">
           {/* Top glow line */}
           <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-blue-500/50 to-transparent" />
 
-          {/* Fixed header */}
-          <div className="flex-shrink-0 px-4 pt-4 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            <DrawerHeader className="p-0">
+          {/* Header fijo: PO + cliente + X siempre visibles (no se ocultan al hacer scroll) */}
+          <div className="relative flex-shrink-0 px-4 pt-4 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <DrawerHeader className="p-0 text-left">
               <DrawerTitle asChild>
-                <div>{headerContent}</div>
+                <div className="pr-14">{headerContent}</div>
               </DrawerTitle>
             </DrawerHeader>
+            <DrawerClose
+              aria-label="Cerrar"
+              className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full bg-zinc-900/80 backdrop-blur-md text-zinc-300 border border-white/10 hover:text-white hover:bg-zinc-800 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-pointer shadow-xl"
+            >
+              <X className="w-5 h-5" />
+            </DrawerClose>
           </div>
 
           {/* Scrollable body */}
           <div className="overflow-y-auto custom-scrollbar no-scrollbar flex-1 min-h-0 p-4">
             {/* ── Campos de cabecera ── */}
             <div className="rounded-xl border border-white/5 bg-zinc-900/30 divide-y divide-white/5 mb-5">
-              <div className="flex justify-between items-center px-4 py-3">
-                <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Creación</span>
-                <div className="flex items-center gap-2 text-blue-400 font-medium text-sm">
+              <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
+                <span className="text-[11px] text-zinc-500 uppercase tracking-widest font-bold">Creación</span>
+                <div className="flex items-center gap-2 text-blue-400 font-semibold text-sm">
                   <Calendar className="w-4 h-4 text-blue-500/70 flex-shrink-0" />
                   {orderDate ? format(orderDate, 'dd/MM/yyyy HH:mm') : '-'}
                 </div>
               </div>
-              <div className="flex justify-between items-center px-4 py-3">
-                <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Entrega</span>
-                <div className="flex items-center gap-2 text-blue-400 font-medium text-sm">
+              <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
+                <span className="text-[11px] text-zinc-500 uppercase tracking-widest font-bold">Entrega</span>
+                <div className="flex items-center gap-2 text-blue-400 font-semibold text-sm">
                   <Clock className="w-4 h-4 text-blue-500/70 flex-shrink-0" />
                   {commitmentDate ? format(commitmentDate, 'dd/MM/yyyy') : '-'}
                 </div>
               </div>
-              <div className="flex justify-between items-center px-4 py-3">
-                <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Responsable</span>
-                <div className="flex items-center gap-2 text-blue-400 font-medium text-sm">
+              <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
+                <span className="text-[11px] text-zinc-500 uppercase tracking-widest font-bold">Responsable</span>
+                <div className="flex items-center gap-2 text-blue-400 font-semibold text-sm">
                   <User className="w-4 h-4 text-blue-500/70 flex-shrink-0" />
-                  <span className="truncate max-w-[160px]">{order.salesperson || '-'}</span>
+                  <span className="truncate max-w-[180px]">{order.salesperson || '-'}</span>
                 </div>
               </div>
             </div>
 
-            {/* ── Líneas de la orden ── */}
+            {/* ── Líneas de la orden — tarjetas verticales (sin scroll horizontal) ── */}
             <div className="mb-6">
               <div className="flex items-center gap-2 mb-3">
                 <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
                   <Package className="w-4 h-4 text-blue-400" />
                 </div>
-                <h4 className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest">Líneas de la Orden</h4>
+                <h4 className="text-[11px] font-bold text-zinc-300 uppercase tracking-widest">Líneas de la Orden</h4>
               </div>
-              <div className="rounded-2xl border border-white/5 bg-zinc-950/50 overflow-hidden shadow-inner">
-                <div className="overflow-auto custom-scrollbar no-scrollbar">
-                  <table className="w-full text-left text-xs whitespace-nowrap">
-                    <thead className="bg-zinc-900/80 sticky top-0 z-10 border-b border-white/5">
-                      <tr>
-                        <th className="px-3 py-3 font-bold text-zinc-500 uppercase tracking-widest text-[9px]">Descripción</th>
-                        <th className="px-3 py-3 font-bold text-zinc-500 uppercase tracking-widest text-[9px] w-20 text-right">Cant.</th>
-                        <th className="px-3 py-3 font-bold text-zinc-500 uppercase tracking-widest text-[9px] w-20 text-right">Entregado</th>
-                        <th className="px-3 py-3 font-bold text-zinc-500 uppercase tracking-widest text-[9px] w-14 text-center">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5">
-                      {order.lines.map((line, idx) => {
-                        const isComplete = line.qty > 0 && line.delivered >= line.qty;
-                        const isPartial = line.delivered > 0 && line.delivered < line.qty;
-                        return (
-                          <tr key={idx} className="group hover:bg-blue-900/10 transition-colors duration-200">
-                            <td className="px-3 py-3 whitespace-normal min-w-[180px]">
-                              <div className={`font-medium ${isComplete ? 'text-zinc-500' : 'text-zinc-200'}`}>
-                                {line.name}
-                              </div>
-                            </td>
-                            <td className="px-3 py-3 text-right font-mono-data text-zinc-400">{line.qty.toFixed(2)}</td>
-                            <td className="px-3 py-3 text-right font-mono-data">
-                              <span className={`px-2 py-1 rounded-md text-[10px] font-bold ${
-                                isComplete ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                : isPartial ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                : 'bg-zinc-800/50 text-zinc-400 border border-white/5'
-                              }`}>
-                                {line.delivered.toFixed(2)}
-                              </span>
-                            </td>
-                            <td className="px-3 py-3 text-center">
-                              {isComplete
-                                ? <CheckCircle2 className="w-4 h-4 text-emerald-500 mx-auto" />
-                                : <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mx-auto shadow-[0_0_8px_rgba(245,158,11,0.6)] animate-pulse" />
-                              }
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+              <div className="flex flex-col gap-2">
+                {order.lines.map((line, idx) => {
+                  const isComplete = line.qty > 0 && line.delivered >= line.qty;
+                  const isPartial = line.delivered > 0 && line.delivered < line.qty;
+                  return (
+                    <div
+                      key={idx}
+                      className="rounded-xl border border-white/5 bg-zinc-950/50 p-3.5 shadow-inner"
+                    >
+                      <div className="flex items-start gap-2 mb-2.5">
+                        {isComplete
+                          ? <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
+                          : <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0 mt-1.5 shadow-[0_0_8px_rgba(245,158,11,0.6)] animate-pulse" />
+                        }
+                        <p className={`text-sm font-semibold leading-snug ${isComplete ? 'text-zinc-500' : 'text-zinc-100'}`}>
+                          {line.name}
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 pl-6">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Cantidad</span>
+                          <span className="text-base font-black text-zinc-200 font-mono-data leading-tight">
+                            {line.qty.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex flex-col items-end">
+                          <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Entregado</span>
+                          <span className={`px-2.5 py-0.5 rounded-md text-sm font-black font-mono-data ${
+                            isComplete ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            : isPartial ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            : 'bg-zinc-800/50 text-zinc-400 border border-white/5'
+                          }`}>
+                            {line.delivered.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -167,7 +169,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                   <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-widest">Notas</h4>
                 </div>
                 <div
-                  className="p-4 rounded-2xl bg-zinc-900/40 border border-white/5 text-zinc-300 text-xs whitespace-pre-wrap font-medium leading-relaxed max-h-[150px] overflow-y-auto custom-scrollbar no-scrollbar"
+                  className="p-4 rounded-2xl bg-zinc-900/40 border border-white/5 text-zinc-300 text-sm whitespace-pre-wrap font-medium leading-relaxed max-h-[150px] overflow-y-auto custom-scrollbar no-scrollbar"
                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(order.note) }}
                 />
               </div>

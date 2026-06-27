@@ -16,7 +16,7 @@ import { formatPONumber } from '../utils/formatters';
 import { useOdooOrders } from '../hooks/useOdooOrders';
 import { processTextVoiceCommand, generateSpeech } from '../services/ai';
 import OdooOrderCard from '../components/OdooOrderCard';
-import type { ViewMode } from '../components/OdooOrderCard';
+import type { ViewMode, ScreenTier } from '../components/OdooOrderCard';
 import SkeletonCard from '../components/SkeletonCard';
 import { OrderDetailsModal } from '../components/OrderDetailsModal';
 import DashboardHeader from '../components/DashboardHeader';
@@ -108,12 +108,13 @@ const CompanyTVSection: React.FC<{
   orders: OdooSaleOrder[];
   isWide: boolean;
   isDense: boolean;
+  screenTier: ScreenTier;
   gridCols: number;
   gridRows: number;
   companyConfigs: CompanyConfig[];
   highlightedSO: string | null;
   onOrderClick: (order: OdooSaleOrder) => void;
-}> = ({ company, orders, isWide, isDense, gridCols, gridRows, companyConfigs, highlightedSO, onOrderClick }) => (
+}> = ({ company, orders, isWide, isDense, screenTier, gridCols, gridRows, companyConfigs, highlightedSO, onOrderClick }) => (
   <div className="flex flex-col h-full min-h-0 w-full">
     <div className="mb-3 lg:mb-4 flex items-center justify-between flex-shrink-0">
       <div className="flex flex-col gap-1">
@@ -175,6 +176,7 @@ const CompanyTVSection: React.FC<{
           isHighlighted={highlightedSO === order.name}
           isWide={isWide}
           isDense={isDense}
+          screenTier={screenTier}
           viewMode="tv"
           onClick={() => onOrderClick(order)}
         />
@@ -215,6 +217,7 @@ export default function TVDashboard() {
   const [ordersPerPage, setOrdersPerPage]   = useState(8);
   const [isWide, setIsWide]                 = useState(false);
   const [isDense, setIsDense]               = useState(false);
+  const [screenTier, setScreenTier]         = useState<ScreenTier>('lg');
   const [toast, setToast]                   = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [voiceFilter, setVoiceFilter]       = useState<VoiceFilter>('all');
   const [clientFilter, setClientFilter]     = usePersistedState<string | null>('vftv:tv:client', null);
@@ -317,11 +320,21 @@ export default function TVDashboard() {
           rows = Math.max(rows, 4);
         }
 
+        // Nivel de legibilidad por ancho de viewport: tablet < desktop < TV/4K.
+        // Breakpoints inteligentes: mobile (<768) / tablet (768-1279) /
+        // desktop (1280-1919) / TV (>=1920).
+        const tier: ScreenTier =
+          width >= 1920 ? 'xl'
+          : width >= 1280 ? 'lg'
+          : width >= 768  ? 'md'
+          : 'sm';
+
         setGridCols(cols);
         setGridRows(rows);
         setOrdersPerPage(isTVMode ? cols * rows || 8 : 999);
         setIsWide(cols <= 4 && rows <= 2 && isWideScreen && !isDenseLayout);
         setIsDense(isDenseLayout);
+        setScreenTier(tier);
       }
     });
     observer.observe(containerRef.current);
@@ -707,7 +720,7 @@ export default function TVDashboard() {
               }}
             >
               {Array.from({ length: isTVMode ? (gridCols * gridRows) : 8 }).map((_, i) => (
-                <SkeletonCard key={i} isWide={isWide} isDense={isDense} />
+                <SkeletonCard key={i} isWide={isWide} isDense={isDense} screenTier={screenTier} />
               ))}
             </div>
           </div>
@@ -759,6 +772,7 @@ export default function TVDashboard() {
                 orders={currentPage.orders}
                 isWide={isWide}
                 isDense={isDense}
+                screenTier={screenTier}
                 gridCols={gridCols}
                 gridRows={gridRows}
                 companyConfigs={companyConfigs}
@@ -773,6 +787,7 @@ export default function TVDashboard() {
                     orders={currentPage.left.orders}
                     isWide={isWide}
                     isDense={isDense}
+                    screenTier={screenTier}
                     gridCols={Math.floor(gridCols / 2)}
                     gridRows={gridRows}
                     companyConfigs={companyConfigs}
@@ -786,6 +801,7 @@ export default function TVDashboard() {
                     orders={currentPage.right.orders}
                     isWide={isWide}
                     isDense={isDense}
+                    screenTier={screenTier}
                     gridCols={Math.ceil(gridCols / 2)}
                     gridRows={gridRows}
                     companyConfigs={companyConfigs}
@@ -851,6 +867,7 @@ export default function TVDashboard() {
                       isWide={false}
                       isDense={false}
                       isMobile={isMobile}
+                      screenTier={screenTier}
                       viewMode="desktop"
                       onClick={() => setSelectedOrder(order)}
                     />

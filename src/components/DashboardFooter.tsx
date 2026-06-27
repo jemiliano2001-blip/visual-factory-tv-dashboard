@@ -111,20 +111,20 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
 
       <div className="flex-1 flex max-md:hidden items-center justify-end gap-4 lg:gap-5 font-mono-data">
         <span className="flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_6px_rgba(6,182,212,0.7)]" />
-          <span className="text-zinc-600">Pendiente</span>
+          <div className="w-2.5 h-2.5 rounded-sm bg-status-overdue" />
+          <span className="text-zinc-500">Atrasada</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]" />
-          <span className="text-zinc-600">En Proceso</span>
+          <div className="w-2.5 h-2.5 rounded-sm bg-status-warning" />
+          <span className="text-zinc-500">Por vencer</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-fuchsia-500 shadow-[0_0_6px_rgba(217,70,239,0.7)]" />
-          <span className="text-zinc-600">Entregado</span>
+          <div className="w-2.5 h-2.5 rounded-sm bg-status-ontime" />
+          <span className="text-zinc-500">En tiempo</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.7)]" />
-          <span className="text-zinc-600">Vencida</span>
+          <div className="w-2.5 h-2.5 rounded-sm bg-status-none" />
+          <span className="text-zinc-500">Sin fecha</span>
         </span>
       </div>
     </footer>

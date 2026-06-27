@@ -61,6 +61,8 @@ export interface OdooSaleOrder {
   lines: OdooOrderLine[];
   /** Remisiones (traslados de salida) asociadas a esta orden */
   deliveries: OdooDelivery[];
+  /** Nota / términos de la orden (contiene tiempo de entrega) */
+  note: string | null;
 }
 
 export interface OdooDelivery {
@@ -228,4 +230,177 @@ export function formatOrderAge(days: number): string {
   if (days < 30) return `${days} d`;
   const months = Math.floor(days / 30);
   return months === 1 ? '1 mes' : `${months} meses`;
+}
+
+// ─── Tiempo de entrega desde notas ─────────────────────────────────────────────
+
+export interface DeliveryDaysRange {
+  min: number;
+  max: number;
+}
+
+export interface DeliveryTimeInfo {
+  /** Rango de días hábiles parseado de la nota, ej. {min: 8, max: 12} */
+  daysRange: DeliveryDaysRange | null;
+  /** Fecha en que inicia la zona de advertencia (día hábil min desde date_order) */
+  warningDate: Date | null;
+  /** Fecha límite absoluta (día hábil max desde date_order) */
+  deadlineDate: Date | null;
+  /** Días hábiles restantes hasta deadline (negativo = vencida) */
+  businessDaysRemaining: number | null;
+  /** Estado calculado */
+  status: 'on-time' | 'warning' | 'overdue' | 'unknown';
+}
+
+/**
+ * Parsea el rango de días hábiles desde el texto de la nota de una orden.
+ * Soporta formatos como:
+ *   - "Tiempo de entrega de 8 a 12 días hábiles"
+ *   - "8 a 12 dias habiles"
+ *   - "8-12 días hábiles"
+ *   - "10 días hábiles" (un solo número → min = max)
+ *   - "4 semanas"
+ *   - "1 a 2 meses"
+ */
+export function parseDeliveryDaysFromNote(note: string | null | undefined): DeliveryDaysRange | null {
+  if (!note) return null;
+  const normalized = note.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // Validar explícitamente que la nota habla de tiempo o entrega para evitar falsos positivos
+  // con otros números. (Aunque el regex ya exige la unidad, esto añade robustez).
+  if (!normalized.includes('entrega') && !normalized.includes('tiempo')) {
+    return null;
+  }
+
+  const getMultiplier = (text: string) => {
+    if (!text) return 1;
+    if (text.includes('semana')) return 5;
+    if (text.includes('mes')) return 20;
+    return 1; // dias
+  };
+
+  // Patrón: "N a M" o "N-M" seguido OBLIGATORIAMENTE de la unidad
+  const rangeMatch = normalized.match(/(\d+)\s*(?:a|-|al?)\s*(\d+)\s*(dias?\s*habiles?|dias?|semanas?|mes(?:es)?)/i);
+  if (rangeMatch) {
+    const multiplier = getMultiplier(rangeMatch[3] || '');
+    const a = parseInt(rangeMatch[1], 10) * multiplier;
+    const b = parseInt(rangeMatch[2], 10) * multiplier;
+    if (a > 0 && b > 0) {
+      return { min: Math.min(a, b), max: Math.max(a, b) };
+    }
+  }
+
+  // Patrón: "N unidades" (número suelto). Exigimos la unidad.
+  const singleMatch = normalized.match(/(\d+)\s*(dias?\s*habiles?|dias?|semanas?|mes(?:es)?)/i);
+  if (singleMatch) {
+    const multiplier = getMultiplier(singleMatch[2] || '');
+    const n = parseInt(singleMatch[1], 10) * multiplier;
+    if (n > 0) return { min: n, max: n };
+  }
+
+  return null;
+}
+
+/** Suma N días hábiles (lun-vie) a una fecha. */
+export function addBusinessDays(start: Date, days: number): Date {
+  const result = new Date(start);
+  let added = 0;
+  while (added < days) {
+    result.setDate(result.getDate() + 1);
+    const dow = result.getDay();
+    if (dow !== 0 && dow !== 6) added++; // skip sáb/dom
+  }
+  return result;
+}
+
+/** Cuenta días hábiles (lun-vie) entre dos fechas (excluye `from`, incluye `to`). Negativo si to < from. */
+export function getBusinessDaysBetween(from: Date, to: Date): number {
+  const forward = to >= from;
+  const start = forward ? new Date(from) : new Date(to);
+  const end = forward ? new Date(to) : new Date(from);
+  let count = 0;
+  const cursor = new Date(start);
+  while (cursor < end) {
+    cursor.setDate(cursor.getDate() + 1);
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  return forward ? count : -count;
+}
+
+/** Calcula el estado de tiempo de entrega de una orden basándose en su nota. */
+export function getDeliveryTimeStatus(order: OdooSaleOrder): DeliveryTimeInfo {
+  const unknown: DeliveryTimeInfo = {
+    daysRange: null,
+    warningDate: null,
+    deadlineDate: null,
+    businessDaysRemaining: null,
+    status: 'unknown',
+  };
+
+  const daysRange = parseDeliveryDaysFromNote(order.note);
+  if (!daysRange) return unknown;
+
+  const orderDate = parseOdooDate(order.date_order);
+  if (!orderDate) return { ...unknown, daysRange };
+
+  const warningDate = addBusinessDays(orderDate, daysRange.min);
+  const deadlineDate = addBusinessDays(orderDate, daysRange.max);
+
+  const now = new Date();
+  // Normalizar a inicio de día para comparación justa
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const businessDaysRemaining = getBusinessDaysBetween(today, deadlineDate);
+
+  let status: DeliveryTimeInfo['status'];
+  if (today > deadlineDate) {
+    status = 'overdue';
+  } else if (today >= warningDate) {
+    status = 'warning';
+  } else {
+    status = 'on-time';
+  }
+
+  return { daysRange, warningDate, deadlineDate, businessDaysRemaining, status };
+}
+
+// ─── Estado de urgencia unificado (fuente de verdad del color) ──────────────────
+
+/**
+ * Nivel de urgencia dominante de una orden. Es el ÚNICO sistema de color del
+ * Dashboard: el color responde "¿qué está en riesgo de llegar tarde?". El avance
+ * de producción se comunica aparte (barra + %), no con color.
+ */
+export type OrderStatusLevel = 'overdue' | 'warning' | 'on-time' | 'none';
+
+export interface OrderStatus {
+  level: OrderStatusLevel;
+  /** Etiqueta en español para mostrar en la tarjeta */
+  label: string;
+}
+
+/**
+ * Calcula el estado de urgencia de una orden por precedencia (gana la primera
+ * regla que se cumpla), tomando la señal MÁS urgente entre la fecha compromiso
+ * (commitment_date) y el tiempo de entrega parseado de la nota.
+ *
+ *   1. overdue  → vencida por fecha compromiso O por deadline de la nota
+ *   2. warning  → vence en ≤2 días (prioridad 'high') O zona de advertencia de la nota
+ *   3. on-time  → tiene fecha/nota y no cae en lo anterior
+ *   4. none     → sin commitment_date NI nota parseable (no fingir 'en tiempo')
+ */
+export function getOrderStatus(order: OdooSaleOrder): OrderStatus {
+  const deliveryTime = getDeliveryTimeStatus(order);
+  const hasDate = parseOdooDate(order.commitment_date) !== null || deliveryTime.status !== 'unknown';
+
+  if (isOrderOverdue(order) || deliveryTime.status === 'overdue') {
+    return { level: 'overdue', label: 'Atrasada' };
+  }
+  if (getOrderPriority(order) === 'high' || deliveryTime.status === 'warning') {
+    return { level: 'warning', label: 'Por vencer' };
+  }
+  if (hasDate) {
+    return { level: 'on-time', label: 'En tiempo' };
+  }
+  return { level: 'none', label: 'Sin fecha' };
 }
