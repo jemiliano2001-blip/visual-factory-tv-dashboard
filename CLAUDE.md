@@ -129,13 +129,14 @@ Voice filter types accepted by `setVoiceFilter`: `'all' | 'overdue' | 'pending' 
 │   ├── firebase.ts        # Firebase & Firestore initialization
 │   ├── types.ts           # Shared TypeScript types (CompanyConfig, Odoo re-exports)
 │   ├── pages/             # Route components (Admin, Stats, TV Dashboard)
-│   ├── components/
-│   │   ├── admin/         # OrdersTable, ConfigTab, AIModal, riskTypes
-│   │   ├── ui/            # shadcn/ui primitives (dialog, drawer, badge, button, …)
+│   ├── hooks/
 │   │   ├── useOdooOrders.ts  # Shared React Query hook (TV, Admin, Stats)
 │   │   ├── useMobile.ts   # Breakpoint hook (< 768 px) — drives mobile vs. desktop layout
 │   │   ├── usePersistedState.ts  # localStorage-backed useState
-│   │   ├── useProximityVisible.ts
+│   │   └── useProximityVisible.ts
+│   ├── components/
+│   │   ├── admin/         # OrdersTable, ConfigTab, AIModal, riskTypes
+│   │   ├── ui/            # shadcn/ui primitives (dialog, drawer, badge, button, …)
 │   │   ├── TVControlBar.tsx  # Voice mic + filter controls overlay
 │   │   ├── OdooStatusBadge.tsx
 │   │   ├── ErrorBoundary.tsx
