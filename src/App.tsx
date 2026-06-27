@@ -25,10 +25,16 @@ export default function App() {
     };
     checkApiKey();
     
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        signInAnonymously(auth);
-        // onAuthStateChanged fires again once signed in
+        try {
+          await signInAnonymously(auth);
+          // onAuthStateChanged fires again once signed in
+        } catch {
+          // Anonymous auth not enabled — TV still works (Odoo data unaffected),
+          // Firestore company_configs will be unavailable
+          setIsAuthReady(true);
+        }
       } else {
         setIsAuthReady(true);
       }
@@ -83,11 +89,8 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             
             <Route path="/" element={<Layout />}>
-              <Route index element={
-                <ProtectedRoute>
-                  <TVDashboard />
-                </ProtectedRoute>
-              } />
+              {/* TV dashboard: publicly accessible — anonymous auth provides Firestore access */}
+              <Route index element={<TVDashboard />} />
               
               <Route path="admin" element={
                 <ProtectedRoute>
