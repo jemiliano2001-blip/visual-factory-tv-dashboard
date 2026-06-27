@@ -166,7 +166,7 @@ const CompanyTVSection: React.FC<{
       className="grid gap-3 lg:gap-4 flex-1 min-h-0"
       style={{
         gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
-        gridTemplateRows: `repeat(${gridRows}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${Math.ceil(orders.length / gridCols)}, minmax(0, 1fr))`,
       }}
     >
       {orders.map((order) => (
