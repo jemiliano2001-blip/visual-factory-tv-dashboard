@@ -33,9 +33,8 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden">
-      {/* Background Orbs */}
-      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-fuchsia-600/10 rounded-full blur-[120px] pointer-events-none" />
+      {/* Background accent — indigo only, no fuchsia */}
+      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-600/8 rounded-full blur-[120px] pointer-events-none" />
 
       <div className="w-full max-w-md bg-zinc-900/60 backdrop-blur-2xl rounded-3xl p-10 shadow-2xl border border-white/10 relative z-10">
         <div className="flex flex-col items-center mb-10">
