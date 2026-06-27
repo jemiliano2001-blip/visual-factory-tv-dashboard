@@ -38,11 +38,11 @@ export default function Login() {
 
       <div className="w-full max-w-md bg-zinc-900/60 backdrop-blur-2xl rounded-3xl p-10 shadow-2xl border border-white/10 relative z-10">
         <div className="flex flex-col items-center mb-10">
-          <div className="w-20 h-20 bg-gradient-to-br from-indigo-500/20 to-fuchsia-500/20 rounded-3xl flex items-center justify-center mb-6 border border-white/10 shadow-[0_0_30px_rgba(99,102,241,0.2)]">
-            <Tv className="w-10 h-10 text-indigo-400" />
+          <div className="w-20 h-20 bg-indigo-500/10 rounded-2xl flex items-center justify-center mb-6 border border-indigo-500/20">
+            <Tv className="w-9 h-9 text-indigo-400" />
           </div>
           <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-zinc-400 tracking-tight">Fábrica Visual</h1>
-          <p className="text-zinc-400 mt-3 text-center font-medium">Acceso exclusivo para personal SMV.</p>
+          <p className="text-zinc-400 mt-3 text-center font-medium text-pretty">Acceso exclusivo para personal SMV.</p>
         </div>
 
         {error && (
