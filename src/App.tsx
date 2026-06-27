@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { auth } from './firebase';
 
 import Layout from './components/Layout';
@@ -25,8 +25,13 @@ export default function App() {
     };
     checkApiKey();
     
-    const unsubscribe = onAuthStateChanged(auth, () => {
-      setIsAuthReady(true);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        signInAnonymously(auth);
+        // onAuthStateChanged fires again once signed in
+      } else {
+        setIsAuthReady(true);
+      }
     });
     return () => unsubscribe();
   }, []);
