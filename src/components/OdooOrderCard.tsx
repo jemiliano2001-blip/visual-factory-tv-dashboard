@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   Clock, AlertTriangle, CheckCircle2, PlayCircle,
-  DollarSign, Package, User, Calendar, FileText, Check,
+  Package, User, Calendar, FileText, Check,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { OdooSaleOrder, OdooOrderLine, getOrderPriority, getDeliveryProgress, isOrderOverdue, parseOdooDate, getOrderAgeDays, formatOrderAge, STALE_AGE_DAYS } from '../services/odoo';
@@ -11,13 +11,17 @@ import SmartText from './SmartText';
 // ─── Tipos ──────────────────────────────────────────────────────────────────────
 
 export type ViewMode = 'tv' | 'desktop';
+export type ScreenTier = 'sm' | 'md' | 'lg' | 'xl';
 
 interface OdooOrderCardProps {
   order: OdooSaleOrder;
   isHighlighted: boolean;
   isWide: boolean;
   isDense?: boolean;
+  isMobile?: boolean;
+  screenTier?: ScreenTier;
   viewMode: ViewMode;
+  onClick?: () => void;
 }
 
 // ─── Constantes de estilo ───────────────────────────────────────────────────────
@@ -56,7 +60,9 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   isHighlighted,
   isWide,
   isDense,
+  isMobile,
   viewMode,
+  onClick,
 }) => {
   const priority = getOrderPriority(order);
   const progress = getDeliveryProgress(order);
@@ -132,6 +138,88 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
     : progress > 0  ? 'text-emerald-400'
     : 'text-cyan-400';
 
+  // ── Mobile layout (lista compacta para móviles) ────────────────────────────
+  if (isMobile) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.2 }}
+        id={`so-${order.name.replace(/\//g, '-')}`}
+        onClick={onClick}
+        className={`flex flex-col rounded-xl border transition-all duration-300 relative overflow-hidden ${cardBorder} ${staleRing} pl-4 pr-3.5 py-3 gap-2 min-h-[72px] ${onClick ? 'cursor-pointer active:scale-[0.98]' : ''}`}
+      >
+        {/* Banda de acento (color = progreso) */}
+        <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${accentStripeColor}`} />
+
+        {/* Fila 1: SO + prioridad + edad */}
+        <div className="flex justify-between items-start gap-2 relative z-10">
+          <div className="flex-1 min-w-0">
+            <h3 className="text-base font-black tracking-tight text-white truncate pr-2 font-mono-data">
+              {order.name}
+            </h3>
+            <div className="text-xs text-zinc-400 font-semibold truncate mt-0.5">
+              {order.partner_name}
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+            <span className={`text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${PRIORITY_COLORS[priority]}`}>
+              {PRIORITY_LABELS[priority]}
+            </span>
+            {isStale && (
+              <span className="text-[11px] font-black px-2 py-0.5 rounded border bg-amber-500/15 text-amber-400 border-amber-500/40">
+                {formatOrderAge(ageDays!)}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Fila 2: producto principal */}
+        <div className="flex items-center gap-1.5 z-10 mt-0.5 min-w-0">
+          <Package className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+          <SmartText
+            text={order.lines[0]?.name || order.main_product}
+            maxLines={1}
+            className="text-sm text-zinc-200 font-medium"
+            defaultLevel={2}
+          />
+          {order.lines.length > 1 && (
+            <span className="text-[10px] font-black text-zinc-500 shrink-0">
+              +{order.lines.length - 1}
+            </span>
+          )}
+        </div>
+
+        {/* Fila 3: estado + barra + piezas */}
+        <div className="mt-1 relative z-10 flex items-center gap-2">
+          <div className="flex items-center gap-1 shrink-0">
+            {StatusIcon}
+            <span className={`text-[10px] font-bold uppercase tracking-wider ${statusTextColor}`}>
+              {statusLabel}
+            </span>
+          </div>
+          <div className="flex-1 bg-black/40 h-1.5 rounded-full overflow-hidden border border-white/5 mx-1">
+            <div
+              className={`h-full rounded-full transition-all duration-1000 ${progressColor}`}
+              style={{ width: `${Math.max(progress, progress > 0 ? 4 : 0)}%` }}
+            />
+          </div>
+          <div className="flex items-baseline gap-1.5 shrink-0">
+            <span className="text-sm font-black text-white leading-none font-mono-data">
+              {progress}%
+            </span>
+            {order.qty_total > 0 && (
+              <span className="text-[11px] font-bold text-zinc-400 font-mono-data leading-none">
+                {order.qty_delivered}/{order.qty_total}
+              </span>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
   // ── Dense layout (muchas cards, poco espacio) ───────────────────────────────
   if (isDense) {
     return (
@@ -141,7 +229,8 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
         exit={{ opacity: 0, scale: 0.95 }}
         transition={{ duration: 0.3 }}
         id={`so-${order.name.replace(/\//g, '-')}`}
-        className={`flex items-center rounded-2xl border-2 transition-all duration-300 relative overflow-hidden h-full ${cardBorder} ${staleRing} p-3 lg:p-4 gap-3 lg:gap-4 min-h-0`}
+        onClick={onClick}
+        className={`flex items-center rounded-2xl border-2 transition-all duration-300 relative overflow-hidden h-full ${cardBorder} ${staleRing} p-3 lg:p-4 gap-3 lg:gap-4 min-h-0 ${onClick ? 'cursor-pointer active:scale-[0.98]' : ''}`}
       >
         {isOverdue && (
           <div className="absolute top-0 right-0 bg-orange-500 w-2 h-full z-20" title="Vencida" />
@@ -209,7 +298,8 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       exit={{ opacity: 0, scale: 0.8 }}
       transition={{ duration: 0.4, type: 'spring', bounce: 0.3 }}
       id={`so-${order.name.replace(/\//g, '-')}`}
-      className={`flex flex-col rounded-2xl border transition-all duration-500 relative overflow-hidden h-full min-h-0 ${cardBorder} ${staleRing} ${isWide ? 'p-5 xl:p-7' : 'p-3.5 lg:p-4'}`}
+      onClick={onClick}
+      className={`flex flex-col rounded-2xl border transition-all duration-500 relative overflow-hidden h-full min-h-0 ${cardBorder} ${staleRing} ${isWide ? 'p-5 xl:p-7' : 'p-3.5 lg:p-4'} ${onClick ? 'cursor-pointer active:scale-[0.98]' : ''}`}
       style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
     >
       {/* Left accent stripe */}
