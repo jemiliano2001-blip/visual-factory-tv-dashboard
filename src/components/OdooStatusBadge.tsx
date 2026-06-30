@@ -39,7 +39,7 @@ const OdooStatusBadge: React.FC<OdooStatusBadgeProps> = ({
           {connected === null ? 'Odoo...' : connected ? 'Odoo' : 'Sin Odoo'}
         </span>
         {lastUpdated && connected && (
-          <span className="text-zinc-600 font-normal normal-case tracking-normal">
+          <span className="hidden sm:inline text-zinc-600 font-normal normal-case tracking-normal whitespace-nowrap">
             · {format(new Date(lastUpdated), 'HH:mm')}
           </span>
         )}
