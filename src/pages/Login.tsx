@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { auth } from '../firebase';
+import { auth, isRealUser } from '../firebase';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { Tv } from 'lucide-react';
@@ -13,7 +13,7 @@ export default function Login() {
   const location  = useLocation();
   const from = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/';
 
-  if (auth.currentUser) {
+  if (isRealUser(auth.currentUser)) {
     return <Navigate to={from} replace />;
   }
 
