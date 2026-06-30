@@ -131,6 +131,10 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    /* Reserva el mismo gutter que .desktop-viewport (8px del scrollbar de
+       .custom-scrollbar) aunque aquí nunca haya scroll real, para que el
+       header/footer no se corran ~8px al alternar TV ↔ Escritorio. */
+    scrollbar-gutter: stable;
   }
 
   /* ── Desktop Viewport: Scroll permitido, más espacio ──────────────────── */
@@ -141,6 +145,7 @@
     overflow-x: hidden;
     display: flex;
     flex-direction: column;
+    scrollbar-gutter: stable;
   }
 
   /* Utility: hide scrollbar visually on all platforms */

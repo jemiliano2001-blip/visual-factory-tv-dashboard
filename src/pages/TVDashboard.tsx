@@ -640,8 +640,8 @@ export default function TVDashboard() {
   return (
     <div
       ref={mainViewportRef}
-      className={`bg-background text-foreground px-4 lg:px-6 font-sans transition-all duration-700 relative ${
-        isTVMode ? 'tv-viewport' : 'desktop-viewport custom-scrollbar'
+      className={`bg-background text-foreground px-4 lg:px-6 font-sans transition-all duration-700 relative custom-scrollbar ${
+        isTVMode ? 'tv-viewport' : 'desktop-viewport'
       } ${isFullscreen ? 'w-full h-full' : ''}`}
     >
       {/* Background gradient */}
@@ -659,7 +659,7 @@ export default function TVDashboard() {
       {/* ── Header ─────────────────────────────────────────────────────────────── */}
       <DashboardHeader
         currentTime={currentTime}
-        currentCompany={currentPage?.type === 'single' ? currentPage.company : (currentPage?.type === 'split' ? 'MÚLTIPLES CLIENTES' : undefined)}
+        currentCompany={isTVMode ? (currentPage?.type === 'single' ? currentPage.company : (currentPage?.type === 'split' ? 'MÚLTIPLES CLIENTES' : undefined)) : undefined}
         currentPageNum={currentPage?.current}
         totalPages={currentPage?.total}
         odooStatus={odooStatus}
@@ -732,10 +732,12 @@ export default function TVDashboard() {
             <div className="text-center space-y-2">
               <h2 className="text-2xl font-black text-white uppercase tracking-tight">Sin conexión a Odoo</h2>
               <p className="text-zinc-500 max-w-md">{odooError}</p>
-              <p className="text-zinc-600 text-sm">
-                Asegúrate de que el servidor Express proxy esté corriendo:<br />
-                <code className="text-indigo-400 bg-zinc-900 px-2 py-0.5 rounded text-xs">npm run server</code>
-              </p>
+              {window.location.hostname === 'localhost' && (
+                <p className="text-zinc-600 text-sm">
+                  Asegúrate de que el servidor Express proxy esté corriendo:<br />
+                  <code className="text-indigo-400 bg-zinc-900 px-2 py-0.5 rounded text-xs">npm run server</code>
+                </p>
+              )}
             </div>
             <button
               onClick={() => loadOdooOrders()}
@@ -926,7 +928,7 @@ export default function TVDashboard() {
       {/* ── Footer ─────────────────────────────────────────────────────────────── */}
       <DashboardFooter
         totalOrders={odooOrders.length}
-        pages={pages}
+        pages={isTVMode ? pages : []}
         currentPageIndex={currentPageIndex}
         onPageChange={setCurrentPageIndex}
         toast={toast}
