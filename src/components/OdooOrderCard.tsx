@@ -1,38 +1,23 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import {
-  AlertTriangle, Clock, Timer, HelpCircle, CheckCircle2,
-  Package, User, Calendar, FileText, Check,
+  Clock, AlertTriangle, CheckCircle2, PlayCircle,
+  DollarSign, Package, User, Calendar, FileText, Check,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import {
-  OdooSaleOrder, OdooOrderLine, getOrderPriority, getDeliveryProgress,
-  parseOdooDate, getOrderAgeDays, formatOrderAge, STALE_AGE_DAYS,
-  getDeliveryTimeStatus, getOrderStatus, OrderStatusLevel,
-} from '../services/odoo';
+import { OdooSaleOrder, OdooOrderLine, getOrderPriority, getDeliveryProgress, isOrderOverdue, parseOdooDate, getOrderAgeDays, formatOrderAge, STALE_AGE_DAYS } from '../services/odoo';
 import SmartText from './SmartText';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────────
 
 export type ViewMode = 'tv' | 'desktop';
 
-/**
- * Nivel de legibilidad según el ancho real del viewport, calculado en
- * TVDashboard y propagado a las tarjetas. Permite escalar la tipografía de
- * forma inteligente: tablet < desktop < TV/4K. No reemplaza a isWide/isDense
- * (que deciden el *layout* estructural), sino que afina el *tamaño* del texto.
- */
-export type ScreenTier = 'sm' | 'md' | 'lg' | 'xl';
-
 interface OdooOrderCardProps {
   order: OdooSaleOrder;
   isHighlighted: boolean;
   isWide: boolean;
   isDense?: boolean;
-  isMobile?: boolean;
-  screenTier?: ScreenTier;
   viewMode: ViewMode;
-  onClick?: () => void;
 }
 
 // ─── Constantes de estilo ───────────────────────────────────────────────────────
@@ -53,49 +38,15 @@ const DELIVERY_STATE_COLOR: Record<string, string> = {
   draft:     'text-zinc-500 border-zinc-700/60',
 };
 
-// Prioridad (campo derivado de la fecha compromiso). Estilo PLANO, sin glow, y
-// con la misma paleta del sistema de estado para coherencia visual.
 const PRIORITY_COLORS: Record<string, string> = {
-  low:      'bg-zinc-800 text-zinc-300 border-zinc-700',
-  normal:   'bg-zinc-800 text-zinc-100 border-zinc-600',
-  high:     'bg-status-warning/15 text-status-warning border-status-warning/45',
-  critical: 'bg-status-overdue/20 text-status-overdue border-status-overdue/55',
+  low:      'bg-zinc-800/80 text-zinc-300 border-zinc-600',
+  normal:   'bg-blue-600/20 text-blue-300 border-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.3)]',
+  high:     'bg-orange-500/20 text-orange-300 border-orange-400 shadow-[0_0_15px_rgba(251,146,60,0.4)]',
+  critical: 'bg-red-600 text-white border-red-400 shadow-[0_0_25px_rgba(239,68,68,0.8)] animate-pulse',
 };
 
 const PRIORITY_LABELS: Record<string, string> = {
   low: 'Baja', normal: 'Normal', high: 'Alta', critical: 'Vencida',
-};
-
-/**
- * Sistema de color ÚNICO del Dashboard: el color = urgencia. Cada nivel define
- * la banda lateral, el texto de estado, la barra de progreso, la pastilla y el
- * tinte del borde/fondo de la tarjeta. Colores sólidos y vivos, sin glow ni blur.
- */
-interface StatusStyle {
-  band: string;    // fondo de la banda lateral de color sólido
-  text: string;    // color de texto del estado
-  bar: string;     // relleno de la barra de progreso
-  border: string;  // borde de la tarjeta (tinte de estado)
-  bg: string;      // fondo de la tarjeta (tinte sutil)
-}
-
-// Jerarquía de alarma (DESIGN.md): "Atrasada" es lo ÚNICO ruidoso de la pared
-// (rojo saturado, borde reforzado). "En tiempo" se atenúa a cromática neutra con
-// solo una pequeña banda tenue como indicador, para que ceda a la distancia.
-const STATUS_STYLES: Record<OrderStatusLevel, StatusStyle> = {
-  'overdue':  { band: 'bg-status-overdue', text: 'text-status-overdue',   bar: 'bg-status-overdue', border: 'border-status-overdue/70', bg: 'bg-status-overdue/[0.08]' },
-  'warning':  { band: 'bg-status-warning', text: 'text-status-warning',   bar: 'bg-status-warning', border: 'border-status-warning/45', bg: 'bg-status-warning/[0.04]' },
-  'on-time':  { band: 'bg-status-ontime',  text: 'text-muted-foreground', bar: 'bg-status-ontime',  border: 'border-border',           bg: 'bg-card' },
-  'none':     { band: 'bg-status-none',    text: 'text-status-none',      bar: 'bg-status-none',    border: 'border-status-none/35',    bg: 'bg-card' },
-};
-
-const statusIconFor = (level: OrderStatusLevel, cls: string): React.ReactNode => {
-  switch (level) {
-    case 'overdue': return <AlertTriangle className={cls} />;
-    case 'warning': return <Timer className={cls} />;
-    case 'on-time': return <CheckCircle2 className={cls} />;
-    default:        return <HelpCircle className={cls} />;
-  }
 };
 
 // ─── Componente ─────────────────────────────────────────────────────────────────
@@ -105,147 +56,81 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   isHighlighted,
   isWide,
   isDense,
-  isMobile,
-  screenTier = 'lg',
   viewMode,
-  onClick,
 }) => {
-  // Tipografía grande: tarjetas amplias (isWide) o pantallas tipo TV/4K (xl).
-  const big = isWide || screenTier === 'xl';
-  const priority = React.useMemo(() => getOrderPriority(order), [order.commitment_date]);
-  const progress = React.useMemo(() => getDeliveryProgress(order), [order.qty_delivered, order.qty_total]);
-  const commitmentDate = React.useMemo(() => parseOdooDate(order.commitment_date), [order.commitment_date]);
+  const priority = getOrderPriority(order);
+  const progress = getDeliveryProgress(order);
+  const isCritical = priority === 'critical';
+  const isOverdue = isOrderOverdue(order);
+  const commitmentDate = parseOdooDate(order.commitment_date);
   const isDesktop = viewMode === 'desktop';
-  const ageDays = React.useMemo(() => getOrderAgeDays(order), [order.date_order]);
+  const ageDays = getOrderAgeDays(order);
   const isStale = ageDays !== null && ageDays > STALE_AGE_DAYS;
-  const deliveryTime = React.useMemo(() => getDeliveryTimeStatus(order), [order.note, order.date_order]);
-
-  // ── Estado de urgencia: la ÚNICA fuente del color de la tarjeta ─────────────
-  const status = React.useMemo(() => getOrderStatus(order), [order.commitment_date, order.note, order.date_order]);
-  const st = STATUS_STYLES[status.level];
 
   // ── Resumen de remisiones (excluye canceladas) ─────────────────────────────
-  const { deliveryCounts, deliveryStates } = React.useMemo(() => {
-    const counts: Record<string, number> = {};
-    const deliveries = order.deliveries ?? [];
-    for (const d of deliveries) {
-      if (d.state !== 'cancel') {
-        counts[d.state] = (counts[d.state] ?? 0) + 1;
-      }
+  const deliveries = order.deliveries ?? [];
+  const deliveryCounts: Record<string, number> = {};
+  for (const d of deliveries) {
+    if (d.state !== 'cancel') {
+      deliveryCounts[d.state] = (deliveryCounts[d.state] ?? 0) + 1;
     }
-    const states = ['done', 'assigned', 'waiting', 'confirmed', 'draft'].filter(
-      s => (counts[s] ?? 0) > 0,
-    );
-    return { deliveryCounts: counts, deliveryStates: states };
-  }, [order.deliveries]);
+  }
+  const deliveryStates = ['done', 'assigned', 'waiting', 'confirmed', 'draft'].filter(
+    s => (deliveryCounts[s] ?? 0) > 0,
+  );
 
-  // ── Marco de la tarjeta ─────────────────────────────────────────────────────
-  // El realce por voz (isHighlighted) es el ÚNICO lugar donde usamos un glow
-  // sutil; el resto del Dashboard es plano para máxima legibilidad.
-  const cardFrame = isHighlighted
-    ? 'bg-primary/10 border-primary/70 ring-2 ring-primary/40 shadow-[0_0_40px_rgba(99,102,241,0.4)] z-50 scale-[1.03]'
-    : `${st.bg} ${st.border}`;
+  // ── Colores por estado ──────────────────────────────────────────────────────
+  const cardBorder = isHighlighted
+    ? 'bg-primary/10 border-primary/60 shadow-[0_0_45px_rgba(99,102,241,0.35)] z-50 scale-105'
+    : isCritical
+    ? 'bg-red-950/40 border-red-500/55 shadow-[0_0_18px_rgba(220,38,38,0.28)]'
+    : isOverdue
+    ? 'bg-orange-950/25 border-orange-500/55 ring-1 ring-orange-500/20'
+    : progress >= 100
+    ? 'bg-card/70 border-fuchsia-400/30 hover:border-fuchsia-300/50'
+    : progress > 0
+    ? 'bg-card/70 border-emerald-400/30 hover:border-emerald-300/50'
+    : 'bg-card/70 border-border hover:border-cyan-400/30';
+
+  const accentStripeColor = isHighlighted
+    ? 'bg-primary'
+    : isCritical || isOverdue
+    ? 'bg-red-500'
+    : progress >= 100
+    ? 'bg-fuchsia-400'
+    : progress > 0
+    ? 'bg-emerald-400'
+    : 'bg-cyan-500/80';
+
+  const progressColor =
+    progress >= 100 ? 'bg-fuchsia-400'
+    : progress > 0   ? 'bg-emerald-400'
+    : 'bg-cyan-400';
+
+  const glowColor =
+    progress >= 100 ? 'bg-fuchsia-500'
+    : progress > 0   ? 'bg-emerald-500'
+    : 'bg-cyan-500';
 
   // Distintivo de antigüedad (>1 mes): ring ámbar ADITIVO, sin tapar el color de
-  // estado. Se omite si la card ya tiene su propio realce (resaltada).
-  const staleRing = isStale && !isHighlighted ? 'ring-1 ring-amber-500/40' : '';
+  // estado. Se omite si la card ya tiene su propio realce (resaltada/crítica/vencida).
+  const staleRing = isStale && !isHighlighted && !isCritical && !isOverdue ? 'ring-1 ring-amber-500/40' : '';
 
-  // Badge de tiempo de entrega (días hábiles), coloreado por el estado de urgencia.
-  const deliveryBadge = deliveryTime.status !== 'unknown' ? (
-    <span className={`font-black px-2 py-0.5 rounded flex items-center gap-1 border border-white/10 bg-black/30 ${st.text}`}>
-      <Timer className={big ? 'w-3.5 h-3.5' : 'w-3 h-3'} />
-      {deliveryTime.businessDaysRemaining !== null
-        ? `${deliveryTime.businessDaysRemaining}d háb`
-        : `${deliveryTime.daysRange?.min}-${deliveryTime.daysRange?.max}d`}
-    </span>
-  ) : null;
+  const StatusIcon = progress >= 100
+    ? <CheckCircle2 className="w-5 h-5 text-fuchsia-400 drop-shadow-[0_0_8px_rgba(232,121,249,0.5)]" />
+    : progress > 0
+    ? <PlayCircle className="w-5 h-5 text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
+    : <Clock className="w-5 h-5 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]" />;
 
-  // ── Mobile layout (lista súper compacta para móviles) ──────────────────────
-  if (isMobile) {
-    return (
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -10 }}
-        transition={{ duration: 0.2 }}
-        id={`so-${order.name.replace(/\//g, '-')}`}
-        onClick={onClick}
-        className={`flex flex-col rounded-xl border transition-all duration-300 relative overflow-hidden ${cardFrame} ${staleRing} pl-4 pr-3.5 py-3 gap-2 min-h-[72px] cursor-pointer active:scale-[0.98]`}
-      >
-        {/* Banda de estado */}
-        <div className={`absolute left-0 top-0 bottom-0 w-2 ${st.band}`} />
+  const statusLabel =
+    progress >= 100 ? 'Entregado'
+    : progress > 0  ? 'En Proceso'
+    : 'Pendiente';
 
-        {/* Fila 1: Título, Prioridad y Edad */}
-        <div className="flex justify-between items-start gap-2 relative z-10">
-          <div className="flex-1 min-w-0">
-            <h3 className="text-base font-black tracking-tight text-white truncate pr-2 font-mono-data">
-              {order.name}
-            </h3>
-            <div className="text-xs text-zinc-400 font-semibold truncate mt-0.5">
-              {order.partner_name}
-            </div>
-          </div>
-          <div className="flex flex-col items-end gap-1 flex-shrink-0">
-            <span className={`text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${PRIORITY_COLORS[priority]}`}>
-              {PRIORITY_LABELS[priority]}
-            </span>
-            {isStale && (
-              <span className="text-[11px] font-black px-2 py-0.5 rounded border bg-amber-500/15 text-amber-400 border-amber-500/40">
-                {formatOrderAge(ageDays!)}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Fila 2: Producto principal y badge de tiempo */}
-        <div className="flex items-start justify-between gap-2 z-10 mt-0.5">
-          <div className="flex-1 min-w-0 flex items-center gap-1.5">
-            <Package className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
-            <SmartText
-              text={order.lines[0]?.name || order.main_product}
-              maxLines={1}
-              className="text-sm text-zinc-200 font-medium"
-              defaultLevel={2}
-            />
-            {order.lines.length > 1 && (
-              <span className="text-[10px] font-black text-zinc-500 shrink-0">
-                +{order.lines.length - 1}
-              </span>
-            )}
-          </div>
-          {deliveryTime.status !== 'unknown' && (
-            <span className={`text-[11px] shrink-0 ${st.text}`}>{deliveryBadge}</span>
-          )}
-        </div>
-
-        {/* Fila 3: Estado, barra y piezas entregadas */}
-        <div className="mt-1 relative z-10 flex items-center gap-2">
-          <div className="flex items-center gap-1 shrink-0">
-            {statusIconFor(status.level, `w-4 h-4 ${st.text}`)}
-            <span className={`text-[10px] font-bold uppercase tracking-wider ${st.text}`}>
-              {status.label}
-            </span>
-          </div>
-          <div className="flex-1 bg-black/40 h-1.5 rounded-full overflow-hidden border border-white/5 mx-1">
-            <div
-              className={`h-full rounded-full transition-all duration-1000 ${st.bar}`}
-              style={{ width: `${Math.max(progress, progress > 0 ? 4 : 0)}%` }}
-            />
-          </div>
-          <div className="flex items-baseline gap-1.5 shrink-0">
-            <span className="text-sm font-black text-white leading-none font-mono-data">
-              {progress}%
-            </span>
-            {order.qty_total > 0 && (
-              <span className="text-[11px] font-bold text-zinc-400 font-mono-data leading-none">
-                {order.qty_delivered}/{order.qty_total}
-              </span>
-            )}
-          </div>
-        </div>
-      </motion.div>
-    );
-  }
+  const statusTextColor =
+    progress >= 100 ? 'text-fuchsia-400'
+    : progress > 0  ? 'text-emerald-400'
+    : 'text-cyan-400';
 
   // ── Dense layout (muchas cards, poco espacio) ───────────────────────────────
   if (isDense) {
@@ -256,67 +141,57 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
         exit={{ opacity: 0, scale: 0.95 }}
         transition={{ duration: 0.3 }}
         id={`so-${order.name.replace(/\//g, '-')}`}
-        onClick={onClick}
-        className={`flex items-center rounded-2xl border transition-all duration-300 relative overflow-hidden h-full ${cardFrame} ${staleRing} pl-5 pr-3 lg:pr-4 py-3 lg:py-4 gap-3 lg:gap-4 min-h-0 ${onClick ? 'cursor-pointer hover:scale-[1.02] active:scale-[0.98]' : ''}`}
+        className={`flex items-center rounded-2xl border-2 transition-all duration-300 relative overflow-hidden h-full ${cardBorder} ${staleRing} p-3 lg:p-4 gap-3 lg:gap-4 min-h-0`}
       >
-        {/* Banda de estado */}
-        <div className={`absolute left-0 top-0 bottom-0 w-2.5 ${st.band}`} />
-
+        {isOverdue && (
+          <div className="absolute top-0 right-0 bg-orange-500 w-2 h-full z-20" title="Vencida" />
+        )}
         <div className="flex-shrink-0 relative z-10">
-          {statusIconFor(status.level, `w-5 h-5 ${st.text}`)}
+          {StatusIcon}
         </div>
-
+        
         <div className="flex flex-col flex-1 min-w-0 relative z-10 justify-center overflow-hidden">
           <div className="flex justify-between items-center mb-1">
-            <h3 className={`${big ? 'text-lg lg:text-xl' : 'text-base lg:text-lg'} font-black tracking-tight text-white truncate pr-2 font-mono-data`}>
+            <h3 className="text-sm lg:text-base font-black tracking-tight text-white truncate pr-2">
               {order.name}
             </h3>
             <div className="flex items-center gap-1 flex-shrink-0">
               {isStale && (
-                <span className="text-[10px] lg:text-[11px] font-black px-1.5 py-0.5 rounded border bg-amber-500/15 text-amber-400 border-amber-500/40" title={`Creada hace ${formatOrderAge(ageDays!)}`}>
+                <span className="text-[8px] lg:text-[9px] font-black px-1 py-0.5 rounded border bg-amber-500/15 text-amber-400 border-amber-500/40" title={`Creada hace ${formatOrderAge(ageDays!)}`}>
                   {formatOrderAge(ageDays!)}
                 </span>
               )}
-              <span className={`text-[10px] lg:text-xs font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${PRIORITY_COLORS[priority]}`}>
+              <span className={`text-[8px] lg:text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${PRIORITY_COLORS[priority]}`}>
                 {PRIORITY_LABELS[priority]}
               </span>
             </div>
           </div>
-
-          <div className="text-xs lg:text-sm font-semibold text-zinc-200 mb-1.5 min-h-0 overflow-hidden flex items-center gap-1.5">
+          
+          <div className="text-[10px] lg:text-xs font-bold text-zinc-300 mb-1.5 min-h-0 overflow-hidden flex items-center gap-1">
             <SmartText
               text={order.lines[0]?.name || order.main_product}
               maxLines={1}
               defaultLevel={2}
             />
             {order.lines.length > 1 && (
-              <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-300 border border-zinc-600/50 flex-shrink-0">
+              <span className="text-[8px] lg:text-[9px] font-black px-1 py-0.5 rounded bg-zinc-700/60 text-zinc-400 border border-zinc-600/50 flex-shrink-0">
                 +{order.lines.length - 1}
               </span>
             )}
           </div>
-
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <span className={`text-[10px] lg:text-xs font-bold uppercase tracking-wider ${st.text}`}>
-              {status.label}
-            </span>
-            {deliveryTime.status !== 'unknown' && (
-              <span className="text-[10px] lg:text-xs">{deliveryBadge}</span>
-            )}
-          </div>
-
+          
           <div className="flex items-center gap-2">
-            <div className="flex-1 bg-black/40 h-2 lg:h-2.5 rounded-full overflow-hidden border border-white/5">
+            <div className="flex-1 bg-black/40 h-1.5 lg:h-2 rounded-full overflow-hidden border border-white/5">
               <div
-                className={`h-full rounded-full transition-all duration-1000 ${st.bar}`}
+                className={`h-full rounded-full transition-all duration-1000 ${progressColor}`}
                 style={{ width: `${Math.max(progress, progress > 0 ? 4 : 0)}%` }}
               />
             </div>
-            <div className="flex flex-col items-end min-w-[52px]">
-              <span className={`${big ? 'text-lg lg:text-xl' : 'text-base lg:text-lg'} font-black text-white leading-none mb-0.5 font-mono-data`}>
+            <div className="flex flex-col items-end min-w-[40px]">
+              <span className={`text-[10px] lg:text-xs font-black ${statusTextColor} leading-none mb-0.5`}>
                 {progress}%
               </span>
-              <span className="text-xs lg:text-sm text-zinc-400 font-bold leading-none font-mono-data">
+              <span className="text-[8px] lg:text-[9px] text-zinc-500 font-bold leading-none">
                 {order.qty_delivered}/{order.qty_total}
               </span>
             </div>
@@ -334,80 +209,83 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       exit={{ opacity: 0, scale: 0.8 }}
       transition={{ duration: 0.4, type: 'spring', bounce: 0.3 }}
       id={`so-${order.name.replace(/\//g, '-')}`}
-      onClick={onClick}
-      className={`flex flex-col rounded-2xl border transition-all duration-500 relative overflow-hidden h-full min-h-0 ${cardFrame} ${staleRing} ${isWide ? 'pl-7 pr-5 py-5 xl:py-7' : 'pl-5 pr-3.5 py-3.5 lg:py-4'} ${onClick ? 'cursor-pointer hover:scale-[1.02] active:scale-[0.98]' : ''}`}
+      className={`flex flex-col rounded-2xl border transition-all duration-500 relative overflow-hidden h-full min-h-0 ${cardBorder} ${staleRing} ${isWide ? 'p-5 xl:p-7' : 'p-3.5 lg:p-4'}`}
+      style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
     >
-      {/* Banda de estado sólida (color = urgencia) */}
-      <div className={`absolute left-0 top-0 bottom-0 ${big ? 'w-3' : 'w-2.5'} ${st.band}`} />
+      {/* Left accent stripe */}
+      <div className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-l-2xl ${accentStripeColor}`} />
+
+      {/* Overdue badge */}
+      {isOverdue && (
+        <div className="absolute top-0 right-0 bg-orange-500/90 text-white px-3 py-1 rounded-bl-xl font-black text-[9px] uppercase tracking-[0.2em] flex items-center gap-1.5 z-20">
+          <AlertTriangle className="w-2.5 h-2.5 animate-bounce" />
+          Vencida
+        </div>
+      )}
+
+      {/* Background glow */}
+      <div className={`absolute -top-12 -right-12 w-40 h-40 blur-[70px] rounded-full opacity-10 pointer-events-none ${glowColor}`} />
 
       {/* Header: SO number + priority */}
-      <div className="flex justify-between items-start mb-2.5 lg:mb-3 relative z-10 min-h-0">
-        <div className="flex-1 min-w-0">
-          <h3 className={`${big ? 'text-3xl 2xl:text-4xl' : 'text-xl lg:text-2xl'} font-bold tracking-tight text-white mb-1 truncate font-mono-data`}>
+      <div className="flex justify-between items-start mb-2.5 lg:mb-3 relative z-10 mt-2 min-h-0">
+        <div className="flex-1 min-w-0 pl-2">
+          <h3 className={`${isWide ? 'text-2xl xl:text-3xl' : 'text-lg lg:text-xl'} font-bold tracking-tight text-white mb-1 truncate font-mono-data`}>
             {order.name}
           </h3>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center gap-1.5 min-w-0">
-              <User className={`${big ? 'w-4 h-4' : 'w-3.5 h-3.5'} text-zinc-500 flex-shrink-0`} />
+              <User className="w-3 h-3 text-zinc-500 flex-shrink-0" />
               <SmartText
                 text={order.partner_name}
                 maxLines={1}
-                className={`${big ? 'text-base' : 'text-sm'} font-bold text-zinc-300 uppercase tracking-[0.15em]`}
+                className={`${isWide ? 'text-sm' : 'text-xs'} font-bold text-zinc-300 uppercase tracking-[0.15em]`}
                 defaultLevel={2}
               />
             </div>
             {commitmentDate && (
-              <span className={`${big ? 'text-sm' : 'text-xs'} font-black px-2 py-0.5 rounded flex items-center gap-1 bg-zinc-800 border flex-shrink-0 ${status.level === 'overdue' ? 'text-status-overdue border-status-overdue/40' : 'text-zinc-400 border-zinc-700'}`}>
-                <Calendar className={`${big ? 'w-3.5 h-3.5' : 'w-3 h-3'}`} />
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded flex items-center gap-1 bg-zinc-800 border flex-shrink-0 ${isOverdue ? 'text-red-400 border-red-500/30' : 'text-zinc-500 border-zinc-700'}`}>
+                <Calendar className="w-2.5 h-2.5" />
                 {format(commitmentDate, 'dd/MM/yy')}
               </span>
             )}
             {isStale && (
-              <span className={`${big ? 'text-sm' : 'text-xs'} font-black px-2 py-0.5 rounded flex items-center gap-1 bg-amber-500/15 text-amber-400 border border-amber-500/40 flex-shrink-0`} title={`Creada hace ${formatOrderAge(ageDays!)}`}>
-                <Clock className={`${big ? 'w-3.5 h-3.5' : 'w-3 h-3'}`} />
+              <span className="text-[10px] font-black px-2 py-0.5 rounded flex items-center gap-1 bg-amber-500/15 text-amber-400 border border-amber-500/40 flex-shrink-0" title={`Creada hace ${formatOrderAge(ageDays!)}`}>
+                <Clock className="w-2.5 h-2.5" />
                 {formatOrderAge(ageDays!)}
-              </span>
-            )}
-            {deliveryTime.status !== 'unknown' && (
-              <span
-                className={`${big ? 'text-sm' : 'text-xs'}`}
-                title={`Entrega: ${deliveryTime.daysRange?.min}-${deliveryTime.daysRange?.max} días hábiles${deliveryTime.businessDaysRemaining !== null ? ` (${deliveryTime.businessDaysRemaining >= 0 ? deliveryTime.businessDaysRemaining + ' restantes' : Math.abs(deliveryTime.businessDaysRemaining) + ' vencidos'})` : ''}`}
-              >
-                {deliveryBadge}
               </span>
             )}
           </div>
         </div>
-        <span className={`inline-flex items-center px-3 py-1 rounded-full ${big ? 'text-sm' : 'text-xs'} font-black uppercase tracking-wider border ml-2 flex-shrink-0 ${PRIORITY_COLORS[priority]}`}>
+        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border ml-2 flex-shrink-0 ${PRIORITY_COLORS[priority]}`}>
           {PRIORITY_LABELS[priority]}
         </span>
       </div>
 
       {/* Product lines — lista compacta de todas las líneas */}
-      <div className="relative z-10 mb-2 lg:mb-3 min-h-0 overflow-hidden">
+      <div className={`relative z-10 mb-2 lg:mb-3 pl-2 min-h-0 overflow-hidden`}>
         <div className="flex flex-col gap-1">
           {(isDesktop ? order.lines : order.lines.slice(0, 3)).map((line: OdooOrderLine, idx: number) => {
             const lineComplete = line.qty > 0 && line.delivered >= line.qty;
             return (
               <div key={idx} className="flex items-center gap-1.5 min-w-0">
                 {lineComplete
-                  ? <Check className={`${big ? 'w-4 h-4' : 'w-3.5 h-3.5'} flex-shrink-0 ${st.text}`} />
-                  : <Package className={`${big ? 'w-4 h-4' : 'w-3.5 h-3.5'} flex-shrink-0 text-zinc-500`} />
+                  ? <Check className={`${isWide ? 'w-3.5 h-3.5' : 'w-3 h-3'} flex-shrink-0 text-fuchsia-400`} />
+                  : <Package className={`${isWide ? 'w-3.5 h-3.5' : 'w-3 h-3'} flex-shrink-0 text-zinc-500`} />
                 }
                 <SmartText
                   text={line.name}
-                  className={`${big ? 'text-base' : 'text-sm'} font-semibold ${lineComplete ? 'text-zinc-500 line-through' : 'text-zinc-100'} leading-tight`}
+                  className={`${isWide ? 'text-sm' : 'text-xs'} font-semibold ${lineComplete ? 'text-zinc-500 line-through' : 'text-zinc-100'} leading-tight`}
                   maxLines={1}
                   defaultLevel={2}
                 />
-                <span className={`${big ? 'text-sm' : 'text-xs'} font-black flex-shrink-0 font-mono-data ${lineComplete ? st.text : 'text-zinc-300'}`}>
+                <span className={`${isWide ? 'text-[10px]' : 'text-[9px]'} font-black flex-shrink-0 font-mono-data ${lineComplete ? 'text-fuchsia-400/70' : 'text-zinc-500'}`}>
                   {line.delivered}/{line.qty}
                 </span>
               </div>
             );
           })}
           {!isDesktop && order.lines.length > 3 && (
-            <span className={`${big ? 'text-sm' : 'text-xs'} text-zinc-400 font-bold pl-5`}>
+            <span className={`${isWide ? 'text-xs' : 'text-[10px]'} text-zinc-500 font-bold pl-5`}>
               +{order.lines.length - 3} más
             </span>
           )}
@@ -415,41 +293,43 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       </div>
 
       {/* Progress bar */}
-      <div className="mt-auto relative z-10 min-h-0">
+      <div className="mt-auto relative z-10 min-h-0 pl-2">
         <div className="flex justify-between items-end mb-2 lg:mb-2.5">
           <div className="flex items-center gap-1.5">
-            {statusIconFor(status.level, `${big ? 'w-5 h-5' : 'w-4 h-4'} ${st.text}`)}
-            <span className={`${big ? 'text-sm' : 'text-xs'} font-bold uppercase tracking-[0.12em] ${st.text}`}>
-              {status.label}
+            {StatusIcon}
+            <span className={`${isWide ? 'text-xs' : 'text-[9px] lg:text-[10px]'} font-bold uppercase tracking-[0.12em] ${statusTextColor}`}>
+              {statusLabel}
             </span>
           </div>
-          <div className="text-right flex items-baseline gap-2">
-            <span className={`${big ? 'text-4xl 2xl:text-5xl' : 'text-2xl lg:text-3xl'} font-black text-white font-mono-data leading-none`}>
+          <div className="text-right flex items-baseline gap-1.5">
+            <span className={`${isWide ? 'text-2xl xl:text-3xl' : 'text-lg lg:text-xl'} font-black text-white font-mono-data`}>
               {progress}%
             </span>
             {order.qty_total > 0 && (
-              <span className={`${big ? 'text-lg' : 'text-base'} font-black text-zinc-300 font-mono-data leading-none`}>
+              <span className={`${isWide ? 'text-xs' : 'text-[9px]'} font-bold text-zinc-500 font-mono-data`}>
                 {order.qty_delivered}/{order.qty_total}
               </span>
             )}
           </div>
         </div>
 
-        <div className={`${big ? 'h-4' : 'h-3'} bg-black/50 rounded-full overflow-hidden border border-white/5`}>
+        <div className={`${isWide ? 'h-3' : 'h-2 lg:h-2.5'} bg-black/50 rounded-full overflow-hidden border border-white/5`}>
           <div
-            className={`h-full rounded-full transition-all duration-1000 ${st.bar}`}
+            className={`h-full rounded-full transition-all duration-1000 relative ${progressColor}`}
             style={{ width: `${Math.max(progress, progress > 0 ? 4 : 0)}%` }}
-          />
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-white/20 via-transparent to-transparent" />
+          </div>
         </div>
 
         {/* Lines count + salesperson */}
         <div className="flex justify-between items-center mt-2">
-          <div className={`flex items-center gap-1 ${big ? 'text-xs' : 'text-[11px]'} text-zinc-500 font-bold uppercase tracking-wider`}>
-            <FileText className={`${big ? 'w-3.5 h-3.5' : 'w-3 h-3'}`} />
+          <div className="flex items-center gap-1 text-[9px] text-zinc-600 font-bold uppercase tracking-wider">
+            <FileText className="w-2.5 h-2.5" />
             {order.lines_count} {order.lines_count === 1 ? 'línea' : 'líneas'}
           </div>
           {order.salesperson && (
-            <div className={`${big ? 'text-xs' : 'text-[11px]'} text-zinc-500 font-bold uppercase tracking-wider truncate max-w-[140px]`}>
+            <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-wider truncate max-w-[120px]">
               {order.salesperson}
             </div>
           )}
@@ -458,13 +338,13 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
         {/* Remisiones */}
         {deliveryStates.length > 0 && (
           <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-            <span className={`${big ? 'text-xs' : 'text-[11px]'} text-zinc-500 font-bold uppercase tracking-wider shrink-0`}>
+            <span className={`${isWide ? 'text-[10px]' : 'text-[9px]'} text-zinc-600 font-bold uppercase tracking-wider shrink-0`}>
               Rem.
             </span>
             {deliveryStates.map(state => (
               <span
                 key={state}
-                className={`${big ? 'text-xs' : 'text-[11px]'} font-black px-1.5 py-0.5 rounded border ${DELIVERY_STATE_COLOR[state]}`}
+                className={`${isWide ? 'text-[10px]' : 'text-[9px]'} font-black px-1.5 py-0.5 rounded border ${DELIVERY_STATE_COLOR[state]}`}
               >
                 {deliveryCounts[state]} {DELIVERY_STATE_LABEL[state]}{(deliveryCounts[state] ?? 0) > 1 ? 's' : ''}
               </span>
