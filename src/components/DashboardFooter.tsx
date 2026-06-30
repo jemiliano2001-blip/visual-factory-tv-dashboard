@@ -111,20 +111,20 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
 
       <div className="flex-1 flex max-md:hidden items-center justify-end gap-4 lg:gap-5 font-mono-data">
         <span className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-status-overdue" />
-          <span className="text-zinc-500">Atrasada</span>
+          <div className="w-2.5 h-2.5 rounded-sm bg-cyan-400" />
+          <span className="text-zinc-500">Pendiente</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-status-warning" />
-          <span className="text-zinc-500">Por vencer</span>
+          <div className="w-2.5 h-2.5 rounded-sm bg-emerald-400" />
+          <span className="text-zinc-500">En proceso</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-status-ontime" />
-          <span className="text-zinc-500">En tiempo</span>
+          <div className="w-2.5 h-2.5 rounded-sm bg-fuchsia-400" />
+          <span className="text-zinc-500">Entregado</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-status-none" />
-          <span className="text-zinc-500">Sin fecha</span>
+          <div className="w-2.5 h-2.5 rounded-sm bg-red-500" />
+          <span className="text-zinc-500">Vencida</span>
         </span>
       </div>
     </footer>
