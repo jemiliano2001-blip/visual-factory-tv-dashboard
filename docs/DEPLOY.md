@@ -39,9 +39,15 @@ ODOO_PROXY_PORT=3001
 # Solo el servidor Express (server.ts) la lee para fungir como proxy seguro hacia Google.
 GEMINI_API_KEY=<tu key de Gemini>
 
-# Discord (notificaciones)
-DISCORD_WEBHOOK_URL=<webhook>
+# Discord (notificaciones — Cloud Functions)
+DISCORD_WEBHOOK_URL=<webhook canal #ordenes>
+DISCORD_WEBHOOK_URL_CRITICOS=<webhook canal #criticas, opcional>
+DISCORD_WEBHOOK_URL_REPORTES=<webhook canal #reportes, opcional>
+DISCORD_ROLE_GENERAL=<id de rol opcional para mencionar en reportes>
+DISCORD_LARGE_ORDER_LINES=5
+DASHBOARD_URL=https://dashboardsmv.web.app
 NOTIFICATIONS_ENABLED=true
+STALL_THRESHOLD_DAYS=3
 
 # Firebase — el servidor la usa para verificar los ID tokens del login.
 # Cópiala de firebase-applet-config.json (campo "apiKey") o de Firebase Console.

@@ -5,6 +5,7 @@
 //   npx tsx test-notifications.ts weekend     → cierre de semana
 //   npx tsx test-notifications.ts monthly     → reporte mensual
 //   npx tsx test-notifications.ts morning     → reporte matutino
+//   npx tsx test-notifications.ts chart       → resumen semanal con gráfica
 import { existsSync } from 'node:fs';
 import * as dotenv from 'dotenv';
 
@@ -13,7 +14,7 @@ dotenv.config();
 
 import {
   sendWebhook, reportEmbed,
-  sendWeekendReport, sendMonthlyReport, sendMorningReport,
+  sendWeekendReport, sendMonthlyReport, sendMorningReport, sendWeeklySummary,
   type NotifOrder,
 } from './functions/src/notifications.ts';
 
@@ -43,6 +44,10 @@ if (cmd === 'weekend') {
 } else if (cmd === 'morning') {
   console.log('[test] Obteniendo órdenes y enviando reporte matutino...');
   await sendMorningReport(await getOrders(), url);
+  console.log('[test] ¡Listo!');
+} else if (cmd === 'chart') {
+  console.log('[test] Obteniendo órdenes y enviando resumen semanal con gráfica...');
+  await sendWeeklySummary(await getOrders(), url);
   console.log('[test] ¡Listo!');
 } else {
   console.log('[test] Enviando ping de prueba...');

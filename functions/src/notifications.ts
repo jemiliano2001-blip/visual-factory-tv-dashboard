@@ -9,8 +9,16 @@ export interface NotifOrder {
   name: string;
   partner_name: string;
   date_order: string; // "YYYY-MM-DD HH:MM:SS" UTC from Odoo
+  main_product: string;
+  commitment_date: string | null;
   lines_count: number;
   deliveries: { state: string; date_done?: string | null }[];
+}
+
+export interface WebhookChannels {
+  eventos: string;
+  criticas: string;
+  reportes: string;
 }
 
 interface NotificationState {
@@ -42,6 +50,7 @@ interface DiscordEmbed {
   timestamp: string;
   footer: { text: string };
   fields?: DiscordField[];
+  image?: { url: string };
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -60,6 +69,10 @@ const EMPTY_STATE: NotificationState = {
   recoveryNotifications: [],
   weeklyBaselineOverdue: {},
 };
+
+const DELIVERY_HISTORY_RETENTION_MS = 90 * 86_400_000;
+const MAX_DELIVERY_HISTORY_ENTRIES = 1500;
+const MAX_WEEKLY_BASELINE_WEEKS = 12;
 
 export async function loadState(): Promise<NotificationState> {
   try {
@@ -80,10 +93,7 @@ export async function saveState(state: NotificationState): Promise<void> {
   }
 }
 
-/** Evita que deliveredOrderIds/deliveryTimestamps crezcan sin límite (tope Firestore 1 MB). */
-const DELIVERY_HISTORY_RETENTION_MS = 90 * 86_400_000;
-const MAX_DELIVERY_HISTORY_ENTRIES = 1500;
-
+/** Evita que deliveredOrderIds/deliveryTimestamps/weeklyBaselineOverdue crezcan sin límite. */
 function pruneDeliveryHistory(state: NotificationState): NotificationState {
   const cutoff = Date.now() - DELIVERY_HISTORY_RETENTION_MS;
   const timestamps = state.deliveryTimestamps ?? {};
@@ -100,9 +110,25 @@ function pruneDeliveryHistory(state: NotificationState): NotificationState {
   const validIds = new Set(Object.keys(deliveryTimestamps).map(id => Number(id)));
   const deliveredOrderIds = (state.deliveredOrderIds ?? []).filter(id => validIds.has(id));
 
-  return { ...state, deliveryTimestamps, deliveredOrderIds };
+  const baseline = state.weeklyBaselineOverdue ?? {};
+  const prunedBaselineEntries = Object.entries(baseline)
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .slice(0, MAX_WEEKLY_BASELINE_WEEKS);
+  const weeklyBaselineOverdue: NotificationState['weeklyBaselineOverdue'] = {};
+  for (const [key, value] of prunedBaselineEntries) {
+    weeklyBaselineOverdue[key] = value;
+  }
+
+  return { ...state, deliveryTimestamps, deliveredOrderIds, weeklyBaselineOverdue };
 }
 
+export function buildWebhookChannels(mainUrl: string): WebhookChannels {
+  return {
+    eventos: mainUrl,
+    criticas: process.env.DISCORD_WEBHOOK_URL_CRITICOS || mainUrl,
+    reportes: process.env.DISCORD_WEBHOOK_URL_REPORTES || mainUrl,
+  };
+}
 
 // Strips Discord mention syntax from Odoo-sourced strings to prevent
 // an Odoo customer name like "@everyone" from pinging the whole server.
@@ -152,6 +178,51 @@ function nowISO(): string {
   return new Date().toISOString();
 }
 
+function getDashboardUrl(): string {
+  return process.env.DASHBOARD_URL ?? 'https://dashboardsmv.web.app';
+}
+
+function parseOdooDateUtc(dateStr: string): Date {
+  return new Date(dateStr.replace(' ', 'T') + 'Z');
+}
+
+function truncateProduct(product: string, maxLen = 60): string {
+  const trimmed = product.trim();
+  if (trimmed.length <= maxLen) return trimmed;
+  return `${trimmed.slice(0, maxLen - 1)}…`;
+}
+
+function calendarDaysSince(dateStr: string): number {
+  const d = parseOdooDateUtc(dateStr);
+  const now = new Date();
+  const msPerDay = 86_400_000;
+  return Math.floor((now.getTime() - d.getTime()) / msPerDay);
+}
+
+function formatCommitmentLine(commitmentDate: string | null | undefined): string | null {
+  if (!commitmentDate) return null;
+  const d = parseOdooDateUtc(commitmentDate);
+  const formatted = d.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
+  const days = calendarDaysSince(commitmentDate);
+  if (days > 0) return `📅 Compromiso: ${formatted} (vencido hace ${days} día${days !== 1 ? 's' : ''})`;
+  if (days < 0) return `📅 Compromiso: ${formatted} (en ${Math.abs(days)} día${Math.abs(days) !== 1 ? 's' : ''})`;
+  return `📅 Compromiso: ${formatted} (hoy)`;
+}
+
+function buildOrderDetailLines(order: NotifOrder): string[] {
+  const lines: string[] = [];
+  const product = order.main_product?.trim();
+  if (product) lines.push(`🔩 ${truncateProduct(product)}`);
+  const commitment = formatCommitmentLine(order.commitment_date);
+  if (commitment) lines.push(commitment);
+  lines.push(`🔗 [Ver en tablero](${getDashboardUrl()})`);
+  return lines;
+}
+
+function orderEventDescription(order: NotifOrder, bodyLines: string[]): string {
+  return [...bodyLines, '', ...buildOrderDetailLines(order)].join('\n');
+}
+
 export function orderAgeEmbed(order: NotifOrder, ageDays: number, color: number, title: string, trendLine?: string): DiscordEmbed {
   const delivered = order.deliveries.filter(d => d.state === 'done').length;
   const pending   = order.deliveries.filter(d => d.state !== 'done' && d.state !== 'cancel').length;
@@ -159,6 +230,7 @@ export function orderAgeEmbed(order: NotifOrder, ageDays: number, color: number,
     `**${order.name}** · ${escapeDiscord(order.partner_name)}`,
     `⏱ **${ageDays} días** sin entregar`,
     `📦 Entregas: ${pending} pendientes / ${delivered} completadas`,
+    ...buildOrderDetailLines(order),
   ];
   if (trendLine) lines.push('', `📊 ${trendLine}`);
   return {
@@ -170,20 +242,22 @@ export function orderAgeEmbed(order: NotifOrder, ageDays: number, color: number,
   };
 }
 
-export function reportEmbed(title: string, lines: string[], color: number): DiscordEmbed {
-  return {
+export function reportEmbed(title: string, lines: string | string[], color: number, imageUrl?: string): DiscordEmbed {
+  const embed: DiscordEmbed = {
     title,
-    description: lines.join('\n'),
+    description: Array.isArray(lines) ? lines.join('\n') : lines,
     color,
     timestamp: nowISO(),
     footer: { text: 'Visual Factory TV · Odoo' },
   };
+  if (imageUrl) embed.image = { url: imageUrl };
+  return embed;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 export function getOrderAgeDays(dateOrder: string): number {
-  const d = new Date(dateOrder.replace(' ', 'T') + 'Z');
+  const d = parseOdooDateUtc(dateOrder);
   const now = new Date();
 
   let count = 0;
@@ -210,6 +284,11 @@ export function getClientMention(partnerName: string): string {
   return roleId ? `<@&${roleId}>` : '@everyone';
 }
 
+function getReportMention(): string {
+  const roleId = process.env.DISCORD_ROLE_GENERAL;
+  return roleId ? `<@&${roleId}>` : '';
+}
+
 // Returns "YYYY-WW" using ISO week numbering (Monday = start of week)
 function getISOWeek(date: Date): string {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -218,6 +297,48 @@ function getISOWeek(date: Date): string {
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
   return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+function getLastNISOWeeks(n: number): string[] {
+  const weeks: string[] = [];
+  const cur = new Date();
+  for (let i = 0; i < n; i++) {
+    const d = new Date(cur);
+    d.setDate(d.getDate() - i * 7);
+    weeks.unshift(getISOWeek(d));
+  }
+  return [...new Set(weeks)].slice(-n);
+}
+
+function buildWeeklyChartUrl(state: NotificationState): string {
+  const weeks = getLastNISOWeeks(8);
+  const labels = weeks.map(w => w.replace(/^\d+-/, ''));
+
+  const deliveryCounts: Record<string, number> = {};
+  for (const entry of Object.values(state.deliveryTimestamps ?? {})) {
+    const w = getISOWeek(new Date(entry.detectedAt));
+    deliveryCounts[w] = (deliveryCounts[w] ?? 0) + 1;
+  }
+
+  const entregas = weeks.map(w => deliveryCounts[w] ?? 0);
+  const criticas = weeks.map(w => (state.weeklyBaselineOverdue ?? {})[w] ?? 0);
+
+  const config = {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Entregas', data: entregas, backgroundColor: '#16A34A' },
+        { label: 'Críticas (lunes)', data: criticas, type: 'line', borderColor: '#DC2626', fill: false },
+      ],
+    },
+    options: {
+      plugins: { title: { display: true, text: 'Últimas 8 semanas' } },
+      scales: { y: { beginAtZero: true } },
+    },
+  };
+
+  return `https://quickchart.io/chart?w=500&h=300&c=${encodeURIComponent(JSON.stringify(config))}`;
 }
 
 // Business days elapsed since a given timestamp (weekends excluded)
@@ -263,20 +384,21 @@ function getClientTrendLabel(partnerName: string, month: string, state: Notifica
 }
 
 const STALL_DAYS = parseInt(process.env.STALL_THRESHOLD_DAYS ?? '3', 10);
+const LARGE_ORDER_LINES = parseInt(process.env.DISCORD_LARGE_ORDER_LINES ?? '5', 10);
 
 // ─── Threshold alerts ─────────────────────────────────────────────────────────
 
 export async function checkThresholds(
   orders: NotifOrder[],
-  mainUrl: string,
-  critUrl?: string,
+  channels: WebhookChannels,
 ): Promise<void> {
   const state = await loadState();
   let dirty = false;
 
   const thresholds = [
-    { days: 14, key: '14d', color: 0xDC2626, title: '🔴 Orden atrasada — 2 semanas', useCrit: false },
-    { days: 30, key: '30d', color: 0x7F1D1D, title: '💀 Orden crítica — 1 mes',       useCrit: true  },
+    { days: 14, key: '14d', color: 0xDC2626, title: '🔴 Orden atrasada — 2 semanas' },
+    { days: 21, key: '21d', color: 0xB91C1C, title: '🚨 Orden atrasada — 3 semanas' },
+    { days: 30, key: '30d', color: 0x7F1D1D, title: '💀 Orden crítica — 1 mes' },
   ] as const;
 
   const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
@@ -290,25 +412,23 @@ export async function checkThresholds(
       const alertKey = `${order.id}_${t.key}`;
       if (state.sentAlerts[alertKey]) continue;
 
-      // Track client monthly overdue stats (deduped per order) and compute trend label
       updateClientMonthlyStats(order.partner_name, order.id, currentMonth, state);
       const trendLabel = getClientTrendLabel(order.partner_name, currentMonth, state);
 
-      const webhookUrl = t.useCrit && critUrl ? critUrl : mainUrl;
       const mention = getClientMention(order.partner_name);
-      await sendWebhook(webhookUrl, mention, [orderAgeEmbed(order, ageDays, t.color, t.title, trendLabel ?? undefined)]);
+      await sendWebhook(channels.criticas, mention, [orderAgeEmbed(order, ageDays, t.color, t.title, trendLabel ?? undefined)]);
       state.sentAlerts[alertKey] = Date.now();
       dirty = true;
     }
   }
 
-  if (dirty) saveState(state);
+  if (dirty) await saveState(state);
 }
 
 // ─── Internal event helpers ───────────────────────────────────────────────────
 
 // Fires once per order when at least one delivery completes but others remain
-async function checkPartialDelivery(orders: NotifOrder[], mainUrl: string, state: NotificationState): Promise<boolean> {
+async function checkPartialDelivery(orders: NotifOrder[], eventosUrl: string, state: NotificationState): Promise<boolean> {
   let dirty = false;
   state.partialDeliveryAlerts ??= {};
 
@@ -323,12 +443,12 @@ async function checkPartialDelivery(orders: NotifOrder[], mainUrl: string, state
     if (state.partialDeliveryAlerts[key]) continue; // already notified
 
     state.partialDeliveryAlerts[key] = Date.now();
-    await sendWebhook(mainUrl, '', [reportEmbed(
+    await sendWebhook(eventosUrl, '', [reportEmbed(
       `📦 Entrega parcial — ${order.name}`,
-      [
+      orderEventDescription(order, [
         `**Cliente:** ${escapeDiscord(order.partner_name)}`,
         `**Remisiones:** ${done.length} de ${active.length} completadas`,
-      ],
+      ]),
       0x10B981,
     )]);
     dirty = true;
@@ -338,7 +458,7 @@ async function checkPartialDelivery(orders: NotifOrder[], mainUrl: string, state
 
 // Fires when no delivery state has changed for STALL_DAYS business days
 // Clears on state change so it can re-fire if the order stalls again
-async function checkStalledOrders(orders: NotifOrder[], mainUrl: string, state: NotificationState): Promise<boolean> {
+async function checkStalledOrders(orders: NotifOrder[], criticasUrl: string, state: NotificationState): Promise<boolean> {
   let dirty = false;
   state.lastDeliveryStates ??= {};
   state.stalledAlerts ??= {};
@@ -365,12 +485,12 @@ async function checkStalledOrders(orders: NotifOrder[], mainUrl: string, state: 
     if (businessDaysSince(prev.changedAt) < STALL_DAYS) continue;
 
     state.stalledAlerts[key] = Date.now();
-    await sendWebhook(mainUrl, '', [reportEmbed(
+    await sendWebhook(criticasUrl, '', [reportEmbed(
       `⏸️ Orden sin movimiento — ${order.name}`,
-      [
+      orderEventDescription(order, [
         `**Cliente:** ${escapeDiscord(order.partner_name)}`,
         `**Sin cambios en remisiones:** ${STALL_DAYS} días hábiles`,
-      ],
+      ]),
       0xF59E0B,
     )]);
     dirty = true;
@@ -380,26 +500,26 @@ async function checkStalledOrders(orders: NotifOrder[], mainUrl: string, state: 
 
 // ─── Event alerts ─────────────────────────────────────────────────────────────
 
-export async function checkEvents(orders: NotifOrder[], mainUrl: string): Promise<void> {
+export async function checkEvents(orders: NotifOrder[], channels: WebhookChannels): Promise<void> {
   const state = await loadState();
   let dirty = false;
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  // --- New large orders (≥5 lines) ---
+  // --- New large orders ---
   const isFirstRun = state.knownOrderIds.length === 0;
 
   for (const order of orders) {
-    if (!state.knownOrderIds.includes(order.id) && order.lines_count >= 5) {
+    if (!state.knownOrderIds.includes(order.id) && order.lines_count >= LARGE_ORDER_LINES) {
       const ageDays = getOrderAgeDays(order.date_order);
       // Solo notificar si la orden tiene 2 días o menos para evitar spam de órdenes viejas en reinicios
       if (!isFirstRun && ageDays <= 2) {
-        await sendWebhook(mainUrl, '', [reportEmbed(
+        await sendWebhook(channels.eventos, '', [reportEmbed(
           `📦 Nueva orden grande — ${order.name}`,
-          [
+          orderEventDescription(order, [
             `**Cliente:** ${escapeDiscord(order.partner_name)}`,
             `**Líneas de producto:** ${order.lines_count}`,
             `**Fecha:** ${order.date_order.slice(0, 10)}`,
-          ],
+          ]),
           0x2563EB,
         )]);
       }
@@ -414,31 +534,31 @@ export async function checkEvents(orders: NotifOrder[], mainUrl: string): Promis
     if (isFullyDelivered(order) && !state.deliveredOrderIds.includes(order.id)) {
       const ageAtDelivery = getOrderAgeDays(order.date_order);
       const orderKey = String(order.id);
-      const hadCriticalAlert = state.sentAlerts[`${order.id}_14d`] || state.sentAlerts[`${order.id}_30d`];
+      const hadCriticalAlert = state.sentAlerts[`${order.id}_14d`]
+        || state.sentAlerts[`${order.id}_21d`]
+        || state.sentAlerts[`${order.id}_30d`];
 
       if (hadCriticalAlert && !state.recoveryNotifications.includes(orderKey)) {
-        // Replace standard delivery notification with recovery message for overdue orders
-        await sendWebhook(mainUrl, '', [reportEmbed(
+        await sendWebhook(channels.eventos, '', [reportEmbed(
           `✅ Orden recuperada — ${order.name}`,
-          [
+          orderEventDescription(order, [
             `**Cliente:** ${escapeDiscord(order.partner_name)}`,
             `**Entregada con:** ${ageAtDelivery} días hábiles de atraso`,
-          ],
+          ]),
           0x059669,
         )]);
         state.recoveryNotifications.push(orderKey);
       } else {
-        await sendWebhook(mainUrl, '', [reportEmbed(
+        await sendWebhook(channels.eventos, '', [reportEmbed(
           `✅ Orden entregada — ${order.name}`,
-          [
+          orderEventDescription(order, [
             `**Cliente:** ${escapeDiscord(order.partner_name)}`,
             `**Duración:** ${ageAtDelivery} días`,
-          ],
+          ]),
           0x16A34A,
         )]);
       }
 
-      // Clean up per-order delivery tracking state
       delete (state.partialDeliveryAlerts ?? {})[orderKey];
       delete (state.lastDeliveryStates ?? {})[orderKey];
       delete (state.stalledAlerts ?? {})[orderKey];
@@ -463,20 +583,19 @@ export async function checkEvents(orders: NotifOrder[], mainUrl: string): Promis
       .sort((a, b) => getOrderAgeDays(b.date_order) - getOrderAgeDays(a.date_order))
       .map(o => `  • ${o.name} (${getOrderAgeDays(o.date_order)}d)`);
     const mention = getClientMention(client);
-    await sendWebhook(mainUrl, mention, [reportEmbed(
+    await sendWebhook(channels.criticas, mention, [reportEmbed(
       `👥 Cliente con múltiples órdenes atrasadas`,
-      [`**${client}** — ${clientOrders.length} órdenes con más de 14 días hábiles:`, ...bullets],
+      [`**${escapeDiscord(client)}** — ${clientOrders.length} órdenes con más de 14 días hábiles:`, ...bullets],
       0xEA580C,
     )]);
     state.clientAlertDates[client] = todayStr;
     dirty = true;
   }
 
-  // --- Partial delivery and stall detection ---
-  dirty = (await checkPartialDelivery(orders, mainUrl, state)) || dirty;
-  dirty = (await checkStalledOrders(orders, mainUrl, state)) || dirty;
+  dirty = (await checkPartialDelivery(orders, channels.eventos, state)) || dirty;
+  dirty = (await checkStalledOrders(orders, channels.criticas, state)) || dirty;
 
-  if (dirty) saveState(state);
+  if (dirty) await saveState(state);
 }
 
 // ─── Scheduled reports ────────────────────────────────────────────────────────
@@ -502,16 +621,14 @@ export async function sendMorningReport(orders: NotifOrder[], mainUrl: string): 
     lines.push('✅ Sin órdenes críticas hoy.');
   }
 
-  // Weekly trend: Monday sets baseline; other days show delta
   const now = new Date();
   const state = await loadState();
   const weekKey = getISOWeek(now);
   state.weeklyBaselineOverdue ??= {};
 
   if (now.getDay() === 1) {
-    // Monday — record this week's baseline
     state.weeklyBaselineOverdue[weekKey] = over14.length;
-    saveState(state);
+    await saveState(state);
   } else {
     const baseline = state.weeklyBaselineOverdue[weekKey];
     if (baseline !== undefined) {
@@ -521,11 +638,11 @@ export async function sendMorningReport(orders: NotifOrder[], mainUrl: string): 
     }
   }
 
-  const mention = process.env.DISCORD_ROLE_GENERAL ? `<@&${process.env.DISCORD_ROLE_GENERAL}>` : '@everyone';
-  await sendWebhook(mainUrl, mention, [reportEmbed('📊 Reporte matutino — Visual Factory', lines, 0x1E40AF)], `Reporte Matutino ${now.toISOString().slice(0, 10)}`);
+  await sendWebhook(mainUrl, getReportMention(), [reportEmbed('📊 Reporte matutino — Visual Factory', lines, 0x1E40AF)]);
 }
 
 export async function sendWeeklySummary(orders: NotifOrder[], mainUrl: string): Promise<void> {
+  const state = await loadState();
   const active    = orders.filter(o => !isFullyDelivered(o));
   const delivered = orders.filter(o => isFullyDelivered(o));
 
@@ -551,13 +668,13 @@ export async function sendWeeklySummary(orders: NotifOrder[], mainUrl: string): 
     oldest ? `⏳ **Orden más antigua:** ${oldest.name} · ${escapeDiscord(oldest.partner_name)} (${getOrderAgeDays(oldest.date_order)}d)` : '✅ Sin órdenes activas.',
   ].filter(Boolean);
 
-  const mention = process.env.DISCORD_ROLE_GENERAL ? `<@&${process.env.DISCORD_ROLE_GENERAL}>` : '@everyone';
-  await sendWebhook(mainUrl, mention, [reportEmbed('📅 Resumen semanal — Visual Factory', lines, 0x7C3AED)], `Resumen Semanal ${new Date().toISOString().slice(0, 10)}`);
+  const chartUrl = buildWeeklyChartUrl(state);
+  await sendWebhook(mainUrl, getReportMention(), [reportEmbed('📅 Resumen semanal — Visual Factory', lines, 0x7C3AED, chartUrl)]);
 }
 
 export async function sendMiddayReport(orders: NotifOrder[], mainUrl: string): Promise<void> {
   const overdue = orders.filter(o => !isFullyDelivered(o) && getOrderAgeDays(o.date_order) >= 14);
-  if (overdue.length === 0) return; // no enviar si no hay críticas
+  if (overdue.length === 0) return;
   const lines = [
     `🔴 **${overdue.length}** órdenes con más de 14 días pendientes:`,
     ...overdue
@@ -565,7 +682,7 @@ export async function sendMiddayReport(orders: NotifOrder[], mainUrl: string): P
       .slice(0, 8)
       .map(o => `  • ${o.name} · ${escapeDiscord(o.partner_name)} (${getOrderAgeDays(o.date_order)}d)`),
   ];
-  await sendWebhook(mainUrl, '', [reportEmbed('☀️ Reporte mediodía — Visual Factory', lines, 0xD97706)], `Reporte Mediodía ${new Date().toISOString().slice(0, 10)}`);
+  await sendWebhook(mainUrl, '', [reportEmbed('☀️ Reporte mediodía — Visual Factory', lines, 0xD97706)]);
 }
 
 export async function sendEndOfShiftReport(orders: NotifOrder[], mainUrl: string): Promise<void> {
@@ -577,7 +694,7 @@ export async function sendEndOfShiftReport(orders: NotifOrder[], mainUrl: string
       ? '⚠️ Quedan órdenes críticas para mañana.'
       : '✅ Sin órdenes críticas al cierre de turno.',
   ];
-  await sendWebhook(mainUrl, '', [reportEmbed('🌙 Cierre de turno — Visual Factory', lines, 0x475569)], `Cierre de Turno ${new Date().toISOString().slice(0, 10)}`);
+  await sendWebhook(mainUrl, '', [reportEmbed('🌙 Cierre de turno — Visual Factory', lines, 0x475569)]);
 }
 
 // ─── Cierre de semana (viernes 5pm) ──────────────────────────────────────────
@@ -606,7 +723,7 @@ export async function sendWeekendReport(orders: NotifOrder[], mainUrl: string): 
     lines.push('✅ Sin críticas al cierre de semana.');
   }
 
-  await sendWebhook(mainUrl, '', [reportEmbed('📅 Cierre de semana — Visual Factory', lines, 0x7C3AED)], `Cierre de Semana ${new Date().toISOString().slice(0, 10)}`);
+  await sendWebhook(mainUrl, '', [reportEmbed('📅 Cierre de semana — Visual Factory', lines, 0x7C3AED)]);
 }
 
 // ─── Reporte mensual (1° de cada mes) ─────────────────────────────────────────
@@ -614,7 +731,7 @@ export async function sendWeekendReport(orders: NotifOrder[], mainUrl: string): 
 function prevMonthRange(): { start: number; end: number; label: string } {
   const now = new Date();
   const y   = now.getFullYear();
-  const m   = now.getMonth(); // índice 0 = enero, actual
+  const m   = now.getMonth();
   return {
     start: new Date(y, m - 1, 1).getTime(),
     end:   new Date(y, m, 1).getTime(),
@@ -643,7 +760,7 @@ export async function sendMonthlyReport(orders: NotifOrder[], mainUrl: string): 
   const topClients = Object.entries(clientCounts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
-    .map(([name, count]) => `  • ${name}: ${count} órdenes con >14d`);
+    .map(([name, count]) => `  • ${escapeDiscord(name)}: ${count} órdenes con >14d`);
 
   const lines: string[] = [
     `📦 **${monthDeliveries.length}** entregas en ${label}${avgAge !== null ? ` · promedio **${avgAge} días** por entrega` : ''}`,
@@ -653,7 +770,5 @@ export async function sendMonthlyReport(orders: NotifOrder[], mainUrl: string): 
     ...(topClients.length > 0 ? topClients : ['  Ninguno — ¡excelente mes!']),
   ];
 
-  const mention = process.env.DISCORD_ROLE_GENERAL ? `<@&${process.env.DISCORD_ROLE_GENERAL}>` : '@everyone';
-  await sendWebhook(mainUrl, mention, [reportEmbed(`📊 Reporte mensual — ${label}`, lines, 0x0EA5E9)], `Reporte Mensual ${label}`);
+  await sendWebhook(mainUrl, getReportMention(), [reportEmbed(`📊 Reporte mensual — ${label}`, lines, 0x0EA5E9)]);
 }
-

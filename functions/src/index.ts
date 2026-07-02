@@ -16,7 +16,9 @@ import {
   sendMonthlyReport,
   loadState,
   saveState,
+  buildWebhookChannels,
   type NotifOrder,
+  type WebhookChannels,
 } from './notifications';
 
 // Auto-init: en Cloud Functions el service account se configura automáticamente
@@ -140,9 +142,8 @@ export const api = onRequest({ region: 'us-central1', timeoutSeconds: 60, memory
 // ─── Scheduled Notifications ──────────────────────────────────────────────────
 const TIME_ZONE = 'America/Chicago';
 
-async function runNotificationTask(task: (orders: NotifOrder[], mainUrl: string, critUrl: string) => Promise<void>) {
+async function runNotificationTask(task: (orders: NotifOrder[], channels: WebhookChannels) => Promise<void>) {
   const mainUrl = process.env.DISCORD_WEBHOOK_URL;
-  const critUrl = process.env.DISCORD_WEBHOOK_URL_CRITICOS || '';
   const enabled = process.env.NOTIFICATIONS_ENABLED !== 'false';
 
   if (!mainUrl || !enabled) {
@@ -152,7 +153,8 @@ async function runNotificationTask(task: (orders: NotifOrder[], mainUrl: string,
 
   try {
     const orders = await odooClient.fetchInvoiceableOrders();
-    await task(orders, mainUrl, critUrl);
+    const channels = buildWebhookChannels(mainUrl);
+    await task(orders, channels);
   } catch (err) {
     console.error('[notifications] Error ejecutando tarea:', err);
   }
@@ -160,9 +162,9 @@ async function runNotificationTask(task: (orders: NotifOrder[], mainUrl: string,
 
 // 1. Scan cada 30 minutos (umbrales y eventos)
 export const scanNotifications = onSchedule({ schedule: 'every 30 minutes', timeZone: TIME_ZONE }, async () => {
-  await runNotificationTask(async (orders, mainUrl, critUrl) => {
-    await checkThresholds(orders, mainUrl, critUrl);
-    await checkEvents(orders, mainUrl);
+  await runNotificationTask(async (orders, channels) => {
+    await checkThresholds(orders, channels);
+    await checkEvents(orders, channels);
 
     // Lógica del reporte mensual
     const now = new Date();
@@ -172,7 +174,7 @@ export const scanNotifications = onSchedule({ schedule: 'every 30 minutes', time
     const state = await loadState();
 
     if (state.lastMonthlyReportMonth && state.lastMonthlyReportMonth !== currentMonth && localStr.getHours() >= 8) {
-      await sendMonthlyReport(orders, mainUrl);
+      await sendMonthlyReport(orders, channels.reportes);
       state.lastMonthlyReportMonth = currentMonth;
       await saveState(state);
     } else if (!state.lastMonthlyReportMonth) {
@@ -184,35 +186,35 @@ export const scanNotifications = onSchedule({ schedule: 'every 30 minutes', time
 
 // 2. Lun-Sáb 8:00 AM — reporte matutino
 export const morningReport = onSchedule({ schedule: '0 8 * * 1-6', timeZone: TIME_ZONE }, async () => {
-  await runNotificationTask(async (orders, mainUrl) => {
-    await sendMorningReport(orders, mainUrl);
+  await runNotificationTask(async (orders, channels) => {
+    await sendMorningReport(orders, channels.reportes);
   });
 });
 
 // 3. Lun-Sáb 1:00 PM — reporte mediodía
 export const middayReport = onSchedule({ schedule: '0 13 * * 1-6', timeZone: TIME_ZONE }, async () => {
-  await runNotificationTask(async (orders, mainUrl) => {
-    await sendMiddayReport(orders, mainUrl);
+  await runNotificationTask(async (orders, channels) => {
+    await sendMiddayReport(orders, channels.reportes);
   });
 });
 
 // 4. Lun-Jue + Sáb 5:00 PM — cierre de turno normal
 export const endOfShiftReport = onSchedule({ schedule: '0 17 * * 1-4,6', timeZone: TIME_ZONE }, async () => {
-  await runNotificationTask(async (orders, mainUrl) => {
-    await sendEndOfShiftReport(orders, mainUrl);
+  await runNotificationTask(async (orders, channels) => {
+    await sendEndOfShiftReport(orders, channels.reportes);
   });
 });
 
 // 5. Viernes 5:00 PM — cierre de semana
 export const weekendReport = onSchedule({ schedule: '0 17 * * 5', timeZone: TIME_ZONE }, async () => {
-  await runNotificationTask(async (orders, mainUrl) => {
-    await sendWeekendReport(orders, mainUrl);
+  await runNotificationTask(async (orders, channels) => {
+    await sendWeekendReport(orders, channels.reportes);
   });
 });
 
 // 6. Lunes 9:00 AM — resumen semanal
 export const weeklySummary = onSchedule({ schedule: '0 9 * * 1', timeZone: TIME_ZONE }, async () => {
-  await runNotificationTask(async (orders, mainUrl) => {
-    await sendWeeklySummary(orders, mainUrl);
+  await runNotificationTask(async (orders, channels) => {
+    await sendWeeklySummary(orders, channels.reportes);
   });
 });
