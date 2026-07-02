@@ -123,9 +123,11 @@ function pruneDeliveryHistory(state: NotificationState): NotificationState {
 }
 
 export function buildWebhookChannels(mainUrl: string): WebhookChannels {
+  const criticasUrl = process.env.DISCORD_WEBHOOK_URL_CRITICOS
+    || process.env.DISCORD_WEBHOOK_URL_CRITICAS;
   return {
     eventos: mainUrl,
-    criticas: process.env.DISCORD_WEBHOOK_URL_CRITICOS || mainUrl,
+    criticas: criticasUrl || mainUrl,
     reportes: process.env.DISCORD_WEBHOOK_URL_REPORTES || mainUrl,
   };
 }
@@ -154,7 +156,7 @@ interface DiscordWebhookPayload {
   thread_name?: string;
 }
 
-export async function sendWebhook(url: string, content: string, embeds: DiscordEmbed[], threadName?: string): Promise<void> {
+export async function sendWebhook(url: string, content: string, embeds: DiscordEmbed[], threadName?: string): Promise<boolean> {
   const payload: DiscordWebhookPayload = { content, embeds };
   if (threadName) payload.thread_name = threadName;
   const body = JSON.stringify(payload);
@@ -168,9 +170,12 @@ export async function sendWebhook(url: string, content: string, embeds: DiscordE
     }
     if (!res.ok) {
       console.error(`[notifications] Discord webhook falló: ${res.status} ${await res.text()}`);
+      return false;
     }
+    return true;
   } catch (e) {
     console.error('[notifications] Error enviando webhook a Discord:', e);
+    return false;
   }
 }
 
