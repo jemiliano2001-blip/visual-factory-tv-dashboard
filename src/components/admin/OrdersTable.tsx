@@ -82,7 +82,7 @@ export default function OrdersTable({ orders, predictions, onClientReport, onPre
     columnHelper.accessor('date_order', {
       id: 'date_order',
       header: 'Fecha Orden',
-      meta: { className: 'hidden 2xl:table-cell' } as any,
+      meta: { className: 'hidden 2xl:table-cell' },
       cell: info => {
         const d = parseOdooDate(info.getValue());
         return <span className="font-mono-data text-xs tabular-nums text-muted-foreground">{d ? format(d, 'dd/MM/yyyy') : '—'}</span>;
@@ -146,7 +146,7 @@ export default function OrdersTable({ orders, predictions, onClientReport, onPre
     columnHelper.accessor('salesperson', {
       id: 'salesperson',
       header: 'Vendedor',
-      meta: { className: 'hidden 2xl:table-cell' } as any,
+      meta: { className: 'hidden 2xl:table-cell' },
       cell: info => <span className="text-xs text-muted-foreground">{info.getValue() || '—'}</span>,
     }),
     columnHelper.display({

@@ -4,7 +4,7 @@
  * Hace polling automático y retorna las órdenes de venta a facturar.
  */
 
-import { auth } from '../firebase';
+import { getIdTokenOrThrow } from '../firebase';
 
 // Base del proxy Express de Odoo. Vacío = mismo origen: en dev/preview Vite
 // reenvía /api al proxy (vite.config.ts), por lo que funciona también desde
@@ -13,8 +13,8 @@ import { auth } from '../firebase';
 const PROXY_BASE = import.meta.env.VITE_ODOO_PROXY_URL || '';
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const token = await auth.currentUser?.getIdToken().catch(() => '');
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const token = await getIdTokenOrThrow();
+  return { Authorization: `Bearer ${token}` };
 }
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
@@ -120,7 +120,14 @@ export async function checkOdooStatus(): Promise<OdooConnectionStatus> {
       };
     }
     return await response.json() as OdooConnectionStatus;
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('sesión') || msg.includes('token') || msg.includes('Firebase')) {
+      return {
+        connected: false,
+        message: msg,
+      };
+    }
     return {
       connected: false,
       message: 'No se pudo conectar al proxy de Odoo. ¿Está corriendo el servidor?',
@@ -151,6 +158,14 @@ export async function fetchInvoiceableOrders(): Promise<OdooOrdersResponse> {
     return await response.json() as OdooOrdersResponse;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('sesión') || msg.includes('token') || msg.includes('Firebase')) {
+      return {
+        orders: [],
+        total: 0,
+        lastUpdated: new Date().toISOString(),
+        error: msg,
+      };
+    }
     return {
       orders: [],
       total: 0,
@@ -301,6 +316,11 @@ export function parseDeliveryDaysFromNote(note: string | null | undefined): Deli
   return null;
 }
 
+/** Inicio del día calendario (medianoche local) para comparaciones justas. */
+function startOfCalendarDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
 /** Suma N días hábiles (lun-vie) a una fecha. */
 export function addBusinessDays(start: Date, days: number): Date {
   const result = new Date(start);
@@ -348,14 +368,15 @@ export function getDeliveryTimeStatus(order: OdooSaleOrder): DeliveryTimeInfo {
   const deadlineDate = addBusinessDays(orderDate, daysRange.max);
 
   const now = new Date();
-  // Normalizar a inicio de día para comparación justa
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const businessDaysRemaining = getBusinessDaysBetween(today, deadlineDate);
+  const today = startOfCalendarDay(now);
+  const warningDay = startOfCalendarDay(warningDate);
+  const deadlineDay = startOfCalendarDay(deadlineDate);
+  const businessDaysRemaining = getBusinessDaysBetween(today, deadlineDay);
 
   let status: DeliveryTimeInfo['status'];
-  if (today > deadlineDate) {
+  if (today > deadlineDay) {
     status = 'overdue';
-  } else if (today >= warningDate) {
+  } else if (today >= warningDay) {
     status = 'warning';
   } else {
     status = 'on-time';

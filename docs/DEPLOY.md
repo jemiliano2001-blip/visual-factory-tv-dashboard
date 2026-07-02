@@ -1,20 +1,22 @@
 # Despliegue — Visual Factory TV (solo personal SMV)
 
 Arquitectura: **un solo origen**. `server.ts` sirve el frontend compilado (`dist/`)
-y el proxy de Odoo (`/api/odoo/*`) en el mismo puerto (3001). Cloudflare Tunnel lo
-expone al exterior. La seguridad de acceso la da **Firebase Authentication** (email
-+ contraseña) — no hace falta Cloudflare Access.
+y el proxy de Odoo/IA (`/api/*`) en el mismo puerto (3001). Cloudflare Tunnel lo
+expone al exterior. La seguridad de acceso la da **Firebase Authentication**:
+la TV usa sesión **anónima** (sin login visible) y admin/stats usan email/contraseña.
+Todos los endpoints `/api/*` exigen un Firebase ID token válido.
 
 ```
 Navegador / TV  ──HTTPS──>  Cloudflare Tunnel  ──>  host:3001
-                                                      ├── /            → dist/ (SPA, requiere login)
-                                                      └── /api/odoo/*  → Odoo (verifica Firebase ID token)
+                                                      ├── /            → dist/ (SPA)
+                                                      └── /api/*       → Odoo + Gemini (verifica Firebase ID token)
 ```
 
-**Cuentas de acceso:** se crean en Firebase Console → Authentication → Users → Add user.
-No es necesario agregar correos en ninguna lista de código — solo las cuentas que existen
-en Firebase pueden iniciar sesión. Para la TV del taller, crea una cuenta dedicada
-(p. ej. `tv-taller@tuempresa.com`) y déjala con sesión iniciada permanentemente.
+**TV del taller:** no requiere login visible — `App.tsx` hace `signInAnonymously()` al cargar.
+Habilita **Anonymous** en Firebase Console → Authentication → Sign-in method.
+Si falla, el tablero muestra un error claro (no intenta llamar a Odoo sin token).
+
+**Admin/Stats:** cuenta real con email/contraseña creada en Firebase Console.
 
 ---
 
@@ -44,11 +46,14 @@ NOTIFICATIONS_ENABLED=true
 # Firebase — el servidor la usa para verificar los ID tokens del login.
 # Cópiala de firebase-applet-config.json (campo "apiKey") o de Firebase Console.
 FIREBASE_API_KEY=<apiKey de firebase-applet-config.json>
+
+# Solo dev local (opcional): bypass de token en 127.0.0.1. NO usar en producción.
+# DEV_AUTH_BYPASS=true
 ```
 
 > `API_SECRET` / `VITE_API_SECRET` ya no existen — la autenticación la hace
-> Firebase. El frontend envía el ID token de la sesión; el servidor lo verifica
-> contra Google. **No hay secretos de autenticación que hornear en el bundle.**
+> Firebase. El frontend envía el ID token de la sesión (anónima en TV, real en admin);
+> el servidor lo verifica contra Google. **No hay secretos de autenticación en el bundle.**
 
 `firebase-applet-config.json` también debe existir en el host (con la API key nueva).
 No está en git — cópialo manualmente.
@@ -111,39 +116,37 @@ cloudflared service install
 # (o, para probar primero) cloudflared tunnel run vf-tablero
 ```
 
-## 4. Cloudflare Access (el gate)
+## 4. Cloudflare Access (opcional — capa extra)
+
+La autenticación principal es **Firebase** (ver sección 5). Cloudflare Access es
+opcional si quieres un gate adicional antes de que el tráfico llegue al host.
 
 En **Cloudflare Zero Trust → Access → Applications → Add an application →
 Self-hosted**:
 
 - **Application domain:** `tablero.maquinadosvazquez.com`
-- **Identity / login:** activa **One-time PIN** (Cloudflare manda un código al
-  correo; cero configuración de IdP). Alternativa: Google.
+- **Identity / login:** activa **One-time PIN** o Google.
 
 **Política 1 — Allow (personal SMV):**
 - Action: `Allow`
-- Include → `Emails` (lista de correos del personal) o `Emails ending in
-  @maquinadosvazquez.com` si tienen correo corporativo.
+- Include → `Emails` o `Emails ending in @maquinadosvazquez.com`
 
-**Política 2 — Bypass para la TV del taller:**
+**Política 2 — Bypass para la TV del taller (opcional):**
 - Action: `Bypass`
-- Include → `IP ranges` = IP pública de salida del taller.
-- Esto hace que la TV entre sin pedirle login. Si la IP del taller **no es fija**,
-  usa en su lugar un *service token* (Access → Service Auth) y configúralo en el
-  navegador/kiosko de la TV con los headers `CF-Access-Client-Id` /
-  `CF-Access-Client-Secret`.
+- Include → `IP ranges` = IP pública de salida del taller, o un *service token*
+  (Access → Service Auth) en el kiosko.
+
+Sin Cloudflare Access, el tablero sigue protegido por Firebase ID tokens en `/api/*`.
 
 ---
 
 ## 5. Cuentas de usuario (Firebase Console)
 
-1. Entra a [Firebase Console](https://console.firebase.google.com) → tu proyecto → **Authentication** → **Users**
-2. Habilita el proveedor **Email/Password** en la pestaña Sign-in method (si no está activado)
-3. Haz clic en **Add user** y crea una cuenta por persona del personal
-4. Crea una cuenta adicional para la TV del taller (p. ej. `tv-taller@tuempresa.com`)
-5. Configura esa cuenta en el navegador/kiosko de la TV — déjala con sesión iniciada y la página como homepage
-
-Cuando quieras revocar el acceso de alguien: borra su cuenta en Firebase Console. No hay nada que cambiar en el código.
+1. Entra a [Firebase Console](https://console.firebase.google.com) → tu proyecto → **Authentication**
+2. En **Sign-in method**, habilita **Anonymous** (requerido para la TV) y **Email/Password** (admin/stats)
+3. En **Users**, crea una cuenta por persona del personal (email/contraseña)
+4. La TV del taller no necesita cuenta dedicada: usa auth anónima automática al abrir `/`
+5. Para revocar acceso de admin: borra su cuenta en Firebase Console
 
 ---
 
@@ -155,8 +158,9 @@ Cuando quieras revocar el acceso de alguien: borra su cuenta en Firebase Console
 - [ ] `FIREBASE_API_KEY` en `.env.local` (igual al campo `apiKey` de `firebase-applet-config.json`)
 - [ ] Puerto 3001 **no** abierto a internet (solo lo alcanza el túnel)
 - [ ] `firebase-applet-config.json` copiado al host
+- [ ] Proveedor **Anonymous** habilitado en Firebase → Authentication → Sign-in method
 - [ ] Proveedor **Email/Password** habilitado en Firebase → Authentication → Sign-in method
 - [ ] Cuentas de personal creadas en Firebase → Authentication → Users
-- [ ] Cuenta de kiosko TV creada y con sesión iniciada en el kiosko
+- [ ] `DEV_AUTH_BYPASS` **no** está activo en producción
 - [ ] Reglas de Firestore desplegadas: `firebase deploy --only firestore:rules`
 - [ ] HTTPS verificado (Cloudflare lo da automático)

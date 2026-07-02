@@ -1,7 +1,7 @@
 import type { RiskPrediction } from '../components/admin/riskTypes';
 import { formatPONumber } from '../utils/formatters';
 import { OdooSaleOrder, getOrderPriority, isOrderOverdue, getDeliveryProgress, parseOdooDate } from './odoo';
-import { auth } from '../firebase';
+import { getIdTokenOrThrow } from '../firebase';
 
 export type { RiskPrediction };
 
@@ -16,33 +16,82 @@ const Modality = {
   AUDIO: 'AUDIO',
 } as const;
 
+type GeminiContentPart =
+  | { text: string }
+  | { inlineData: { data: string; mimeType: string } };
+
+type GeminiContents =
+  | string
+  | { parts: GeminiContentPart[] };
+
+interface GeminiSchemaProperty {
+  type: string;
+  enum?: string[];
+  description?: string;
+  items?: { type: string };
+}
+
+interface GeminiGenerateConfig {
+  responseMimeType?: string;
+  responseSchema?: {
+    type: string;
+    required?: string[];
+    properties?: Record<string, GeminiSchemaProperty>;
+    items?: { type: string };
+  };
+  responseModalities?: string[];
+  speechConfig?: {
+    voiceConfig: {
+      prebuiltVoiceConfig: { voiceName: string };
+    };
+  };
+}
+
 export interface GeminiRequest {
   model: string;
-  contents: any;
-  config?: any;
+  contents: GeminiContents;
+  config?: GeminiGenerateConfig;
+}
+
+interface GeminiProxyResponse {
+  text?: string;
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        inlineData?: { data?: string };
+      }>;
+    };
+  }>;
+}
+
+interface RiskPredictionRaw {
+  risk_level: 'low' | 'medium' | 'high';
+  issue: string;
+  suggestion: string;
+  analyzedAt: string;
 }
 
 const PROXY_BASE = import.meta.env.VITE_ODOO_PROXY_URL || '';
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const token = await auth.currentUser?.getIdToken().catch(() => '');
-  return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+  const token = await getIdTokenOrThrow();
+  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 }
 
-async function generateContent(params: GeminiRequest) {
+async function generateContent(params: GeminiRequest): Promise<GeminiProxyResponse> {
   const headers = await getAuthHeaders();
-  
+
   const response = await fetch(`${PROXY_BASE}/api/ai/generate`, {
     method: 'POST',
     headers,
     body: JSON.stringify(params),
   });
-  
+
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
+    const errorBody = await response.json().catch(() => null) as { error?: string } | null;
     throw new Error(errorBody?.error || `AI Request failed: ${response.statusText}`);
   }
-  return await response.json();
+  return await response.json() as GeminiProxyResponse;
 }
 
 /** Proyección compacta de una orden Odoo para prompts (menos tokens, campos en español). */
@@ -109,9 +158,9 @@ export const predictOrderRisk = async (order: OdooSaleOrder): Promise<RiskPredic
     }
   });
 
-  let result: any = {};
+  let result: RiskPredictionRaw;
   try {
-    result = JSON.parse(response.text || '{}');
+    result = JSON.parse(response.text || '{}') as RiskPredictionRaw;
   } catch {
     throw new Error('La IA devolvió una respuesta no válida');
   }
@@ -151,7 +200,7 @@ export interface VoiceCommandResponse {
 
 async function executeVoiceCommand(
   basePrompt: string,
-  inputParts: any[],
+  inputParts: GeminiContentPart[],
   activeOrders: OdooSaleOrder[],
   previousContext?: { transcript: string; message: string } | null
 ): Promise<VoiceCommandResponse> {
@@ -176,7 +225,7 @@ IMPORTANT INSTRUCTIONS:
 1. DELAY LOGIC: Use 'fecha_promesa' (commitment/delivery date) and 'vencida' to determine if an order is delayed/vencida. If the user asks for the oldest or most delayed order, find the one with the oldest 'fecha_promesa' or 'fecha_creacion' that is incomplete. Do NOT rely just on the PO number.
 2. FILTER ACTION: If the user says "muéstrame las vencidas", "filtra las entregadas", "cuáles están pendientes", etc., return action="filter" and set 'filter_type' to 'overdue', 'delivered', or 'pending' accordingly. If they ask for "las críticas", "las urgentes" or high-priority orders, set 'filter_type' to 'critical'. If they say "limpia el filtro" or "muestra todas", set 'filter_type' to 'all'.
 3. CLIENT FILTER: If the user asks to filter by a client/customer (e.g. "muéstrame las de Bosch", "filtra por cliente Nissan"), return action="filter" and set 'filter_client' to that client's name. You may combine 'filter_client' with a 'filter_type'.
-4. PO FORMATTING NOTE: Some POs might look like "546" or "5460" (4 digits) but should be interpreted as part of the sequence. The standard format is "2026/S00546" (5 digits padded with zeros).
+4. PO FORMATTING NOTE: Some POs might look like "546" or "5460" (4 digits) but should be interpreted as part of the sequence. The standard format is YYYY/SXXXXX (5 digits padded with zeros).
 5. If you find a specific order, mention its PO number in the 'message'.
 6. Keep the 'message' EXTREMELY short (maximum 12 words). Examples: "Aquí está la orden 546, avance del 60%", "Filtrando 3 órdenes vencidas", "No encontré esa orden".`;
 
@@ -206,25 +255,11 @@ IMPORTANT INSTRUCTIONS:
   });
 
   try {
-    return JSON.parse(response.text || '{"po_number":null,"action":"answer","message":"No pude entender el comando."}');
+    return JSON.parse(response.text || '{"po_number":null,"action":"answer","message":"No pude entender el comando."}') as VoiceCommandResponse;
   } catch {
     return { po_number: null, action: 'answer', message: 'No pude entender el comando.' };
   }
 }
-
-export const processVoiceCommand = async (
-  audioBase64: string,
-  mimeType: string,
-  activeOrders: OdooSaleOrder[],
-  previousContext?: { transcript: string; message: string } | null,
-) => {
-  return executeVoiceCommand(
-    "Listen to the audio command in SPANISH. The user is a factory operator talking to you, their AI assistant. They might ask to highlight/find a specific order, filter the view (by status, by client, or by priority), or ask a general question about the active orders.",
-    [{ inlineData: { data: audioBase64, mimeType } }],
-    activeOrders,
-    previousContext
-  );
-};
 
 export const processTextVoiceCommand = async (
   transcript: string,
@@ -243,8 +278,8 @@ export const generateSpeech = async (text: string) => {
   const response = await generateContent({
     // TTS requiere un modelo dedicado de audio: un flash de texto (gemini-3.5-flash)
     // NO produce audio y deja la respuesta sin voz. No cambiar a un modelo de texto.
-    model: "gemini-3.1-flash-tts-preview",
-    contents: [{ parts: [{ text }] }],
+    model: "gemini-2.5-flash-preview-tts",
+    contents: { parts: [{ text }] },
     config: {
       responseModalities: [Modality.AUDIO],
       speechConfig: {

@@ -20,9 +20,10 @@ Copy `.env.example` to `.env.local` and fill in:
 
 | Variable | Source | Purpose |
 |----------|--------|---------|
-| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) | AI features (voice, reports, predictions) |
+| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) | AI features (server-side proxy only — never exposed to the browser) |
 | `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD` | Your Odoo instance | TV dashboard data |
-| `API_SECRET` / `VITE_API_SECRET` | Generate a strong random string | Odoo proxy auth in production |
+| `FIREBASE_API_KEY` | `firebase-applet-config.json` or Firebase Console | Server verifies Firebase ID tokens on `/api/*` |
+| `DEV_AUTH_BYPASS` | Set to `true` only for local dev (optional) | Opt-in localhost bypass on `server.ts`; default is fail-closed |
 | `APP_URL` | Set by AI Studio at runtime (or your domain) | Self-referential links |
 | `VITE_ODOO_PROXY_URL` | URL of a remote proxy host (no trailing slash) | Points the frontend at an Odoo proxy on a different host; empty = same origin |
 
@@ -67,22 +68,22 @@ There is **no test runner and no linter** beyond `tsc --noEmit`. Treat `npm run 
 
 ### The Odoo proxy (`server.ts`)
 
-A standalone Express server (not part of Vite) that exists to hide Odoo credentials and avoid CORS. It authenticates to Odoo via JSON-RPC (`/web/session/authenticate`), keeps the `session_id` cookie, and re-issues `call_kw` RPCs. Endpoints: `GET /api/odoo/status`, `GET /api/odoo/invoiceable-orders`. Auth is **bypassed on localhost**; in production it requires `Authorization: Bearer <API_SECRET>`. The frontend sends `VITE_API_SECRET` as that bearer token. Configured entirely from `.env.local` / `.env` (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`, `ODOO_PROXY_PORT`).
+A standalone Express server (not part of Vite) that exists to hide Odoo credentials and avoid CORS. It authenticates to Odoo via JSON-RPC (`/web/session/authenticate`), keeps the `session_id` cookie, and re-issues `call_kw` RPCs. Endpoints: `GET /api/odoo/status`, `GET /api/odoo/invoiceable-orders`, `POST /api/ai/generate`. **All `/api/*` routes require a valid Firebase ID token** (`Authorization: Bearer <idToken>`). The TV dashboard obtains that token via anonymous Firebase auth (`App.tsx` → `signInAnonymously`); admin/stats use email/password. Local bypass is **opt-in only**: set `DEV_AUTH_BYPASS=true` in `.env.local` to skip token checks for connections from `127.0.0.1` / `::1` — never rely on `NODE_ENV` alone (Cloudflare Tunnel arrives as localhost). The same auth posture exists in `functions/src/index.ts` for Firebase Hosting deploys. Configured from `.env.local` / `.env` (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`, `ODOO_PROXY_PORT`, `FIREBASE_API_KEY`, `GEMINI_API_KEY`).
 
 ## AI layer (`src/services/ai.ts`)
 
-All Gemini calls go through `@google/genai`, keyed by `process.env.GEMINI_API_KEY` (injected at build time by `vite.config.ts` via `define`, and at runtime by the AI Studio platform). Functions cover: shift summaries (Stats), client report emails, global anomaly analysis, per-order risk prediction (ephemeral, not persisted), natural-language order filtering, **voice command processing** (audio → JSON action for the TV dashboard), and TTS speech. All functions take `OdooSaleOrder` data; the `simplifyOrder` helper produces the compact Spanish-field projection used in prompts.
+All Gemini calls go through the **server proxy** (`POST /api/ai/generate` on `server.ts` or Cloud Functions), keyed by `process.env.GEMINI_API_KEY` on the server only — the browser never holds the key. The client module `src/services/ai.ts` sends authenticated requests with the Firebase ID token. Functions cover: shift summaries (Stats), client report emails, global anomaly analysis, per-order risk prediction (ephemeral, not persisted), natural-language order filtering, **voice command processing** (Web Speech API transcript → JSON action for the TV dashboard), and TTS speech. All functions take `OdooSaleOrder` data; the `simplifyOrder` helper produces the compact Spanish-field projection used in prompts.
 
-Model IDs referenced as string literals in this file: text tasks and voice-command understanding use `gemini-3.5-flash`; **TTS (`generateSpeech`) must use a dedicated audio model — `gemini-2.5-flash-preview-tts`**. A text flash model does NOT emit audio (`inlineData` comes back empty → silent response), so never swap the TTS model for `gemini-3.5-flash` in a bulk model bump. `gemini-2.0-flash` is **deprecated — do not reintroduce it**.
+Model IDs referenced as string literals: text tasks and voice-command understanding use `gemini-3.5-flash`; **TTS (`generateSpeech`) must use a dedicated audio model — `gemini-2.5-flash-preview-tts`**. A text flash model does NOT emit audio (`inlineData` comes back empty → silent response), so never swap the TTS model for `gemini-3.5-flash` in a bulk model bump. `gemini-2.0-flash` is **deprecated — do not reintroduce it**. The server allowlists only these two model IDs on `/api/ai/generate`.
 
-**Voice command TTS pipeline**: `processVoiceCommand()` sends the recorded `audio/webm` blob inline to Gemini and returns a JSON action (`highlight | filter | answer`) plus a Spanish `message`, the literal `transcript` of what was said, and optional `filter_type` (`all | overdue | pending | delivered | critical`) / `filter_client`. It also accepts an optional `previousContext` (last turn) for conversational follow-ups. `generateSpeech()` then sends that message to the TTS model, which returns raw **PCM audio at 24 kHz** encoded as base64. `playPCMBase64()` in `TVDashboard.tsx` decodes it manually (16-bit little-endian samples → Float32) and plays it via a singleton `AudioContext` (`sharedAudioCtx`, `sampleRate: 24000`). Don't replace this with `<audio src="data:...">` — browsers won't decode raw PCM without a WAV header.
+**Voice command TTS pipeline**: `processTextVoiceCommand()` (primary path — browser Web Speech API) sends the transcript to Gemini and returns a JSON action (`highlight | filter | answer`) plus a Spanish `message`, optional `filter_type` (`all | overdue | pending | delivered | critical`) / `filter_client`. `processVoiceCommand()` (audio inline) remains available but is not the TV default. `generateSpeech()` sends the message to the TTS model, which returns raw **PCM audio at 24 kHz** encoded as base64. `playPCMBase64()` in `TVDashboard.tsx` decodes it manually (16-bit little-endian samples → Float32) and plays it via a singleton `AudioContext` (`sharedAudioCtx`, `sampleRate: 24000`). Don't replace this with `<audio src="data:...">` — browsers won't decode raw PCM without a WAV header.
 
-`window.aistudio` (typed in `src/types.ts`) gates whether an API key is selected; `App.tsx` blocks the UI until `hasSelectedApiKey()` is true.
+`window.aistudio` (typed in `src/types.ts`) gates whether an API key is selected when running inside Google AI Studio; `App.tsx` blocks the UI until `hasSelectedApiKey()` is true in that environment only.
 
 ## Auth & routing
 
-- `App.tsx` signs the user in **anonymously** on load so the public TV Dashboard works without credentials while still passing Firestore rules (which require `request.auth != null`).
-- Admins upgrade to a real session via **Google sign-in** (`Login.tsx`). `ProtectedRoute` guards `/admin` and `/stats` on `auth.currentUser`.
+- `App.tsx` signs every visitor in **anonymously** on load so the public TV Dashboard works without a visible login while still obtaining a Firebase ID token for `/api/*` and satisfying Firestore rules (`request.auth != null`). If anonymous auth is disabled in Firebase Console, the app shows a clear error screen.
+- Admins sign in via **email/password** (`Login.tsx`). `ProtectedRoute` guards `/admin` and `/stats` using `isRealUser()` (rejects anonymous sessions) and subscribes to `onAuthStateChanged`.
 - `Layout.tsx` renders a bare full-screen shell for `/` (the TV view) and the sidebar chrome for everything else.
 
 ## Firestore rules (`firestore.rules`)
@@ -108,7 +109,7 @@ Voice filter types accepted by `setVoiceFilter`: `'all' | 'overdue' | 'pending' 
 
 ## Conventions & gotchas
 
-- **PO number format**: canonical form is `2026/SXXXXX` (5 digits, zero-padded). Always run user/AI-supplied PO strings through `formatPONumber` (`src/utils/formatters.ts`) before display or matching.
+- **PO number format**: canonical form is `YYYY/SXXXXX` (current year + 5 zero-padded digits). Always run user/AI-supplied PO strings through `formatPONumber` (`src/utils/formatters.ts`) before display or matching.
 - **Customer logos**: TV dashboard maps Odoo `partner_name` → logo via keyword/regex matching in `src/utils/customerLogos.ts`; logo files live in `public/logos/`. Add new clients there.
 - **xlsx-js-style** needs Node built-ins in the browser — `vite-plugin-node-polyfills` in `vite.config.ts` provides them. Don't remove it. It's configured with `globals: { process: false }`: the process shim would shadow the `define` that injects `GEMINI_API_KEY`, breaking AI features with "An API Key must be set when running in a browser".
 - **PWA**: `vite-plugin-pwa` with `registerType: 'autoUpdate'`, registered in `main.tsx` via `registerSW({ immediate: true })`. Enabled in dev too. The `dev-dist/` directory holds the compiled service-worker output (`sw.js`, `workbox-*.js`) — these are **auto-generated on every dev start, never edit them**.

@@ -24,16 +24,29 @@ import DashboardFooter from '../components/DashboardFooter';
 import TVControlBar from '../components/TVControlBar';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useMobile } from '../hooks/useMobile';
+import type {
+  SpeechRecognitionInstance,
+  SpeechRecognitionEvent,
+  SpeechRecognitionErrorEvent,
+  WindowWithSpeech,
+} from '../types/speech';
 
 // ─── Audio helpers ─────────────────────────────────────────────────────────────
 
 let sharedAudioCtx: AudioContext | null = null;
 const getAudioContext = () => {
   if (!sharedAudioCtx) {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const win = window as WindowWithSpeech;
+    const AudioContextClass = window.AudioContext || win.webkitAudioContext;
     if (AudioContextClass) sharedAudioCtx = new AudioContextClass({ sampleRate: 24000 });
   }
   return sharedAudioCtx;
+};
+
+const ensureAudioRunning = async (audioCtx: AudioContext) => {
+  if (audioCtx.state === 'suspended') {
+    await audioCtx.resume();
+  }
 };
 
 const playPCMBase64 = async (base64: string, onEnded?: () => void) => {
@@ -43,7 +56,8 @@ const playPCMBase64 = async (base64: string, onEnded?: () => void) => {
     for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
     const audioCtx = getAudioContext();
     if (!audioCtx) return onEnded && onEnded();
-    
+
+    await ensureAudioRunning(audioCtx);
     const numSamples = bytes.length / 2;
     const audioBuffer = audioCtx.createBuffer(1, numSamples, 24000);
     const channelData = audioBuffer.getChannelData(0);
@@ -60,10 +74,11 @@ const playPCMBase64 = async (base64: string, onEnded?: () => void) => {
   }
 };
 
-const playSuccessSound = () => {
+const playSuccessSound = async () => {
   try {
     const audioCtx = getAudioContext();
     if (!audioCtx) return;
+    await ensureAudioRunning(audioCtx);
     const playBeep = (freq: number, time: number, duration = 0.15) => {
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
@@ -78,10 +93,11 @@ const playSuccessSound = () => {
   } catch {}
 };
 
-const playErrorSound = () => {
+const playErrorSound = async () => {
   try {
     const audioCtx = getAudioContext();
     if (!audioCtx) return;
+    await ensureAudioRunning(audioCtx);
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.connect(gain); gain.connect(audioCtx.destination);
@@ -229,10 +245,7 @@ export default function TVDashboard() {
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [isSpeaking, setIsSpeaking]             = useState(false);
   const [voiceTranscript, setVoiceTranscript]   = useState<string | null>(null);
-  const mediaRecorderRef  = useRef<MediaRecorder | null>(null);
-  const audioChunksRef    = useRef<Blob[]>([]);
-  const streamRef         = useRef<MediaStream | null>(null);
-  const recognitionRef    = useRef<any>(null);
+  const recognitionRef    = useRef<SpeechRecognitionInstance | null>(null);
   const toastTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const transcriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -479,8 +492,6 @@ export default function TVDashboard() {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       if (transcriptTimerRef.current) clearTimeout(transcriptTimerRef.current);
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-      mediaRecorderRef.current?.stop();
-      streamRef.current?.getTracks().forEach(t => t.stop());
       if (recognitionRef.current) recognitionRef.current.abort();
     };
   }, []);
@@ -495,7 +506,8 @@ export default function TVDashboard() {
       return;
     }
 
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const win = window as WindowWithSpeech;
+    const SpeechRecognition = win.SpeechRecognition || win.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       showToast('Tu navegador no soporta la API de reconocimiento de voz. Usa Chrome o Edge.', 'error');
       return;
@@ -510,7 +522,7 @@ export default function TVDashboard() {
 
       recognition.onstart = () => setIsRecording(true);
 
-      recognition.onresult = async (event: any) => {
+      recognition.onresult = async (event: SpeechRecognitionEvent) => {
         let interimTranscript = '';
         let finalTranscript = '';
 
@@ -583,26 +595,26 @@ export default function TVDashboard() {
                   : (p.left.orders.some(o => o.name === soId) || p.right.orders.some(o => o.name === soId))
                 );
                 if (pageIdx !== -1) setCurrentPageIndex(pageIdx);
-                playSuccessSound();
+                await playSuccessSound();
                 setHighlightedSO(soId);
                 if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
                 highlightTimerRef.current = setTimeout(() => setHighlightedSO(null), 10000);
               } else {
                 showToast(`No se encontró la orden ${result.po_number}.`, 'error');
-                playErrorSound();
+                await playErrorSound();
               }
             }
           } catch (e) {
             console.error('Error en el procesamiento de voz', e);
             showToast('Hubo un error al procesar el comando de voz.', 'error');
-            playErrorSound();
+            await playErrorSound();
           } finally {
             setIsProcessingVoice(false);
           }
         }
       };
 
-      recognition.onerror = (event: any) => {
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
         console.error('Speech recognition error', event.error);
         if (event.error === 'not-allowed') {
           showToast('Permiso de micrófono denegado. Habilítalo en el navegador.', 'error');

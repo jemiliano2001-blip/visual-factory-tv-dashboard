@@ -3,6 +3,8 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import express, { NextFunction, Request, Response } from 'express';
 import { GoogleGenAI } from '@google/genai';
+import { runGeminiGenerate } from '../../shared/geminiProxy';
+import { OdooClient } from '../../shared/odooClient';
 import {
   checkThresholds,
   checkEvents,
@@ -13,7 +15,8 @@ import {
   sendWeekendReport,
   sendMonthlyReport,
   loadState,
-  saveState
+  saveState,
+  type NotifOrder,
 } from './notifications';
 
 // Auto-init: en Cloud Functions el service account se configura automáticamente
@@ -29,7 +32,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin ?? '';
   if (origin.startsWith('http://localhost')) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   }
   if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
@@ -56,14 +59,13 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
   }
 }
 
-// El TV dashboard es público (sin login) — estas rutas de solo lectura no
-// pueden depender de un token de Firebase, porque la auth anónima puede estar
-// deshabilitada o fallar en el navegador del taller. El resto de /api/* (p.ej.
-// /api/ai/generate, que cuesta llamadas a Gemini) sigue exigiendo token.
-const PUBLIC_GET_ROUTES = new Set(['/odoo/status', '/odoo/invoiceable-orders']);
-
+// Todas las rutas /api exigen un ID token de Firebase válido. La TV pública se
+// autentica de forma anónima (App.tsx → signInAnonymously) y el frontend envía
+// ese token, así que sigue funcionando sin login mientras la auth anónima esté
+// habilitada (requisito de setup en CLAUDE.md). Iguala la postura de server.ts y
+// evita exponer los datos de Odoo (clientes, productos, cantidades, notas) a
+// cualquiera con la URL.
 app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
-  if (req.method === 'GET' && PUBLIC_GET_ROUTES.has(req.path)) { next(); return; }
   const token = req.headers.authorization?.replace('Bearer ', '') ?? '';
   if (!token) { res.status(401).json({ error: 'Se requiere autenticación.' }); return; }
   const valid = await verifyFirebaseToken(token).catch(() => false);
@@ -71,195 +73,14 @@ app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// ─── Odoo config ──────────────────────────────────────────────────────────────
-const ODOO_URL      = (process.env.ODOO_URL ?? '').replace(/\/$/, '');
-const ODOO_DB       = process.env.ODOO_DB ?? '';
-const ODOO_USERNAME = process.env.ODOO_USERNAME ?? '';
-const ODOO_PASSWORD = process.env.ODOO_PASSWORD ?? '';
+// ─── Odoo + Gemini (módulo compartido con server.ts) ───────────────────────────
+const odooClient = new OdooClient({
+  url: process.env.ODOO_URL ?? '',
+  db: process.env.ODOO_DB ?? '',
+  username: process.env.ODOO_USERNAME ?? '',
+  password: process.env.ODOO_PASSWORD ?? '',
+});
 
-// ─── Odoo session ─────────────────────────────────────────────────────────────
-// La sesión se cachea en memoria por instancia para reutilizar la cookie de Odoo
-// y no crear una sesión nueva en cada petición (poll cada 5 min × usuarios).
-interface OdooSession { uid: number; sessionId: string; }
-class OdooSessionExpiredError extends Error {}
-
-let sessionPromise: Promise<OdooSession> | null = null;
-let reauthing: Promise<OdooSession> | null = null;
-
-function getSession(forceNew = false): Promise<OdooSession> {
-  if (forceNew || !sessionPromise) {
-    sessionPromise = authenticate().catch(err => { sessionPromise = null; throw err; });
-  }
-  return sessionPromise;
-}
-
-async function authenticate(): Promise<OdooSession> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 15000);
-  try {
-    const r = await fetch(`${ODOO_URL}/web/session/authenticate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0', method: 'call', id: 1,
-        params: { db: ODOO_DB, login: ODOO_USERNAME, password: ODOO_PASSWORD },
-      }),
-      signal: ctrl.signal,
-    });
-    if (!r.ok) throw new Error(`Auth HTTP ${r.status}`);
-    const json = (await r.json()) as { result?: { uid: number | false }; error?: { message: string } };
-    if (json.error) throw new Error(json.error.message);
-    const uid = json.result?.uid;
-    if (!uid) throw new Error('Credenciales de Odoo incorrectas');
-    const sessionId = r.headers.get('set-cookie')?.match(/session_id=([^;]+)/)?.[1] ?? '';
-    return { uid, sessionId };
-  } finally { clearTimeout(t); }
-}
-
-async function odooRpc<T>(
-  session: OdooSession, model: string, method: string,
-  args: unknown[] = [], kwargs: Record<string, unknown> = {},
-): Promise<T> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 20000);
-  try {
-    const r = await fetch(`${ODOO_URL}/web/dataset/call_kw`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(session.sessionId ? { Cookie: `session_id=${session.sessionId}` } : {}),
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0', method: 'call', id: Math.random() * 1e5 | 0,
-        params: { model, method, args, kwargs },
-      }),
-      signal: ctrl.signal,
-    });
-    if (!r.ok) throw new Error(`Odoo HTTP ${r.status}`);
-    const json = (await r.json()) as {
-      result?: T;
-      error?: { code?: number; message: string; data?: { message?: string; name?: string } };
-    };
-    if (json.error) {
-      const msg = json.error.data?.message ?? json.error.message;
-      if (json.error.code === 100 || json.error.data?.name === 'odoo.http.SessionExpiredException') {
-        throw new OdooSessionExpiredError(msg);
-      }
-      throw new Error(`Odoo RPC: ${msg}`);
-    }
-    return json.result as T;
-  } finally { clearTimeout(t); }
-}
-
-async function odooCall<T>(
-  model: string, method: string, args: unknown[] = [], kwargs: Record<string, unknown> = {},
-): Promise<T> {
-  try {
-    return await odooRpc<T>(await getSession(), model, method, args, kwargs);
-  } catch (err) {
-    if (!(err instanceof OdooSessionExpiredError)) throw err;
-    if (!reauthing) reauthing = getSession(true).finally(() => { reauthing = null; });
-    return odooRpc<T>(await reauthing!, model, method, args, kwargs);
-  }
-}
-
-// ─── Tipos internos de Odoo ───────────────────────────────────────────────────
-interface RawLine { id: number; name: string; display_type: string | false; product_uom_qty: number; qty_delivered: number; }
-interface RawOrder { id: number; name: string; partner_id: [number, string] | false; date_order: string; commitment_date: string | false; invoice_status: string; currency_id: [number, string] | false; order_line: number[]; state: string; user_id: [number, string] | false; note: string | false; }
-interface RawPicking { name: string; origin: string | false; state: string; date_done: string | false; }
-interface RawMove { sale_line_id: [number, string] | false; quantity_done: number; }
-
-// ─── Fetching de órdenes ─────────────────────────────────────────────────────
-async function fetchOrders() {
-  const ids = await odooCall<number[]>(
-    'sale.order', 'search',
-    [[['invoice_status', '=', 'to invoice'], ['state', 'in', ['sale', 'done']]]],
-    { limit: 500, order: 'commitment_date asc, date_order asc' },
-  );
-  if (!ids.length) return [];
-
-  const orders = await odooCall<RawOrder[]>('sale.order', 'read', [ids], {
-    fields: ['name', 'partner_id', 'date_order', 'commitment_date', 'invoice_status', 'currency_id', 'order_line', 'state', 'user_id', 'note'],
-  });
-
-  const allLineIds = orders.flatMap(o => o.order_line);
-  const linesMap = new Map<number, RawLine>();
-  for (let i = 0; i < allLineIds.length; i += 500) {
-    const batch = await odooCall<RawLine[]>('sale.order.line', 'read', [allLineIds.slice(i, i + 500)], {
-      fields: ['name', 'display_type', 'product_uom_qty', 'qty_delivered'],
-    });
-    batch.forEach(l => linesMap.set(l.id, l));
-  }
-
-  const orderNameToId = new Map(orders.map(o => [o.name, o.id]));
-  const pickingsByOrder = new Map<number, RawPicking[]>();
-  try {
-    const pickings = await odooCall<RawPicking[]>('stock.picking', 'search_read',
-      [[['origin', 'in', orders.map(o => o.name)], ['picking_type_code', '=', 'outgoing']]],
-      { fields: ['name', 'origin', 'state', 'date_done'], limit: 5000 },
-    );
-    for (const p of pickings) {
-      const saleId = typeof p.origin === 'string' ? orderNameToId.get(p.origin) : undefined;
-      if (!saleId) continue;
-      if (!pickingsByOrder.has(saleId)) pickingsByOrder.set(saleId, []);
-      pickingsByOrder.get(saleId)!.push(p);
-    }
-  } catch { /* remisiones opcionales */ }
-
-  const movesBySaleLine = new Map<number, number>();
-  let fetchedMoves = false;
-  try {
-    const lineIds = Array.from(linesMap.keys());
-    for (let i = 0; i < lineIds.length; i += 500) {
-      const moves = await odooCall<RawMove[]>('stock.move', 'search_read',
-        [[['sale_line_id', 'in', lineIds.slice(i, i + 500)], ['state', '=', 'done'], ['picking_code', '=', 'outgoing']]],
-        { fields: ['sale_line_id', 'quantity_done'], limit: 10000 },
-      );
-      for (const m of moves) {
-        const lid = Array.isArray(m.sale_line_id) ? m.sale_line_id[0] : null;
-        if (lid) movesBySaleLine.set(lid, (movesBySaleLine.get(lid) ?? 0) + m.quantity_done);
-      }
-    }
-    fetchedMoves = true;
-  } catch { /* movimientos opcionales */ }
-
-  return orders.map(order => {
-    const lines = order.order_line
-      .map(id => linesMap.get(id))
-      .filter((l): l is RawLine => !!l && !l.display_type);
-    const totalQty     = lines.reduce((s, l) => s + l.product_uom_qty, 0);
-    const deliveredQty = lines.reduce((s, l) =>
-      s + (fetchedMoves ? (movesBySaleLine.get(l.id) ?? 0) : l.qty_delivered), 0);
-    return {
-      id:              order.id,
-      name:            order.name,
-      partner_name:    order.partner_id ? order.partner_id[1] : 'Desconocido',
-      main_product:    lines[0]?.name ?? 'Sin descripción',
-      date_order:      order.date_order,
-      commitment_date: order.commitment_date || null,
-      invoice_status:  order.invoice_status,
-      currency:        order.currency_id ? order.currency_id[1] : 'MXN',
-      qty_total:       totalQty,
-      qty_delivered:   deliveredQty,
-      state:           order.state,
-      salesperson:     order.user_id ? order.user_id[1] : null,
-      note:            typeof order.note === 'string' ? order.note : null,
-      lines_count:     lines.length,
-      lines: lines.map(l => ({
-        name:      l.name,
-        qty:       l.product_uom_qty,
-        delivered: fetchedMoves ? (movesBySaleLine.get(l.id) ?? 0) : l.qty_delivered,
-      })),
-      deliveries: (pickingsByOrder.get(order.id) ?? []).map(p => ({
-        name:      p.name,
-        state:     p.state,
-        date_done: typeof p.date_done === 'string' ? p.date_done : null,
-      })),
-    };
-  });
-}
-
-// ─── Endpoints ────────────────────────────────────────────────────────────────
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 app.post('/api/ai/generate', async (req: Request, res: Response) => {
@@ -269,18 +90,17 @@ app.post('/api/ai/generate', async (req: Request, res: Response) => {
   }
 
   try {
-    const { model, contents, config } = req.body;
-    if (!model || !contents) {
-      res.status(400).json({ error: 'Faltan parámetros requeridos: model y contents.' });
+    const result = await runGeminiGenerate(
+      (model, contents, config) =>
+        ai.models.generateContent({ model, contents, config } as Parameters<typeof ai.models.generateContent>[0])
+          .then(response => ({ text: response.text, candidates: response.candidates })),
+      req.body,
+    );
+    if (result.ok === false) {
+      res.status(result.status).json({ error: result.error });
       return;
     }
-
-    const response = await ai.models.generateContent({ model, contents, config });
-    
-    res.json({
-      text: response.text,
-      candidates: response.candidates,
-    });
+    res.json(result.payload);
   } catch (err) {
     console.error('[Gemini AI Error]', err);
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -288,10 +108,13 @@ app.post('/api/ai/generate', async (req: Request, res: Response) => {
 });
 
 app.get('/api/odoo/status', async (_req: Request, res: Response) => {
-  if (!ODOO_URL) { res.status(503).json({ connected: false, message: 'Odoo no configurado' }); return; }
+  if (!odooClient.getConfiguredUrl()) {
+    res.status(503).json({ connected: false, message: 'Odoo no configurado' });
+    return;
+  }
   try {
-    const session = await getSession();
-    await odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
+    const session = await odooClient.getSession();
+    await odooClient.odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
     res.json({ connected: true, message: 'Conectado a Odoo' });
   } catch (err) {
     res.status(503).json({ connected: false, message: err instanceof Error ? err.message : String(err) });
@@ -299,12 +122,12 @@ app.get('/api/odoo/status', async (_req: Request, res: Response) => {
 });
 
 app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => {
-  if (!ODOO_URL || !ODOO_DB || !ODOO_USERNAME || !ODOO_PASSWORD) {
+  if (!odooClient.isConfigured()) {
     res.status(503).json({ error: 'Odoo no configurado. Agrega las env vars ODOO_* en functions/.env', orders: [] });
     return;
   }
   try {
-    const orders = await fetchOrders();
+    const orders = await odooClient.fetchInvoiceableOrders();
     res.json({ orders, total: orders.length, lastUpdated: new Date().toISOString() });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err), orders: [] });
@@ -317,7 +140,7 @@ export const api = onRequest({ region: 'us-central1', timeoutSeconds: 60, memory
 // ─── Scheduled Notifications ──────────────────────────────────────────────────
 const TIME_ZONE = 'America/Chicago';
 
-async function runNotificationTask(task: (orders: any[], mainUrl: string, critUrl: string) => Promise<void>) {
+async function runNotificationTask(task: (orders: NotifOrder[], mainUrl: string, critUrl: string) => Promise<void>) {
   const mainUrl = process.env.DISCORD_WEBHOOK_URL;
   const critUrl = process.env.DISCORD_WEBHOOK_URL_CRITICOS || '';
   const enabled = process.env.NOTIFICATIONS_ENABLED !== 'false';
@@ -328,7 +151,7 @@ async function runNotificationTask(task: (orders: any[], mainUrl: string, critUr
   }
 
   try {
-    const orders = await fetchOrders();
+    const orders = await odooClient.fetchInvoiceableOrders();
     await task(orders, mainUrl, critUrl);
   } catch (err) {
     console.error('[notifications] Error ejecutando tarea:', err);

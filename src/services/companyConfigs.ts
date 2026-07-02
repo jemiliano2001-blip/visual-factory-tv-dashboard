@@ -64,18 +64,25 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
 }
 
 export const subscribeToCompanyConfigs = (callback: (configs: CompanyConfig[]) => void) => {
   const q = query(collection(db, COLLECTION_NAME), orderBy('company_name', 'asc'));
-  
+
   return onSnapshot(q, (snapshot) => {
-    const configs = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      updatedAt: (doc.data().updatedAt as Timestamp).toDate(),
-    })) as CompanyConfig[];
+    const configs = snapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      const updatedAtField = data.updatedAt;
+      const updatedAt = updatedAtField instanceof Timestamp
+        ? updatedAtField.toDate()
+        : new Date(0);
+      return {
+        id: docSnap.id,
+        company_name: typeof data.company_name === 'string' ? data.company_name : '',
+        delivery_schedule: typeof data.delivery_schedule === 'string' ? data.delivery_schedule : '',
+        updatedAt,
+      } satisfies CompanyConfig;
+    });
     callback(configs);
   }, (error) => {
     handleFirestoreError(error, OperationType.LIST, COLLECTION_NAME);
@@ -88,12 +95,15 @@ export const getCompanyConfigByName = async (companyName: string): Promise<Compa
     const snapshot = await getDocs(q);
     if (snapshot.empty) return null;
     
-    const doc = snapshot.docs[0];
+    const docSnap = snapshot.docs[0];
+    const data = docSnap.data();
+    const updatedAtField = data.updatedAt;
     return {
-      id: doc.id,
-      ...doc.data(),
-      updatedAt: (doc.data().updatedAt as Timestamp).toDate(),
-    } as CompanyConfig;
+      id: docSnap.id,
+      company_name: typeof data.company_name === 'string' ? data.company_name : '',
+      delivery_schedule: typeof data.delivery_schedule === 'string' ? data.delivery_schedule : '',
+      updatedAt: updatedAtField instanceof Timestamp ? updatedAtField.toDate() : new Date(0),
+    } satisfies CompanyConfig;
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, COLLECTION_NAME);
     return null;
@@ -108,6 +118,7 @@ export const createCompanyConfig = async (config: Omit<CompanyConfig, 'id' | 'up
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, COLLECTION_NAME);
+    throw new Error('No se pudo crear la configuración. Verifica tu sesión e intenta de nuevo.');
   }
 };
 
@@ -120,6 +131,7 @@ export const updateCompanyConfig = async (id: string, config: Partial<Omit<Compa
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `${COLLECTION_NAME}/${id}`);
+    throw new Error('No se pudo actualizar la configuración. Verifica tu sesión e intenta de nuevo.');
   }
 };
 
@@ -129,5 +141,6 @@ export const deleteCompanyConfig = async (id: string) => {
     return await deleteDoc(docRef);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `${COLLECTION_NAME}/${id}`);
+    throw new Error('No se pudo eliminar la configuración. Verifica tu sesión e intenta de nuevo.');
   }
 };

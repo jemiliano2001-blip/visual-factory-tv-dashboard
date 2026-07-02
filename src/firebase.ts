@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, type User } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -14,14 +14,18 @@ export function isRealUser(user: User | null): boolean {
   return user != null && !user.isAnonymous;
 }
 
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if(error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration. ");
-    }
+/** ID token de Firebase para llamadas al proxy /api. Lanza si no hay sesión. */
+export async function getIdTokenOrThrow(): Promise<string> {
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error(
+      'No hay sesión de Firebase. Habilita la autenticación anónima en Firebase Console → Authentication → Sign-in method.',
+    );
   }
+  const token = await user.getIdToken().catch(() => null);
+  if (!token) {
+    throw new Error('No se pudo obtener el token de sesión. Recarga la página.');
+  }
+  return token;
 }
-testConnection();
 

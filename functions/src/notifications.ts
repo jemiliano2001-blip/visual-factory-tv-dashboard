@@ -72,11 +72,35 @@ export async function loadState(): Promise<NotificationState> {
 }
 
 export async function saveState(state: NotificationState): Promise<void> {
+  const pruned = pruneDeliveryHistory(state);
   try {
-    await admin.firestore().collection('config').doc('notification_state').set(state);
+    await admin.firestore().collection('config').doc('notification_state').set(pruned);
   } catch (e) {
     console.error('[notifications] Error guardando estado en Firestore:', e);
   }
+}
+
+/** Evita que deliveredOrderIds/deliveryTimestamps crezcan sin límite (tope Firestore 1 MB). */
+const DELIVERY_HISTORY_RETENTION_MS = 90 * 86_400_000;
+const MAX_DELIVERY_HISTORY_ENTRIES = 1500;
+
+function pruneDeliveryHistory(state: NotificationState): NotificationState {
+  const cutoff = Date.now() - DELIVERY_HISTORY_RETENTION_MS;
+  const timestamps = state.deliveryTimestamps ?? {};
+  const prunedEntries = Object.entries(timestamps)
+    .filter(([, value]) => value.detectedAt >= cutoff)
+    .sort((a, b) => b[1].detectedAt - a[1].detectedAt)
+    .slice(0, MAX_DELIVERY_HISTORY_ENTRIES);
+
+  const deliveryTimestamps: NotificationState['deliveryTimestamps'] = {};
+  for (const [key, value] of prunedEntries) {
+    deliveryTimestamps[key] = value;
+  }
+
+  const validIds = new Set(Object.keys(deliveryTimestamps).map(id => Number(id)));
+  const deliveredOrderIds = (state.deliveredOrderIds ?? []).filter(id => validIds.has(id));
+
+  return { ...state, deliveryTimestamps, deliveredOrderIds };
 }
 
 
@@ -98,8 +122,14 @@ async function postWebhook(url: string, body: string): Promise<Response> {
   return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
 }
 
+interface DiscordWebhookPayload {
+  content: string;
+  embeds: DiscordEmbed[];
+  thread_name?: string;
+}
+
 export async function sendWebhook(url: string, content: string, embeds: DiscordEmbed[], threadName?: string): Promise<void> {
-  const payload: any = { content, embeds };
+  const payload: DiscordWebhookPayload = { content, embeds };
   if (threadName) payload.thread_name = threadName;
   const body = JSON.stringify(payload);
   try {

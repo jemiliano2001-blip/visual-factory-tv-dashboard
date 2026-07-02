@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { auth, isRealUser } from '../firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, onAuthStateChanged, type User } from 'firebase/auth';
 import { useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { Tv } from 'lucide-react';
 
@@ -9,11 +9,29 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
+  const [user, setUser]         = useState<User | null>(auth.currentUser);
+  const [checked, setChecked]   = useState(false);
   const navigate  = useNavigate();
   const location  = useLocation();
   const from = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/';
 
-  if (isRealUser(auth.currentUser)) {
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
+      setChecked(true);
+    });
+    return () => unsub();
+  }, []);
+
+  if (!checked) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (isRealUser(user)) {
     return <Navigate to={from} replace />;
   }
 
