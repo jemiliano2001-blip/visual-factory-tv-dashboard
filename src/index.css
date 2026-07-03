@@ -220,13 +220,13 @@
 
   .order-report-table {
     border-collapse: collapse;
-    font-size: 10px;
+    font-size: 9px;
   }
 
   .order-report-table th,
   .order-report-table td {
     border: 1px solid #9ca3af;
-    padding: 3px 6px;
+    padding: 2px 5px;
   }
 
   .order-report-table thead {

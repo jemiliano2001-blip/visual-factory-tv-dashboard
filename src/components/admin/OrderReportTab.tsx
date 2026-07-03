@@ -1,6 +1,7 @@
 import { format } from 'date-fns';
 import { FileText, Printer } from 'lucide-react';
 import { OdooSaleOrder, parseOdooDate } from '../../services/odoo';
+import { abbreviate } from '../../utils/abbreviate';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 
@@ -18,6 +19,11 @@ function stripHtml(html: string | null): string {
   if (!html) return '';
   const doc = new DOMParser().parseFromString(html, 'text/html');
   return doc.body.textContent?.replace(/\s+/g, ' ').trim() || '';
+}
+
+/** Corta a `max` caracteres con elipsis solo cuando realmente corta. */
+function truncate(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max).trimEnd() + '…' : text;
 }
 
 export default function OrderReportTab({ orders }: OrderReportTabProps) {
@@ -99,27 +105,27 @@ function ClientGroup({ client, orders }: { client: string; orders: OdooSaleOrder
           {client} ({orders.length})
         </td>
       </tr>
-      {orders.flatMap(order => {
-        const lines = order.lines.length
-          ? order.lines
-          : [{ name: order.main_product, qty: order.qty_total, delivered: 0 }];
-        return lines.map((line, i) => (
-          <tr key={`${order.id}-${i}`} className="align-top">
-            <td className="whitespace-nowrap px-2 py-1.5 font-mono-data">
-              {order.name}
-              {i === 0 && order.customer_reference && (
-                <div className="text-[11px] text-muted-foreground">PO: {order.customer_reference}</div>
-              )}
-            </td>
-            <td className="whitespace-nowrap px-2 py-1.5 font-mono-data">{formatDate(order.date_order)}</td>
-            <td className="px-2 py-1.5 text-right font-mono-data tabular-nums">{line.qty}</td>
-            <td className="px-2 py-1.5 text-foreground/90">{line.name}</td>
-            <td className="px-2 py-1.5 text-xs text-muted-foreground">
-              {i === 0 ? stripHtml(order.note) : ''}
-            </td>
-          </tr>
-        ));
-      })}
+      {orders.map(order => (
+        <tr key={order.id} className="align-top">
+          <td className="whitespace-nowrap px-2 py-1.5 font-mono-data">
+            {order.name}
+            {order.customer_reference && (
+              <div className="text-[11px] text-muted-foreground">PO: {order.customer_reference}</div>
+            )}
+          </td>
+          <td className="whitespace-nowrap px-2 py-1.5 font-mono-data">{formatDate(order.date_order)}</td>
+          <td className="px-2 py-1.5 text-right font-mono-data tabular-nums">{order.qty_total}</td>
+          <td className="px-2 py-1.5 text-foreground/90">
+            {abbreviate(order.main_product)}
+            {order.lines_count > 1 && (
+              <span className="text-muted-foreground"> (+{order.lines_count - 1} líneas más)</span>
+            )}
+          </td>
+          <td className="px-2 py-1.5 text-xs text-muted-foreground">
+            {truncate(abbreviate(stripHtml(order.note)), 90)}
+          </td>
+        </tr>
+      ))}
     </>
   );
 }
