@@ -33,6 +33,8 @@ export interface OdooSaleOrder {
   id: number;
   /** Número de orden de venta, ej. "SO/2024/0042" */
   name: string;
+  /** Referencia de compra del cliente (client_order_ref en Odoo), si existe */
+  customer_reference: string | null;
   /** Nombre del cliente */
   partner_name: string;
   /** Descripción del producto principal */
@@ -80,10 +82,28 @@ export interface OdooConnectionStatus {
   url?: string;
 }
 
+export interface OdooOrderReport {
+  id: number;
+  reference: string;
+  customerReference: string | null;
+  customerName: string;
+  createdAt: string;
+  quantity: number;
+  description: string;
+  terms: string | null;
+  lines: Array<{ name: string; qty: number }>;
+}
+
 export interface OdooOrdersResponse {
   orders: OdooSaleOrder[];
   total: number;
   lastUpdated: string;
+  error?: string;
+}
+
+export interface OdooOrderReportResponse {
+  order: OdooOrderReport | null;
+  lastUpdated?: string;
   error?: string;
 }
 
@@ -176,6 +196,32 @@ export async function fetchInvoiceableOrders(): Promise<OdooOrdersResponse> {
 }
 
 // ─── Utilidades de display ─────────────────────────────────────────────────────
+
+export async function fetchOrderReportByReference(reference: string): Promise<OdooOrderReportResponse> {
+  const params = new URLSearchParams({ reference });
+  try {
+    const response = await fetch(`${PROXY_BASE}/api/odoo/order-report?${params.toString()}`, {
+      signal: AbortSignal.timeout(30000),
+      headers: await getAuthHeaders(),
+    });
+    const body = await response.json().catch(() => ({ error: response.statusText, order: null })) as OdooOrderReportResponse;
+
+    if (!response.ok) {
+      return {
+        order: null,
+        error: body.error || `Error HTTP ${response.status}`,
+      };
+    }
+
+    return body;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      order: null,
+      error: `No se pudo buscar la orden en Odoo: ${msg}`,
+    };
+  }
+}
 
 /** Formatea monto con símbolo de moneda */
 export function formatCurrency(amount: number, currency: string): string {

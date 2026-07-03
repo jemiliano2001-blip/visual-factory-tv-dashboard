@@ -23,6 +23,7 @@ interface RawLine {
 interface RawOrder {
   id: number;
   name: string;
+  client_order_ref?: string | false;
   partner_id: [number, string] | false;
   date_order: string;
   commitment_date: string | false;
@@ -49,6 +50,7 @@ interface RawMove {
 export interface NormalizedInvoiceableOrder {
   id: number;
   name: string;
+  customer_reference: string | null;
   partner_name: string;
   main_product: string;
   date_order: string;
@@ -63,6 +65,18 @@ export interface NormalizedInvoiceableOrder {
   lines_count: number;
   lines: Array<{ name: string; qty: number; delivered: number }>;
   deliveries: Array<{ name: string; state: string; date_done: string | null }>;
+}
+
+export interface NormalizedOrderReport {
+  id: number;
+  reference: string;
+  customerReference: string | null;
+  customerName: string;
+  createdAt: string;
+  quantity: number;
+  description: string;
+  terms: string | null;
+  lines: Array<{ name: string; qty: number }>;
 }
 
 export class OdooClient {
@@ -210,8 +224,8 @@ export class OdooClient {
 
     const orders = await this.odooCall<RawOrder[]>('sale.order', 'read', [ids], {
       fields: [
-        'name', 'partner_id', 'date_order', 'commitment_date', 'invoice_status',
-        'currency_id', 'order_line', 'state', 'user_id', 'note',
+        'name', 'client_order_ref', 'partner_id', 'date_order', 'commitment_date',
+        'invoice_status', 'currency_id', 'order_line', 'state', 'user_id', 'note',
       ],
     });
 
@@ -273,6 +287,7 @@ export class OdooClient {
       return {
         id: order.id,
         name: order.name,
+        customer_reference: typeof order.client_order_ref === 'string' ? order.client_order_ref : null,
         partner_name: order.partner_id ? order.partner_id[1] : 'Desconocido',
         main_product: lines[0]?.name ?? 'Sin descripción',
         date_order: order.date_order,
@@ -297,5 +312,64 @@ export class OdooClient {
         })),
       };
     });
+  }
+
+  async fetchOrderReportByReference(reference: string): Promise<NormalizedOrderReport | null> {
+    const normalizedReference = reference.trim();
+    if (!normalizedReference) return null;
+
+    const exactDomain = [
+      '|',
+      ['name', '=', normalizedReference],
+      ['client_order_ref', '=', normalizedReference],
+    ];
+    const fuzzyDomain = [
+      '|',
+      ['name', 'ilike', normalizedReference],
+      ['client_order_ref', 'ilike', normalizedReference],
+    ];
+
+    let ids = await this.odooCall<number[]>(
+      'sale.order',
+      'search',
+      [exactDomain],
+      { limit: 1, order: 'date_order desc' },
+    );
+    if (!ids.length) {
+      ids = await this.odooCall<number[]>(
+        'sale.order',
+        'search',
+        [fuzzyDomain],
+        { limit: 1, order: 'date_order desc' },
+      );
+    }
+    if (!ids.length) return null;
+
+    const orders = await this.odooCall<RawOrder[]>('sale.order', 'read', [ids], {
+      fields: ['name', 'client_order_ref', 'partner_id', 'date_order', 'order_line', 'note'],
+    });
+    const order = orders[0];
+    if (!order) return null;
+
+    const lineIds = order.order_line;
+    const lines = lineIds.length
+      ? await this.odooCall<RawLine[]>('sale.order.line', 'read', [lineIds], {
+          fields: ['name', 'display_type', 'product_uom_qty'],
+        })
+      : [];
+    const productLines = lines.filter(line => !line.display_type);
+    const quantity = productLines.reduce((sum, line) => sum + line.product_uom_qty, 0);
+
+    return {
+      id: order.id,
+      reference: order.name,
+      customerReference: typeof order.client_order_ref === 'string' ? order.client_order_ref : null,
+      customerName: order.partner_id ? order.partner_id[1] : 'Desconocido',
+      createdAt: order.date_order,
+      quantity,
+      description: productLines.map(line => line.name).join('\n') || 'Sin descripción',
+      terms: typeof order.note === 'string' ? order.note : null,
+      lines: productLines.map(line => ({ name: line.name, qty: line.product_uom_qty })),
+    };
   }
 }
