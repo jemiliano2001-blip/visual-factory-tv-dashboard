@@ -13,7 +13,12 @@ export interface CompanyConfig {
 
 // ─── Odoo ─────────────────────────────────────────────────────────────────────
 // Re-exportado desde src/services/odoo.ts para uso global
-export type { OdooSaleOrder, OdooOrderLine, OdooConnectionStatus, OdooOrdersResponse } from './services/odoo';
+export type {
+  OdooSaleOrder,
+  OdooOrderLine,
+  OdooConnectionStatus,
+  OdooOrdersResponse,
+} from './services/odoo';
 
 declare global {
   interface Window {

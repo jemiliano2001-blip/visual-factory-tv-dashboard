@@ -222,7 +222,6 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
   }
 });
 
-
 // ─── Frontend en producción ──────────────────────────────────────────────────
 // Si existe dist/ (tras `npm run build`), el mismo proceso sirve la SPA. Así todo
 // queda en un solo origen/puerto detrás del túnel de Cloudflare. En dev no existe
