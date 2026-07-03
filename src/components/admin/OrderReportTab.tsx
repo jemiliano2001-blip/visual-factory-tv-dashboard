@@ -1,4 +1,3 @@
-import DOMPurify from 'dompurify';
 import { format } from 'date-fns';
 import { FileText, Printer } from 'lucide-react';
 import { OdooSaleOrder, parseOdooDate } from '../../services/odoo';
@@ -11,13 +10,23 @@ interface OrderReportTabProps {
 
 function formatDate(value: string): string {
   const date = parseOdooDate(value);
-  return date ? format(date, 'dd/MM/yyyy HH:mm') : 'Sin fecha';
+  return date ? format(date, 'dd/MM/yyyy') : 'Sin fecha';
+}
+
+/** Términos vienen como HTML de Odoo — para la tabla solo queremos el texto plano. */
+function stripHtml(html: string | null): string {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return doc.body.textContent?.replace(/\s+/g, ' ').trim() || '';
 }
 
 export default function OrderReportTab({ orders }: OrderReportTabProps) {
-  const handlePrint = () => {
-    window.print();
-  };
+  const groups = new Map<string, OdooSaleOrder[]>();
+  for (const order of orders) {
+    const list = groups.get(order.partner_name) ?? [];
+    list.push(order);
+    groups.set(order.partner_name, list);
+  }
 
   return (
     <div className="space-y-4">
@@ -32,7 +41,7 @@ export default function OrderReportTab({ orders }: OrderReportTabProps) {
               Órdenes incluidas en el reporte — respeta los filtros activos en la pestaña Órdenes.
             </p>
           </div>
-          <Button type="button" onClick={handlePrint} disabled={orders.length === 0}>
+          <Button type="button" onClick={() => window.print()} disabled={orders.length === 0}>
             <Printer /> Imprimir / PDF
           </Button>
         </CardContent>
@@ -49,91 +58,68 @@ export default function OrderReportTab({ orders }: OrderReportTabProps) {
           </CardContent>
         </Card>
       ) : (
-        <div className="order-report-printable space-y-4">
-          {orders.map(order => (
-            <OrderReportCard key={order.id} order={order} />
-          ))}
-        </div>
+        <Card className="order-report-printable">
+          <CardContent className="pt-5">
+            <div className="mb-4 border-b border-border pb-3 text-center">
+              <h2 className="text-lg font-bold uppercase tracking-wide text-foreground">
+                Reporte de órdenes al {format(new Date(), 'dd/MM/yyyy')}
+              </h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {orders.length} órdenes · {groups.size} clientes
+              </p>
+            </div>
+            <table className="order-report-table w-full text-sm">
+              <thead>
+                <tr className="border-b-2 border-border font-mono-data text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <th className="px-2 py-1.5 text-left">Referencia</th>
+                  <th className="px-2 py-1.5 text-left">Creado el</th>
+                  <th className="px-2 py-1.5 text-right">Cant.</th>
+                  <th className="px-2 py-1.5 text-left">Descripción</th>
+                  <th className="px-2 py-1.5 text-left">Términos y condiciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {Array.from(groups.entries()).map(([client, clientOrders]) => (
+                  <ClientGroup key={client} client={client} orders={clientOrders} />
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
 }
 
-function OrderReportCard({ order }: { order: OdooSaleOrder }) {
-  const sanitizedTerms = DOMPurify.sanitize(order.note || '<p>Sin términos registrados.</p>');
-
+function ClientGroup({ client, orders }: { client: string; orders: OdooSaleOrder[] }) {
   return (
-    <Card className="order-report-card">
-      <CardHeader className="border-b border-border">
-        <p className="font-mono-data text-xs uppercase tracking-wider text-muted-foreground">Reporte de orden</p>
-        <CardTitle className="mt-1 font-mono-data text-2xl">{order.name}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-6 pt-5">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <ReportField label="Referencia" value={order.name} mono />
-          <ReportField label="Cliente / nombre" value={order.partner_name} />
-          <ReportField label="Creado el" value={formatDate(order.date_order)} mono />
-          <ReportField label="Cantidad" value={String(order.qty_total)} mono />
-        </div>
-
-        {order.customer_reference && (
-          <ReportField label="Referencia del cliente" value={order.customer_reference} mono />
-        )}
-
-        <section>
-          <h3 className="mb-2 font-mono-data text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            Descripción
-          </h3>
-          <div className="rounded-xl border border-border bg-background/50 p-4">
-            <p className="whitespace-pre-wrap text-sm leading-6 text-foreground/90">{order.main_product}</p>
-          </div>
-        </section>
-
-        <section>
-          <h3 className="mb-2 font-mono-data text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            Líneas
-          </h3>
-          <div className="overflow-hidden rounded-xl border border-border">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 font-mono-data text-[11px] uppercase tracking-wider text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2 text-left">Descripción</th>
-                  <th className="px-3 py-2 text-right">Cantidad</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {order.lines.map((line, index) => (
-                  <tr key={`${line.name}-${index}`}>
-                    <td className="px-3 py-2 text-foreground/90">{line.name}</td>
-                    <td className="px-3 py-2 text-right font-mono-data tabular-nums">{line.qty}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section>
-          <h3 className="mb-2 font-mono-data text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            Términos y condiciones
-          </h3>
-          <div
-            className="prose prose-invert max-w-none rounded-xl border border-border bg-background/50 p-4 text-sm leading-6 text-foreground/90"
-            dangerouslySetInnerHTML={{ __html: sanitizedTerms }}
-          />
-        </section>
-      </CardContent>
-    </Card>
-  );
-}
-
-function ReportField({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="rounded-xl border border-border bg-background/50 p-3">
-      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-sm font-semibold text-foreground ${mono ? 'font-mono-data tabular-nums' : ''}`}>
-        {value}
-      </p>
-    </div>
+    <>
+      <tr className="order-report-group bg-muted/50">
+        <td colSpan={5} className="px-2 py-1.5 font-bold uppercase tracking-wide text-foreground">
+          {client} ({orders.length})
+        </td>
+      </tr>
+      {orders.flatMap(order => {
+        const lines = order.lines.length
+          ? order.lines
+          : [{ name: order.main_product, qty: order.qty_total, delivered: 0 }];
+        return lines.map((line, i) => (
+          <tr key={`${order.id}-${i}`} className="align-top">
+            <td className="whitespace-nowrap px-2 py-1.5 font-mono-data">
+              {order.name}
+              {i === 0 && order.customer_reference && (
+                <div className="text-[11px] text-muted-foreground">PO: {order.customer_reference}</div>
+              )}
+            </td>
+            <td className="whitespace-nowrap px-2 py-1.5 font-mono-data">{formatDate(order.date_order)}</td>
+            <td className="px-2 py-1.5 text-right font-mono-data tabular-nums">{line.qty}</td>
+            <td className="px-2 py-1.5 text-foreground/90">{line.name}</td>
+            <td className="px-2 py-1.5 text-xs text-muted-foreground">
+              {i === 0 ? stripHtml(order.note) : ''}
+            </td>
+          </tr>
+        ));
+      })}
+    </>
   );
 }

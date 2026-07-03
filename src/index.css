@@ -172,7 +172,6 @@
 @media print {
   body {
     background: #ffffff;
-    color: #111827;
   }
 
   body * {
@@ -190,37 +189,41 @@
     width: 100%;
     border: 0;
     border-radius: 0;
-    box-shadow: none;
-    background: #ffffff;
-    color: #111827;
   }
 
+  /* Impresión utilitaria: todo blanco/negro, sin tema OLED ni sombras */
   .order-report-printable,
-  .order-report-printable .text-foreground,
-  .order-report-printable .text-foreground\/90,
-  .order-report-printable .text-muted-foreground {
+  .order-report-printable * {
+    background: transparent !important;
+    box-shadow: none !important;
     color: #111827 !important;
+    border-color: #9ca3af !important;
   }
 
-  .order-report-printable .bg-background\/50,
-  .order-report-printable .bg-muted\/50 {
-    background: #ffffff !important;
+  .order-report-table {
+    border-collapse: collapse;
+    font-size: 10px;
   }
 
-  .order-report-printable .border,
-  .order-report-printable .border-border {
-    border-color: #d1d5db !important;
+  .order-report-table th,
+  .order-report-table td {
+    border: 1px solid #9ca3af;
+    padding: 3px 6px;
+  }
+
+  .order-report-table thead {
+    display: table-header-group; /* repite encabezados en cada página */
+  }
+
+  .order-report-table tr {
+    break-inside: avoid;
+  }
+
+  .order-report-group td {
+    background: #e5e7eb !important;
   }
 
   .order-report-no-print {
     display: none !important;
-  }
-
-  .order-report-card {
-    break-after: page;
-  }
-
-  .order-report-card:last-child {
-    break-after: auto;
   }
 }
