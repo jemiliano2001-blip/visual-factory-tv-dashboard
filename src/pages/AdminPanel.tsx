@@ -158,7 +158,7 @@ export default function AdminPanel() {
       <div className="min-h-screen bg-background font-sans text-foreground">
         <div className="mx-auto max-w-[1600px] space-y-6 p-6 lg:p-8">
           {/* Cabecera */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-6">
+          <div className="order-report-no-print flex flex-wrap items-center justify-between gap-3 border-b border-border pb-6">
             <div>
               <h1 className="font-display text-3xl font-extrabold tracking-tight text-foreground">
                 Consola de Administración
