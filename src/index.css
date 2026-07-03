@@ -168,3 +168,59 @@
     box-shadow: 0 0 80px rgba(99, 102, 241, 0.8);
   }
 }
+
+@media print {
+  body {
+    background: #ffffff;
+    color: #111827;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .order-report-printable,
+  .order-report-printable * {
+    visibility: visible;
+  }
+
+  .order-report-printable {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: #ffffff;
+    color: #111827;
+  }
+
+  .order-report-printable,
+  .order-report-printable .text-foreground,
+  .order-report-printable .text-foreground\/90,
+  .order-report-printable .text-muted-foreground {
+    color: #111827 !important;
+  }
+
+  .order-report-printable .bg-background\/50,
+  .order-report-printable .bg-muted\/50 {
+    background: #ffffff !important;
+  }
+
+  .order-report-printable .border,
+  .order-report-printable .border-border {
+    border-color: #d1d5db !important;
+  }
+
+  .order-report-no-print {
+    display: none !important;
+  }
+
+  .order-report-card {
+    break-after: page;
+  }
+
+  .order-report-card:last-child {
+    break-after: auto;
+  }
+}

@@ -13,6 +13,7 @@ import {
 import { RiskPrediction } from '../components/admin/riskTypes';
 import OrdersTable from '../components/admin/OrdersTable';
 import ConfigTab from '../components/admin/ConfigTab';
+import OrderReportTab from '../components/admin/OrderReportTab';
 import AIModal from '../components/admin/AIModal';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -23,7 +24,7 @@ import {
 import { TooltipProvider } from '../components/ui/tooltip';
 import {
   Search, Sparkles, Download, ScanSearch, X,
-  WifiOff, Loader2, RefreshCw, Table2, Settings,
+  WifiOff, Loader2, RefreshCw, Table2, Settings, FileText,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx-js-style';
@@ -33,7 +34,7 @@ const ALL_CLIENTS = '__all__';
 export default function AdminPanel() {
   const { orders, error, isLoading, isFetching, lastUpdated, refetch } = useOdooOrders();
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'config'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'report' | 'config'>('orders');
   const [search, setSearch] = useState('');
   const [clientFilter, setClientFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'overdue' | 'ontime'>('all');
@@ -180,9 +181,10 @@ export default function AdminPanel() {
             </div>
           )}
 
-          <Tabs value={activeTab} onValueChange={v => setActiveTab(v as 'orders' | 'config')}>
+          <Tabs value={activeTab} onValueChange={v => setActiveTab(v as 'orders' | 'report' | 'config')}>
             <TabsList>
               <TabsTrigger value="orders"><Table2 /> Órdenes</TabsTrigger>
+              <TabsTrigger value="report"><FileText /> Reporte</TabsTrigger>
               <TabsTrigger value="config"><Settings /> Configuración</TabsTrigger>
             </TabsList>
 
@@ -269,6 +271,10 @@ export default function AdminPanel() {
                   onPredictRisk={handlePredictRisk}
                 />
               )}
+            </TabsContent>
+
+            <TabsContent value="report" className="mt-5">
+              <OrderReportTab orders={filteredOrders} />
             </TabsContent>
 
             <TabsContent value="config" className="mt-5">
