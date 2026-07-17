@@ -227,7 +227,7 @@ export const predictOrderRisk = async (order: OdooSaleOrder): Promise<RiskPredic
   try {
     result = JSON.parse(response.text || '{}') as RiskPredictionRaw;
   } catch {
-    throw new Error('La IA devolvió una respuesta no válida');
+    throw new AIError('invalid_response');
   }
   return {
     ...result,
@@ -250,7 +250,7 @@ export const filterOrdersByNaturalLanguage = async (query: string, orders: OdooS
   try {
     return JSON.parse(response.text || '[]') as number[];
   } catch {
-    return [];
+    throw new AIError('invalid_response');
   }
 };
 
