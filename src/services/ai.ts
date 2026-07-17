@@ -317,7 +317,7 @@ IMPORTANT INSTRUCTIONS:
         }
       }
     }
-  });
+  }, 15000);
 
   try {
     return JSON.parse(response.text || '{"po_number":null,"action":"answer","message":"No pude entender el comando."}') as VoiceCommandResponse;
