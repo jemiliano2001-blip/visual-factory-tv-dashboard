@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useOdooOrders } from '../hooks/useOdooOrders';
-import { generateShiftSummary } from '../services/ai';
+import { generateShiftSummary, AIError } from '../services/ai';
 import { getOrderPriority, isOrderOverdue, getOrderAgeDays, STALE_AGE_DAYS } from '../services/odoo';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -32,7 +32,8 @@ export default function StatsDashboard() {
       setAiSummary(summary || 'Sin respuesta del modelo.');
     } catch (e) {
       console.error(e);
-      setAiSummary('Error al generar el resumen. Por favor, compruebe su clave API e inténtelo de nuevo.');
+      const msg = e instanceof AIError ? e.userMessage : 'Ocurrió un error inesperado al generar el resumen.';
+      setAiSummary(msg);
     }
     setIsGenerating(false);
   };

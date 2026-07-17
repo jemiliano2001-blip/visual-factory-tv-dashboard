@@ -14,7 +14,7 @@ import {
 } from '../services/odoo';
 import { formatPONumber } from '../utils/formatters';
 import { useOdooOrders } from '../hooks/useOdooOrders';
-import { processTextVoiceCommand, generateSpeech } from '../services/ai';
+import { processTextVoiceCommand, generateSpeech, AIError } from '../services/ai';
 import OdooOrderCard from '../components/OdooOrderCard';
 import type { ViewMode, ScreenTier } from '../components/OdooOrderCard';
 import SkeletonCard from '../components/SkeletonCard';
@@ -606,7 +606,8 @@ export default function TVDashboard() {
             }
           } catch (e) {
             console.error('Error en el procesamiento de voz', e);
-            showToast('Hubo un error al procesar el comando de voz.', 'error');
+            const msg = e instanceof AIError ? e.userMessage : 'Hubo un error al procesar el comando de voz.';
+            showToast(msg, 'error');
             await playErrorSound();
           } finally {
             setIsProcessingVoice(false);

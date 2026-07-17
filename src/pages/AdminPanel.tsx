@@ -8,7 +8,7 @@ import { useOdooOrders } from '../hooks/useOdooOrders';
 import { OdooSaleOrder, isOrderOverdue, parseOdooDate } from '../services/odoo';
 import {
   filterOrdersByNaturalLanguage, generateClientReport,
-  analyzeOrderAnomalies, predictOrderRisk,
+  analyzeOrderAnomalies, predictOrderRisk, AIError,
 } from '../services/ai';
 import { RiskPrediction } from '../components/admin/riskTypes';
 import OrdersTable from '../components/admin/OrdersTable';
@@ -80,7 +80,8 @@ export default function AdminPanel() {
       setAiFilterIds(ids);
     } catch (err) {
       console.error('Error en búsqueda IA', err);
-      setAiModal({ title: 'Error', content: 'No se pudo procesar la búsqueda. Verifica tu clave API de Gemini.' });
+      const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al buscar.';
+      setAiModal({ title: 'Error', content: msg });
     }
     setIsSearchingAI(false);
   };
@@ -97,7 +98,8 @@ export default function AdminPanel() {
       setAiModal({ title: `Reporte para ${order.partner_name} — ${order.name}`, content: text || 'Sin respuesta del modelo.' });
     } catch (err) {
       console.error(err);
-      setAiModal({ title: 'Error', content: 'No se pudo generar el reporte. Verifica tu clave API de Gemini.' });
+      const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al generar el reporte.';
+      setAiModal({ title: 'Error', content: msg });
     }
   };
 
@@ -108,7 +110,8 @@ export default function AdminPanel() {
       setAiModal({ title: `Análisis de anomalías (${filteredOrders.length} órdenes)`, content: text || 'Sin respuesta del modelo.' });
     } catch (err) {
       console.error(err);
-      setAiModal({ title: 'Error', content: 'No se pudo analizar. Verifica tu clave API de Gemini.' });
+      const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al analizar.';
+      setAiModal({ title: 'Error', content: msg });
     }
   };
 
@@ -123,7 +126,8 @@ export default function AdminPanel() {
         const { [order.id]: _removed, ...rest } = p;
         return rest;
       });
-      setAiModal({ title: 'Error', content: 'No se pudo predecir el riesgo. Verifica tu clave API de Gemini.' });
+      const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al predecir el riesgo.';
+      setAiModal({ title: 'Error', content: msg });
     }
   };
 
