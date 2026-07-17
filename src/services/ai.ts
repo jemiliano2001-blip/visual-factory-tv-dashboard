@@ -71,6 +71,56 @@ interface RiskPredictionRaw {
   analyzedAt: string;
 }
 
+export type AIErrorKind = 'network' | 'timeout' | 'auth' | 'rate_limit' | 'invalid_response' | 'server' | 'unknown';
+
+const AI_ERROR_MESSAGES: Record<AIErrorKind, string> = {
+  network: 'No se pudo conectar con el servidor. Verifica tu conexión a internet.',
+  timeout: 'La IA tardó demasiado en responder. Intenta de nuevo.',
+  auth: 'Sesión expirada o clave API inválida — vuelve a iniciar sesión.',
+  rate_limit: 'Gemini está saturado, intenta de nuevo en un momento.',
+  invalid_response: 'La IA devolvió una respuesta que no se pudo interpretar.',
+  server: 'El servidor de IA tuvo un problema. Intenta de nuevo en un momento.',
+  unknown: 'Ocurrió un error inesperado al contactar la IA.',
+};
+
+export class AIError extends Error {
+  readonly kind: AIErrorKind;
+  readonly userMessage: string;
+
+  constructor(kind: AIErrorKind, message?: string, cause?: unknown) {
+    super(message || AI_ERROR_MESSAGES[kind], cause !== undefined ? { cause } : undefined);
+    this.name = 'AIError';
+    this.kind = kind;
+    this.userMessage = AI_ERROR_MESSAGES[kind];
+  }
+}
+
+const RETRYABLE_KINDS: ReadonlySet<AIErrorKind> = new Set(['network', 'timeout', 'rate_limit', 'server']);
+
+function classifyHttpStatus(status: number): AIErrorKind {
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 429) return 'rate_limit';
+  if (status >= 500) return 'server';
+  return 'unknown';
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** Reintenta solo fallos transitorios (red/timeout/rate-limit/servidor); nunca auth. */
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, baseDelayMs = 300): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const kind = err instanceof AIError ? err.kind : 'unknown';
+      if (attempt === retries || !RETRYABLE_KINDS.has(kind)) throw err;
+      await sleep(baseDelayMs * Math.pow(3, attempt));
+    }
+  }
+}
+
 const PROXY_BASE = import.meta.env.VITE_ODOO_PROXY_URL || '';
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
@@ -78,20 +128,35 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 }
 
-async function generateContent(params: GeminiRequest): Promise<GeminiProxyResponse> {
+async function fetchOnce(params: GeminiRequest, timeoutMs: number): Promise<GeminiProxyResponse> {
   const headers = await getAuthHeaders();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  const response = await fetch(`${PROXY_BASE}/api/ai/generate`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(params),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${PROXY_BASE}/api/ai/generate`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(params),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (controller.signal.aborted) throw new AIError('timeout', undefined, err);
+    throw new AIError('network', undefined, err);
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null) as { error?: string } | null;
-    throw new Error(errorBody?.error || `AI Request failed: ${response.statusText}`);
+    throw new AIError(classifyHttpStatus(response.status), errorBody?.error);
   }
   return await response.json() as GeminiProxyResponse;
+}
+
+async function generateContent(params: GeminiRequest, timeoutMs = 30000): Promise<GeminiProxyResponse> {
+  return withRetry(() => fetchOnce(params, timeoutMs));
 }
 
 /** Proyección compacta de una orden Odoo para prompts (menos tokens, campos en español). */
