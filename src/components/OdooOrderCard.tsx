@@ -2,10 +2,10 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   Clock, AlertTriangle, CheckCircle2, PlayCircle,
-  Package, User, Calendar, FileText, Check,
+  Package, User, Calendar, FileText, Check, Timer,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { OdooSaleOrder, OdooOrderLine, getOrderPriority, getDeliveryProgress, isOrderOverdue, parseOdooDate, getOrderAgeDays, formatOrderAge, STALE_AGE_DAYS } from '../services/odoo';
+import { OdooSaleOrder, OdooOrderLine, getOrderPriority, getDeliveryProgress, isOrderOverdue, parseOdooDate, getOrderAgeDays, formatOrderAge, getDeliveryTimeStatus, STALE_AGE_DAYS } from '../services/odoo';
 import SmartText from './SmartText';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────────
@@ -72,6 +72,22 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   const isDesktop = viewMode === 'desktop';
   const ageDays = getOrderAgeDays(order);
   const isStale = ageDays !== null && ageDays > STALE_AGE_DAYS;
+
+  // ── Tiempo de entrega parseado de la nota ("8 a 12 días hábiles", "4 semanas") ──
+  const deliveryTime = getDeliveryTimeStatus(order);
+  const dtRemaining = deliveryTime.businessDaysRemaining;
+  const hasDeliveryTime = deliveryTime.status !== 'unknown' && dtRemaining !== null;
+  const dtLabel = !hasDeliveryTime ? ''
+    : dtRemaining < 0 ? `Venció hace ${-dtRemaining} d`
+    : dtRemaining === 0 ? 'Entrega hoy'
+    : `${dtRemaining} d háb.`;
+  const dtBadgeColor =
+    deliveryTime.status === 'overdue' ? 'bg-red-500/15 text-red-400 border-red-500/40'
+    : deliveryTime.status === 'warning' ? 'bg-amber-500/15 text-amber-400 border-amber-500/40'
+    : 'bg-zinc-800 text-zinc-400 border-zinc-700';
+  const dtTitle = deliveryTime.daysRange && deliveryTime.deadlineDate
+    ? `Tiempo de entrega en nota: ${deliveryTime.daysRange.min}–${deliveryTime.daysRange.max} días hábiles — límite ${format(deliveryTime.deadlineDate, 'dd/MM/yy')}`
+    : undefined;
 
   // ── Resumen de remisiones (excluye canceladas) ─────────────────────────────
   const deliveries = order.deliveries ?? [];
@@ -167,6 +183,11 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
             <span className={`text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${PRIORITY_COLORS[priority]}`}>
               {PRIORITY_LABELS[priority]}
             </span>
+            {hasDeliveryTime && (
+              <span className={`text-[11px] font-black px-2 py-0.5 rounded border ${dtBadgeColor}`}>
+                {dtLabel}
+              </span>
+            )}
             {isStale && (
               <span className="text-[11px] font-black px-2 py-0.5 rounded border bg-amber-500/15 text-amber-400 border-amber-500/40">
                 {formatOrderAge(ageDays!)}
@@ -245,6 +266,11 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
               {order.name}
             </h3>
             <div className="flex items-center gap-1 flex-shrink-0">
+              {hasDeliveryTime && (
+                <span className={`text-[8px] lg:text-[9px] font-black px-1 py-0.5 rounded border ${dtBadgeColor}`} title={dtTitle}>
+                  {dtLabel}
+                </span>
+              )}
               {isStale && (
                 <span className="text-[8px] lg:text-[9px] font-black px-1 py-0.5 rounded border bg-amber-500/15 text-amber-400 border-amber-500/40" title={`Creada hace ${formatOrderAge(ageDays!)}`}>
                   {formatOrderAge(ageDays!)}
@@ -336,6 +362,12 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
               <span className={`text-[10px] font-black px-2 py-0.5 rounded flex items-center gap-1 bg-zinc-800 border flex-shrink-0 ${isOverdue ? 'text-red-400 border-red-500/30' : 'text-zinc-500 border-zinc-700'}`}>
                 <Calendar className="w-2.5 h-2.5" />
                 {format(commitmentDate, 'dd/MM/yy')}
+              </span>
+            )}
+            {hasDeliveryTime && (
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded flex items-center gap-1 border flex-shrink-0 ${dtBadgeColor}`} title={dtTitle}>
+                <Timer className="w-2.5 h-2.5" />
+                {dtLabel}
               </span>
             )}
             {isStale && (

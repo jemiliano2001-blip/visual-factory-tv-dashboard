@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { useOdooOrders } from '../hooks/useOdooOrders';
 import { generateShiftSummary, AIError } from '../services/ai';
-import { getOrderPriority, isOrderOverdue, getOrderAgeDays, STALE_AGE_DAYS } from '../services/odoo';
+import { getOrderStatus, getOrderAgeDays, parseOdooDate, STALE_AGE_DAYS, type OrderStatusLevel } from '../services/odoo';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell
 } from 'recharts';
 import {
   AlertTriangle, TrendingUp, Clock, Package,
@@ -14,8 +13,6 @@ import ReactMarkdown from 'react-markdown';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 
-const PRIORITY_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444'];
-const OVERDUE_COLORS = ['#ef4444', '#10b981'];
 const AGING_COLORS = ['#10b981', '#f59e0b', '#ef4444'];
 const CHART_TOOLTIP_STYLE = { backgroundColor: '#16161d', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 };
 const CHART_CURSOR = { fill: 'rgba(255,255,255,0.04)' };
@@ -45,7 +42,19 @@ export default function StatsDashboard() {
 
   // ── Métricas (sin información monetaria — confidencial) ───────────────────────
   const totalOrders = orders.length;
-  const overdueCount = orders.filter(isOrderOverdue).length;
+  // Urgencia unificada: fecha compromiso + tiempo de entrega parseado de la nota
+  // (getOrderStatus) — la misma señal de color que usan las tarjetas de la TV.
+  const statusCounts = orders.reduce(
+    (acc, o) => { acc[getOrderStatus(o).level]++; return acc; },
+    { overdue: 0, warning: 0, 'on-time': 0, none: 0 } as Record<OrderStatusLevel, number>
+  );
+  const overdueCount = statusCounts.overdue;
+  const statusData = [
+    { name: 'Atrasada', value: statusCounts.overdue, color: '#ef4444' },
+    { name: 'Por vencer', value: statusCounts.warning, color: '#f59e0b' },
+    { name: 'En tiempo', value: statusCounts['on-time'], color: '#10b981' },
+    { name: 'Sin fecha', value: statusCounts.none, color: '#71717a' },
+  ];
   const totalQty = orders.reduce((s, o) => s + o.qty_total, 0);
   const deliveredQty = orders.reduce((s, o) => s + o.qty_delivered, 0);
   const deliveryRate = totalQty > 0 ? Math.round((deliveredQty / totalQty) * 100) : 0;
@@ -54,17 +63,47 @@ export default function StatsDashboard() {
     return age !== null && age > STALE_AGE_DAYS;
   }).length;
 
-  const priorityData = [
-    { name: 'Baja', value: orders.filter(o => getOrderPriority(o) === 'low').length },
-    { name: 'Normal', value: orders.filter(o => getOrderPriority(o) === 'normal').length },
-    { name: 'Alta', value: orders.filter(o => getOrderPriority(o) === 'high').length },
-    { name: 'Crítica', value: orders.filter(o => getOrderPriority(o) === 'critical').length },
-  ];
+  // Pipeline de remisiones: el estado de stock.picking lo genera el almacén en
+  // Odoo automáticamente — información viva sin captura manual.
+  const pipelineData = (() => {
+    const b = { sin: 0, prep: 0, lista: 0, parcial: 0, entregada: 0 };
+    orders.forEach(o => {
+      const active = (o.deliveries ?? []).filter(d => d.state !== 'cancel');
+      if (active.length === 0) { b.sin++; return; }
+      const done = active.filter(d => d.state === 'done').length;
+      if (done === active.length) b.entregada++;
+      else if (done > 0) b.parcial++;
+      else if (active.some(d => d.state === 'assigned')) b.lista++;
+      else b.prep++;
+    });
+    return [
+      { name: 'Sin remisión', value: b.sin, color: '#71717a' },
+      { name: 'En preparación', value: b.prep, color: '#f59e0b' },
+      { name: 'Lista p/ enviar', value: b.lista, color: '#3b82f6' },
+      { name: 'Entrega parcial', value: b.parcial, color: '#22d3ee' },
+      { name: 'Entregada', value: b.entregada, color: '#10b981' },
+    ];
+  })();
 
-  const overdueData = [
-    { name: 'Vencidas', value: overdueCount },
-    { name: 'En tiempo', value: totalOrders - overdueCount },
-  ];
+  // Remisiones completadas por semana (ventanas móviles de 7 días desde hoy).
+  // ponytail: solo ve remisiones de órdenes aún por facturar — las semanas
+  // viejas subcuentan conforme se facturan; útil como tendencia reciente.
+  const weeklyDeliveries = (() => {
+    const MS_WEEK = 7 * 86_400_000;
+    const now = Date.now();
+    const counts = new Array(8).fill(0) as number[];
+    orders.forEach(o => (o.deliveries ?? []).forEach(d => {
+      if (d.state !== 'done' || !d.date_done) return;
+      const t = parseOdooDate(d.date_done)?.getTime();
+      if (!t) return;
+      const w = Math.floor((now - t) / MS_WEEK);
+      if (w >= 0 && w < 8) counts[7 - w]++;
+    }));
+    return counts.map((value, i) => ({
+      name: i === 7 ? 'Esta sem.' : `hace ${7 - i} sem`,
+      value,
+    }));
+  })();
 
   // Top clientes por NÚMERO de órdenes (qué compañía genera más), no por monto.
   const clientData = Object.entries(
@@ -139,29 +178,46 @@ export default function StatsDashboard() {
               <StatCard icon={<Clock className="size-5 text-amber-400" />} label="Antiguas (+1 mes)" value={String(staleCount)} accent="#f59e0b" />
             </div>
 
-            {/* Distribuciones por prioridad y vencimiento */}
+            {/* Urgencia de entrega — fecha compromiso + tiempo de entrega en notas */}
+            <ChartCard title="Urgencia de entrega (compromiso + notas)">
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={statusData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                  <XAxis dataKey="name" stroke="#71717a" tick={{ fontSize: 12 }} />
+                  <YAxis stroke="#71717a" allowDecimals={false} />
+                  <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={CHART_CURSOR} />
+                  <Bar dataKey="value" name="Órdenes" radius={[8, 8, 0, 0]}>
+                    {statusData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+
+            {/* Estado real de almacén + ritmo de entregas — datos de stock.picking */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <ChartCard title="Distribución por prioridad">
+              <ChartCard title="Órdenes por estado de remisión">
                 <ResponsiveContainer width="100%" height={260}>
-                  <PieChart>
-                    <Pie data={priorityData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label>
-                      {priorityData.map((_, i) => <Cell key={i} fill={PRIORITY_COLORS[i % PRIORITY_COLORS.length]} />)}
-                    </Pie>
-                    <Legend />
-                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
-                  </PieChart>
+                  <BarChart data={pipelineData} layout="vertical" margin={{ left: 40 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                    <XAxis type="number" stroke="#71717a" allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" stroke="#71717a" width={120} tick={{ fontSize: 12 }} />
+                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={CHART_CURSOR} />
+                    <Bar dataKey="value" name="Órdenes" radius={[0, 8, 8, 0]}>
+                      {pipelineData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                    </Bar>
+                  </BarChart>
                 </ResponsiveContainer>
               </ChartCard>
 
-              <ChartCard title="Vencidas vs. en tiempo">
+              <ChartCard title="Remisiones entregadas por semana">
                 <ResponsiveContainer width="100%" height={260}>
-                  <PieChart>
-                    <Pie data={overdueData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label>
-                      {overdueData.map((_, i) => <Cell key={i} fill={OVERDUE_COLORS[i % OVERDUE_COLORS.length]} />)}
-                    </Pie>
-                    <Legend />
-                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
-                  </PieChart>
+                  <BarChart data={weeklyDeliveries}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                    <XAxis dataKey="name" stroke="#71717a" tick={{ fontSize: 11 }} />
+                    <YAxis stroke="#71717a" allowDecimals={false} />
+                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={CHART_CURSOR} />
+                    <Bar dataKey="value" name="Entregas" fill="#10b981" radius={[8, 8, 0, 0]} />
+                  </BarChart>
                 </ResponsiveContainer>
               </ChartCard>
             </div>
