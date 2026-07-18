@@ -155,8 +155,8 @@ async function fetchOnce(params: GeminiRequest, timeoutMs: number): Promise<Gemi
   return await response.json() as GeminiProxyResponse;
 }
 
-async function generateContent(params: GeminiRequest, timeoutMs = 30000): Promise<GeminiProxyResponse> {
-  return withRetry(() => fetchOnce(params, timeoutMs));
+async function generateContent(params: GeminiRequest, timeoutMs = 30000, retries = 2): Promise<GeminiProxyResponse> {
+  return withRetry(() => fetchOnce(params, timeoutMs), retries);
 }
 
 /** Proyección compacta de una orden Odoo para prompts (menos tokens, campos en español). */
@@ -317,7 +317,7 @@ IMPORTANT INSTRUCTIONS:
         }
       }
     }
-  }, 15000);
+  }, 15000, 0);
 
   try {
     return JSON.parse(response.text || '{"po_number":null,"action":"answer","message":"No pude entender el comando."}') as VoiceCommandResponse;
