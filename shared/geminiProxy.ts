@@ -1,4 +1,4 @@
-export const ALLOWED_AI_MODELS = new Set(['gemini-3.5-flash', 'gemini-2.5-flash-preview-tts']);
+export const ALLOWED_AI_MODELS = new Set(['gemini-3.5-flash', 'gemini-3.1-flash-tts-preview']);
 
 export interface GeminiGenerateBody {
   model?: string;

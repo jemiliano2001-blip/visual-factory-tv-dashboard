@@ -16,7 +16,7 @@
 - Firebase project `smv-brain`, Hosting site `dashboardsmv` at https://dashboardsmv.web.app.
 - Primary TV use case: legible at 3–4 m on large screens; mobile uses separate layout via `useMobile()` (<768 px).
 - Auth split: anonymous Firebase for TV (`/`), email/password plus `isRealUser()` for `/admin` and `/stats`.
-- AI models allowlisted: `gemini-3.5-flash` (text/voice) and `gemini-2.5-flash-preview-tts` (TTS only — not interchangeable).
+- AI models allowlisted: `gemini-3.5-flash` (text/voice NLU) and `gemini-3.1-flash-tts-preview` (TTS only — not interchangeable).
 - `DEV_AUTH_BYPASS=true` is opt-in localhost-only; default is fail-closed; never rely on `NODE_ENV` alone.
 - PO canonical format is `YYYY/SXXXXX` via `formatPONumber` (dynamic current year).
 - `CLAUDE.md` is the primary project guide for agents in this repo.

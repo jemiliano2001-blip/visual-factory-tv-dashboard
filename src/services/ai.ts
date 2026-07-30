@@ -340,16 +340,27 @@ export const processTextVoiceCommand = async (
 };
 
 export const generateSpeech = async (text: string) => {
+  // TTS dedicado: gemini-3.1-flash-tts-preview (natural + steerable + streaming).
+  // No usar gemini-3.5-flash — no emite audio.
+  const spoken = text.trim();
+  const prompt = [
+    'Habla en español mexicano claro y natural, tono cálido y profesional,',
+    'ritmo calmado y firme para un anuncio corto en piso de fábrica.',
+    'No inventes texto ni leas estas instrucciones en voz alta.',
+    '',
+    'Texto a decir:',
+    spoken,
+  ].join('\n');
+
   const response = await generateContent({
-    // TTS requiere un modelo dedicado de audio: un flash de texto (gemini-3.5-flash)
-    // NO produce audio y deja la respuesta sin voz. No cambiar a un modelo de texto.
-    model: "gemini-2.5-flash-preview-tts",
-    contents: { parts: [{ text }] },
+    model: 'gemini-3.1-flash-tts-preview',
+    contents: { parts: [{ text: prompt }] },
     config: {
       responseModalities: [Modality.AUDIO],
       speechConfig: {
         voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: 'Kore' },
+          // Sulafat = Warm — más natural que Kore (Firm) para anuncios en español
+          prebuiltVoiceConfig: { voiceName: 'Sulafat' },
         },
       },
     },
