@@ -704,3 +704,25 @@ export const generateSpeech = async (text: string) => {
   }, 12000, 0);
   return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
 };
+
+const ttsCache = new Map<string, string>();
+const TTS_CACHE_MAX = 50; // ponytail: FIFO eviction, no LRU — el TV corre días sin recargar,
+// esto solo acota la memoria; si el tope de 50 empieza a desalojar frases que siguen en
+// rotación activa, subir a una LRU real.
+
+/** Envuelve generateSpeech() con memoización por texto exacto: cualquier mensaje que se
+ * repita literalmente (fijo o coincidencia de conteo) evita una vuelta de red a Gemini TTS.
+ * Solo se cachea audio exitoso — una falla transitoria no se queda "pegada" en el cache. */
+export async function getSpokenAudio(text: string): Promise<string | undefined> {
+  const cached = ttsCache.get(text);
+  if (cached) return cached;
+  const audio = await generateSpeech(text);
+  if (audio) {
+    if (ttsCache.size >= TTS_CACHE_MAX) {
+      const oldestKey = ttsCache.keys().next().value;
+      if (oldestKey !== undefined) ttsCache.delete(oldestKey);
+    }
+    ttsCache.set(text, audio);
+  }
+  return audio;
+}
