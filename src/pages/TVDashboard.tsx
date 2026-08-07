@@ -35,6 +35,10 @@ import type {
 // ─── Audio helpers ─────────────────────────────────────────────────────────────
 
 let sharedAudioCtx: AudioContext | null = null;
+// Referencia al nodo de audio de Gemini TTS actualmente en reproducción (voz principal de
+// los comandos) para poder cortarlo si el operador vuelve a picarle al micro a la mitad.
+let activeAudioSource: AudioBufferSourceNode | null = null;
+
 const getAudioContext = () => {
   if (!sharedAudioCtx) {
     const win = window as WindowWithSpeech;
@@ -68,10 +72,27 @@ const playPCMBase64 = async (base64: string, onEnded?: () => void) => {
     source.buffer = audioBuffer;
     source.connect(audioCtx.destination);
     if (onEnded) source.onended = onEnded;
+    if (activeAudioSource) {
+      // Quitar su onended antes de detenerlo: si no, su callback (setIsSpeaking(false) de
+      // un turno anterior) se dispara durante el arranque de este nuevo audio y pisa el
+      // indicador de "hablando" del turno actual.
+      activeAudioSource.onended = null;
+      try { activeAudioSource.stop(); } catch { /* ya había terminado */ }
+    }
+    activeAudioSource = source;
     source.start();
   } catch (e) {
     console.error('Error playing TTS audio', e);
     if (onEnded) onEnded();
+  }
+};
+
+/** Corta cualquier voz en curso (Gemini TTS o el respaldo nativo del navegador). */
+const stopSpokenAudio = () => {
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+  if (activeAudioSource) {
+    try { activeAudioSource.stop(); } catch { /* ya había terminado */ }
+    activeAudioSource = null;
   }
 };
 
@@ -252,8 +273,17 @@ export default function TVDashboard() {
   const transcriptTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceResponseTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightTimerRef       = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Se incrementa cada vez que se inicia una nueva grabación. El botón de voz vuelve a
+  // habilitarse antes de que termine el TTS del comando anterior (a propósito, para poder
+  // interrumpir), así que el TTS fire-and-forget de un turno viejo debe poder detectar que
+  // ya lo superó un turno más nuevo y no hablar/pisar el indicador "hablando" de este.
+  const voiceTurnRef            = useRef(0);
   // Último turno para dar contexto conversacional a seguimientos ("¿y las de Bosch?")
   const lastVoiceTurnRef        = useRef<{ transcript: string; message: string } | null>(null);
+  // El handler onresult es async y puede resolver segundos después (viaje a Gemini de por medio);
+  // usar una ref en vez de la variable del closure evita operar sobre catálogo ya obsoleto
+  // si odooOrders cambió (polling) mientras se procesaba el comando.
+  const odooOrdersRef           = useRef<OdooSaleOrder[]>(odooOrders);
 
   const isMobile = useMobile();
   // En móvil siempre modo escritorio: sin paginación ni auto-rotación
@@ -472,6 +502,10 @@ export default function TVDashboard() {
     return result;
   }, [groupedOrders, ordersPerPage, gridCols, gridRows, isTVMode]);
 
+  // Mantener la ref de catálogo al día con cada render, para que el handler async de
+  // reconocimiento de voz siempre opere sobre los datos más recientes.
+  useEffect(() => { odooOrdersRef.current = odooOrders; }, [odooOrders]);
+
   // ── Auto-rotate pages (solo en modo TV) ──────────────────────────────────────
   useEffect(() => {
     if (!isTVMode || pages.length <= 1 || highlightedSO || rotationPaused) return;
@@ -489,6 +523,19 @@ export default function TVDashboard() {
   useEffect(() => {
     setCurrentPageIndex(0);
   }, [clientFilter, textFilter]);
+
+  // Navegar a la página de la orden resaltada por voz. Se hace en un efecto (no inline
+  // en el handler de voz) porque un comando de voz puede resaltar Y filtrar a la vez:
+  // `pages` todavía no refleja el nuevo filtro en el mismo tick que se llama setHighlightedSO,
+  // así que hay que esperar a que este efecto corra con la paginación ya actualizada.
+  useEffect(() => {
+    if (!highlightedSO) return;
+    const pageIdx = pages.findIndex(p =>
+      p.type === 'single' ? p.orders.some(o => o.name === highlightedSO)
+      : (p.left.orders.some(o => o.name === highlightedSO) || p.right.orders.some(o => o.name === highlightedSO))
+    );
+    if (pageIdx !== -1) setCurrentPageIndex(pageIdx);
+  }, [highlightedSO, pages]);
 
   useEffect(() => {
     return () => {
@@ -517,11 +564,19 @@ export default function TVDashboard() {
       return;
     }
 
+    // Interrumpir cualquier respuesta de voz en curso: si el operador ya vuelve a
+    // picarle al micro, quiere hablar ya, no esperar a que termine el anuncio anterior.
+    stopSpokenAudio();
+    setIsSpeaking(false);
+    // Invalida el TTS pendiente de un turno anterior (ver comentario en voiceTurnRef).
+    const turnId = ++voiceTurnRef.current;
+
     try {
       const recognition = new SpeechRecognition();
-      recognition.lang = 'es-ES';
+      recognition.lang = 'es-MX';
       recognition.interimResults = true;
       recognition.continuous = false;
+      recognition.maxAlternatives = 3;
       recognitionRef.current = recognition;
 
       recognition.onstart = () => setIsRecording(true);
@@ -529,12 +584,18 @@ export default function TVDashboard() {
       recognition.onresult = async (event: SpeechRecognitionEvent) => {
         let interimTranscript = '';
         let finalTranscript = '';
+        const finalAlternatives: string[] = [];
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
+          const result = event.results[i];
+          if (result.isFinal) {
+            finalTranscript += result[0].transcript;
+            for (let a = 0; a < result.length; a++) {
+              const alt = result[a]?.transcript;
+              if (alt) finalAlternatives.push(alt);
+            }
           } else {
-            interimTranscript += event.results[i][0].transcript;
+            interimTranscript += result[0].transcript;
           }
         }
 
@@ -551,11 +612,19 @@ export default function TVDashboard() {
           setIsProcessingVoice(true);
 
           try {
-            // 1. Intentar patrón local ultra-rápido (< 5ms)
-            const localResult = tryLocalFastVoiceCommand(finalTranscript, odooOrders);
+            // 1. Intentar patrón local ultra-rápido (< 5ms) probando cada alternativa de
+            // reconocimiento (ayuda sobre todo a acertar números de PO con ruido de piso).
+            // Una alternativa de menor confianza que resuelve a "highlight" (PO exacto) se
+            // prefiere sobre una de mayor confianza que solo resuelve a "filter" — de lo
+            // contrario el orden de las alternativas podría resucitar el secuestro de
+            // intención que motivó este fast path (pedir una orden y recibir un filtro).
+            const localCandidates = finalAlternatives
+              .map(alt => tryLocalFastVoiceCommand(alt, odooOrdersRef.current))
+              .filter((r): r is VoiceCommandResponse => r !== null);
+            const localResult = localCandidates.find(r => r.action === 'highlight') ?? localCandidates[0] ?? null;
             const result = localResult ?? await processTextVoiceCommand(
               finalTranscript,
-              odooOrders,
+              odooOrdersRef.current,
               lastVoiceTurnRef.current,
             );
 
@@ -574,28 +643,26 @@ export default function TVDashboard() {
             if (result.message) {
               showToast(result.message, result.action === 'answer' ? 'info' : 'success');
               setIsSpeaking(true);
-              // Si fue coincidencia local, emitir voz nativa instantánea sin latencia de red
-              if (localResult) {
-                const spoke = speakFastLocal(result.message);
-                if (!spoke) {
-                  generateSpeech(result.message)
-                    .then(audioBase64 => {
-                      if (audioBase64) playPCMBase64(audioBase64, () => setIsSpeaking(false));
-                      else setIsSpeaking(false);
-                    })
-                    .catch(() => setIsSpeaking(false));
-                } else {
-                  setIsSpeaking(false);
-                }
-              } else {
-                // Fire-and-forget: Gemini TTS en background para respuestas de IA complejas
-                generateSpeech(result.message)
-                  .then(audioBase64 => {
-                    if (audioBase64) playPCMBase64(audioBase64, () => setIsSpeaking(false));
-                    else setIsSpeaking(false);
-                  })
-                  .catch(() => setIsSpeaking(false));
-              }
+              // Gemini TTS es la voz principal para todo comando (local o de Gemini): la app
+              // ya depende de internet para todo lo demás (Odoo, interpretación de voz), así
+              // que evitar la red aquí no compra nada real — y la voz de Gemini suena mejor
+              // que la nativa del navegador. speakFastLocal queda solo como respaldo de
+              // emergencia si el TTS en la nube falla.
+              generateSpeech(result.message)
+                .then(audioBase64 => {
+                  // Un turno más nuevo (el operador ya volvió a picarle al micro) superó a
+                  // este: no hablar la respuesta vieja ni pisar el indicador de "hablando".
+                  if (turnId !== voiceTurnRef.current) return;
+                  if (audioBase64) {
+                    playPCMBase64(audioBase64, () => setIsSpeaking(false));
+                  } else if (!speakFastLocal(result.message, () => setIsSpeaking(false))) {
+                    setIsSpeaking(false);
+                  }
+                })
+                .catch(() => {
+                  if (turnId !== voiceTurnRef.current) return;
+                  if (!speakFastLocal(result.message, () => setIsSpeaking(false))) setIsSpeaking(false);
+                });
             }
 
             if (result.action === 'filter') {
@@ -614,16 +681,19 @@ export default function TVDashboard() {
             const targetPOString = result.expected_order?.po_number || result.po_number;
             if (targetPOString) {
               const target = formatPONumber(targetPOString);
+              const currentOrders = odooOrdersRef.current;
+              const targetDigits = targetPOString.replace(/\D/g, '');
+              // El PO puede venir de Gemini en formato libre, no solo del regex determinista
+              // del fast path — se compara igual por sufijo de dígitos (nunca substring amplio)
+              // para no confundir un año como "2026" con una orden que solo comparte esos dígitos.
               const found =
-                odooOrders.find(o => formatPONumber(o.name) === target) ??
-                odooOrders.find(o => o.name === targetPOString || o.name.includes(targetPOString));
+                currentOrders.find(o => formatPONumber(o.name) === target) ??
+                currentOrders.find(o => o.name === targetPOString) ??
+                (targetDigits.length >= 3 ? currentOrders.find(o => o.name.replace(/\D/g, '').endsWith(targetDigits)) : undefined);
               if (found) {
                 const soId = found.name;
-                const pageIdx = pages.findIndex(p => 
-                  p.type === 'single' ? p.orders.some(o => o.name === soId) 
-                  : (p.left.orders.some(o => o.name === soId) || p.right.orders.some(o => o.name === soId))
-                );
-                if (pageIdx !== -1) setCurrentPageIndex(pageIdx);
+                // La navegación a la página correcta la resuelve un useEffect([highlightedSO, pages]) —
+                // si este comando también filtró, `pages` todavía no lo refleja en este punto.
                 await playSuccessSound();
                 setHighlightedSO(soId);
                 if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);

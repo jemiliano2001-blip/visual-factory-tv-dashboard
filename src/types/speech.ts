@@ -28,6 +28,7 @@ export interface SpeechRecognitionInstance extends EventTarget {
   lang: string;
   interimResults: boolean;
   continuous: boolean;
+  maxAlternatives: number;
   start(): void;
   stop(): void;
   abort(): void;

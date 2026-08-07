@@ -86,8 +86,8 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
           if (!isRecording && 'vibrate' in navigator) navigator.vibrate(10);
           onToggleRecording();
         }}
-        disabled={isProcessingVoice || isSpeaking}
-        title={isRecording ? 'Detener grabación' : 'Comando de Voz'}
+        disabled={isProcessingVoice}
+        title={isRecording ? 'Detener grabación' : isSpeaking ? 'Interrumpir y hablar de nuevo' : 'Comando de Voz'}
         className={`w-11 h-11 lg:w-12 lg:h-12 rounded-full flex items-center justify-center transition-all duration-300 ${
           isRecording
             ? 'bg-red-500/15 border-2 border-red-500/60 text-red-400 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
