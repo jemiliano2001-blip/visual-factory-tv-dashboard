@@ -54,6 +54,22 @@ const PRIORITY_LABELS: Record<string, string> = {
   low: 'Baja', normal: 'Normal', high: 'Alta', critical: 'Vencida',
 };
 
+function CompanyIdentityStrip({ companyBadge, isWide }: {
+  companyBadge: NonNullable<OdooOrderCardProps['companyBadge']>;
+  isWide: boolean;
+}) {
+  return (
+    <div className="absolute inset-x-0 top-0 z-20 flex h-6 items-center gap-1.5 border-b border-white/10 bg-zinc-900/95 px-3 text-zinc-200 backdrop-blur-sm">
+      {companyBadge.logoUrl && (
+        <img src={companyBadge.logoUrl} alt="" className="h-3.5 max-w-8 object-contain" />
+      )}
+      <span className={`truncate font-black uppercase tracking-[0.08em] ${isWide ? 'text-sm' : 'text-[11px] lg:text-xs'}`} title={companyBadge.name}>
+        {companyBadge.name}
+      </span>
+    </div>
+  );
+}
+
 // ─── Componente ─────────────────────────────────────────────────────────────────
 
 const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
@@ -253,8 +269,9 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
         transition={{ duration: 0.3 }}
         id={`so-${order.name.replace(/\//g, '-')}`}
         onClick={onClick}
-        className={`flex items-center rounded-2xl border-2 transition-all duration-300 relative overflow-hidden h-full ${cardBorder} ${staleRing} p-3 lg:p-4 gap-3 lg:gap-4 min-h-0 ${onClick ? 'cursor-pointer active:scale-[0.98]' : ''}`}
+        className={`flex items-center rounded-2xl border-2 transition-all duration-300 relative overflow-hidden h-full ${cardBorder} ${staleRing} ${companyBadge ? 'px-3 pb-3 pt-8 lg:px-4 lg:pb-4 lg:pt-9' : 'p-3 lg:p-4'} gap-3 lg:gap-4 min-h-0 ${onClick ? 'cursor-pointer active:scale-[0.98]' : ''}`}
       >
+        {companyBadge && <CompanyIdentityStrip companyBadge={companyBadge} isWide={isWide} />}
         {isOverdue && (
           <div className="absolute top-0 right-0 bg-orange-500 w-2 h-full z-20" title="Vencida" />
         )}
@@ -268,14 +285,6 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
               <h3 className="text-sm lg:text-base font-black tracking-tight text-white truncate">
                 {order.name}
               </h3>
-              {companyBadge && (
-                <span className="inline-flex max-w-[42%] items-center gap-1 truncate rounded border border-indigo-400/30 bg-zinc-800/90 px-1 py-0.5 text-[7px] font-black uppercase tracking-wider text-zinc-300 lg:text-[8px]">
-                  {companyBadge.logoUrl && (
-                    <img src={companyBadge.logoUrl} alt="" className="h-2.5 max-w-5 object-contain" />
-                  )}
-                  <span className="truncate">{companyBadge.name}</span>
-                </span>
-              )}
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
               {hasDeliveryTime && (
@@ -344,7 +353,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       <div className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-l-2xl ${accentStripeColor}`} />
 
       {/* Overdue badge */}
-      {isOverdue && (
+      {isOverdue && !companyBadge && (
         <div className="absolute top-0 right-0 bg-orange-500/90 text-white px-3 py-1 rounded-bl-xl font-black text-[9px] uppercase tracking-[0.2em] flex items-center gap-1.5 z-20">
           <AlertTriangle className="w-2.5 h-2.5 animate-bounce" />
           Vencida
@@ -354,29 +363,25 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       {/* Background glow */}
       <div className={`absolute -top-12 -right-12 w-40 h-40 blur-[70px] rounded-full opacity-10 pointer-events-none ${glowColor}`} />
 
+      {companyBadge && <CompanyIdentityStrip companyBadge={companyBadge} isWide={isWide} />}
+
       {/* Header: SO number + priority */}
-      <div className="flex justify-between items-start mb-2.5 lg:mb-3 relative z-10 mt-2 min-h-0">
+      <div className={`flex justify-between items-start mb-2.5 lg:mb-3 relative z-10 min-h-0 ${companyBadge ? 'mt-7' : 'mt-2'}`}>
         <div className="flex-1 min-w-0 pl-2">
           <h3 className={`${isWide ? 'text-2xl xl:text-3xl' : 'text-lg lg:text-xl'} font-bold tracking-tight text-white mb-1 truncate font-mono-data`}>
             {order.name}
           </h3>
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <User className="w-3 h-3 text-zinc-500 flex-shrink-0" />
-              <SmartText
-                text={order.partner_name}
-                maxLines={1}
-                className={`${isWide ? 'text-sm' : 'text-xs'} font-bold text-zinc-300 uppercase tracking-[0.15em]`}
-                defaultLevel={2}
-              />
-            </div>
-            {companyBadge && (
-              <span className="inline-flex max-w-full items-center gap-1 rounded border border-indigo-400/30 bg-zinc-800/90 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-zinc-300">
-                {companyBadge.logoUrl && (
-                  <img src={companyBadge.logoUrl} alt="" className="h-3 max-w-7 object-contain" />
-                )}
-                <span className="truncate">{companyBadge.name}</span>
-              </span>
+            {!companyBadge && (
+              <div className="flex items-center gap-1.5 min-w-0">
+                <User className="w-3 h-3 text-zinc-500 flex-shrink-0" />
+                <SmartText
+                  text={order.partner_name}
+                  maxLines={1}
+                  className={`${isWide ? 'text-sm' : 'text-xs'} font-bold text-zinc-300 uppercase tracking-[0.15em]`}
+                  defaultLevel={2}
+                />
+              </div>
             )}
             {commitmentDate && (
               <span className={`text-[10px] font-black px-2 py-0.5 rounded flex items-center gap-1 bg-zinc-800 border flex-shrink-0 ${isOverdue ? 'text-red-400 border-red-500/30' : 'text-zinc-500 border-zinc-700'}`}>
