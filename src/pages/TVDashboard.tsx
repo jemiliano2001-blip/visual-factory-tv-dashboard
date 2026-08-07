@@ -14,7 +14,7 @@ import {
 } from '../services/odoo';
 import { formatPONumber } from '../utils/formatters';
 import { useOdooOrders } from '../hooks/useOdooOrders';
-import { processTextVoiceCommand, generateSpeech, AIError, type VoiceCommandResponse } from '../services/ai';
+import { processTextVoiceCommand, tryLocalFastVoiceCommand, speakFastLocal, generateSpeech, AIError, type VoiceCommandResponse } from '../services/ai';
 import { VoiceFeedbackOverlay } from '../components/VoiceFeedbackOverlay';
 import OdooOrderCard from '../components/OdooOrderCard';
 import type { ViewMode, ScreenTier } from '../components/OdooOrderCard';
@@ -551,7 +551,9 @@ export default function TVDashboard() {
           setIsProcessingVoice(true);
 
           try {
-            const result = await processTextVoiceCommand(
+            // 1. Intentar patrón local ultra-rápido (< 5ms)
+            const localResult = tryLocalFastVoiceCommand(finalTranscript, odooOrders);
+            const result = localResult ?? await processTextVoiceCommand(
               finalTranscript,
               odooOrders,
               lastVoiceTurnRef.current,
@@ -571,14 +573,29 @@ export default function TVDashboard() {
 
             if (result.message) {
               showToast(result.message, result.action === 'answer' ? 'info' : 'success');
-              // Fire-and-forget: Gemini TTS en background, no bloquea la acción visual
               setIsSpeaking(true);
-              generateSpeech(result.message)
-                .then(audioBase64 => {
-                  if (audioBase64) playPCMBase64(audioBase64, () => setIsSpeaking(false));
-                  else setIsSpeaking(false);
-                })
-                .catch(() => setIsSpeaking(false));
+              // Si fue coincidencia local, emitir voz nativa instantánea sin latencia de red
+              if (localResult) {
+                const spoke = speakFastLocal(result.message);
+                if (!spoke) {
+                  generateSpeech(result.message)
+                    .then(audioBase64 => {
+                      if (audioBase64) playPCMBase64(audioBase64, () => setIsSpeaking(false));
+                      else setIsSpeaking(false);
+                    })
+                    .catch(() => setIsSpeaking(false));
+                } else {
+                  setIsSpeaking(false);
+                }
+              } else {
+                // Fire-and-forget: Gemini TTS en background para respuestas de IA complejas
+                generateSpeech(result.message)
+                  .then(audioBase64 => {
+                    if (audioBase64) playPCMBase64(audioBase64, () => setIsSpeaking(false));
+                    else setIsSpeaking(false);
+                  })
+                  .catch(() => setIsSpeaking(false));
+              }
             }
 
             if (result.action === 'filter') {

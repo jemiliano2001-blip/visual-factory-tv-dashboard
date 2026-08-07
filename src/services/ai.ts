@@ -276,6 +276,163 @@ export interface VoiceCommandResponse {
   expected_order?: ExpectedOrderInfo | null;
 }
 
+/**
+ * Intenta procesar el comando de voz localmente en < 5ms mediante coincidencia de patrones.
+ * Si encuentra una intención clara (PO específico, filtro de estado, filtro de cliente, limpiar),
+ * retorna un VoiceCommandResponse inmediato sin realizar llamadas de red.
+ * Retorna null si la instrucción requiere análisis complejo por IA.
+ */
+export function tryLocalFastVoiceCommand(
+  transcript: string,
+  activeOrders: OdooSaleOrder[]
+): VoiceCommandResponse | null {
+  const text = transcript.trim().toLowerCase();
+  if (!text) return null;
+
+  // 1. Limpiar / Restablecer filtros
+  if (/^(limpiar|restablecer|quitar filtro[s]?|mostrar todo[s]?|ver todo[s]?)$/i.test(text)) {
+    return {
+      transcript,
+      po_number: null,
+      action: 'filter',
+      filter_type: 'all',
+      filter_client: null,
+      message: 'Filtros limpiados. Mostrando todas las órdenes.',
+      user_intent_summary: 'Limpiando filtros de la vista',
+    };
+  }
+
+  // 2. Filtros por estado
+  if (/(vencida[s]?|atrasada[s]?|retrasada[s]?)/i.test(text)) {
+    return {
+      transcript,
+      po_number: null,
+      action: 'filter',
+      filter_type: 'overdue',
+      filter_client: null,
+      message: 'Filtrando órdenes vencidas.',
+      user_intent_summary: 'Filtrando órdenes atrasadas/vencidas',
+    };
+  }
+
+  if (/(entregada[s]?|completada[s]?|terminada[s]?)/i.test(text)) {
+    return {
+      transcript,
+      po_number: null,
+      action: 'filter',
+      filter_type: 'delivered',
+      filter_client: null,
+      message: 'Filtrando órdenes entregadas.',
+      user_intent_summary: 'Filtrando órdenes entregadas',
+    };
+  }
+
+  if (/(pendiente[s]?|en proceso|activas)/i.test(text) && !/cliente|orden/i.test(text)) {
+    return {
+      transcript,
+      po_number: null,
+      action: 'filter',
+      filter_type: 'pending',
+      filter_client: null,
+      message: 'Filtrando órdenes pendientes.',
+      user_intent_summary: 'Filtrando órdenes pendientes',
+    };
+  }
+
+  if (/(critica[s]?|urgente[s]?)/i.test(text)) {
+    return {
+      transcript,
+      po_number: null,
+      action: 'filter',
+      filter_type: 'critical',
+      filter_client: null,
+      message: 'Filtrando órdenes críticas.',
+      user_intent_summary: 'Filtrando órdenes críticas',
+    };
+  }
+
+  // 3. Búsqueda directa por PO (dígitos como "546", "orden 546", "po 546", "2026/S00546", "s00546")
+  const poMatch = text.match(/(?:orden|po|número|no\.?|s)?\s*([0-9]{3,6})/i) || text.match(/([0-9]{4}\/s[0-9]{5})/i);
+  if (poMatch && poMatch[1]) {
+    const rawNumber = poMatch[1].trim();
+    // Buscar en el catálogo activo
+    const matchedOrder = activeOrders.find(o => {
+      const formatted = formatPONumber(o.name);
+      return formatted.endsWith(rawNumber) || o.name.includes(rawNumber);
+    });
+
+    if (matchedOrder) {
+      const formattedPO = formatPONumber(matchedOrder.name);
+      const deliveryProgress = `${matchedOrder.qty_delivered}/${matchedOrder.qty_total} (${getDeliveryProgress(matchedOrder)}%)`;
+      const isOverdue = isOrderOverdue(matchedOrder);
+      const statusStr: 'overdue' | 'delivered' | 'pending' = isOverdue
+        ? 'overdue'
+        : (matchedOrder.qty_delivered >= matchedOrder.qty_total ? 'delivered' : 'pending');
+
+      return {
+        transcript,
+        po_number: formattedPO,
+        action: 'highlight',
+        message: `Orden ${formattedPO} encontrada para ${matchedOrder.partner_name}, avance ${deliveryProgress}.`,
+        user_intent_summary: `Búsqueda directa de orden ${formattedPO}`,
+        expected_order: {
+          po_number: formattedPO,
+          client: matchedOrder.partner_name,
+          product: matchedOrder.main_product,
+          status: statusStr,
+          delivery_progress: deliveryProgress,
+          reason: isOverdue ? 'Orden con atraso identificada directamente' : 'Orden identificada por número PO',
+        },
+      };
+    }
+  }
+
+  // 4. Filtro por Cliente (ej. "las de Nissan", "cliente Bosch", "filtra Tremec")
+  const clientMatch = text.match(/(?:las de|del cliente|cliente|filtra[r]? por|de)\s+([a-záéíóúñ0-9\s]+)/i);
+  if (clientMatch && clientMatch[1]) {
+    const queryClient = clientMatch[1].trim();
+    if (queryClient.length >= 3) {
+      const uniqueClients = Array.from(new Set(activeOrders.map(o => o.partner_name)));
+      const matchedClient = uniqueClients.find(c =>
+        c.toLowerCase().includes(queryClient) || queryClient.includes(c.toLowerCase())
+      );
+
+      if (matchedClient) {
+        return {
+          transcript,
+          po_number: null,
+          action: 'filter',
+          filter_client: matchedClient,
+          message: `Filtrando órdenes del cliente ${matchedClient}.`,
+          user_intent_summary: `Filtrando órdenes de cliente ${matchedClient}`,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Emite una respuesta de voz inmediata usando la síntesis nativa del navegador (Web Speech API)
+ * sin latencia de red. Retorna true si tuvo éxito.
+ */
+export function speakFastLocal(text: string): boolean {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    return false;
+  }
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'es-MX';
+    utterance.rate = 1.05;
+    window.speechSynthesis.speak(utterance);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function executeVoiceCommand(
   basePrompt: string,
   inputParts: GeminiContentPart[],
@@ -284,36 +441,22 @@ async function executeVoiceCommand(
 ): Promise<VoiceCommandResponse> {
   const simplifiedOrders = activeOrders.map(o => ({
     po: formatPONumber(o.name),
-    client: o.partner_name,
-    part: o.main_product,
-    priority: getOrderPriority(o),
-    progress: `${o.qty_delivered}/${o.qty_total}`,
-    porcentaje_entrega: `${getDeliveryProgress(o)}%`,
-    fecha_creacion: parseOdooDate(o.date_order)?.toISOString().split('T')[0] ?? null,
-    fecha_promesa: parseOdooDate(o.commitment_date)?.toISOString().split('T')[0] ?? null,
-    vencida: isOrderOverdue(o) ? 'SÍ' : 'NO'
+    cli: o.partner_name,
+    prod: o.main_product,
+    prio: getOrderPriority(o),
+    prog: `${o.qty_delivered}/${o.qty_total}`,
+    venc: isOrderOverdue(o) ? 'SÍ' : 'NO'
   }));
 
   const contextBlock = previousContext
-    ? `\n\nTURNO ANTERIOR (contexto conversacional): el operador dijo "${previousContext.transcript}" y tú respondiste "${previousContext.message}". Si la instrucción actual es un seguimiento (ej. "¿y las de Bosch?", "ahora las vencidas"), interprétala en relación a este turno.`
+    ? `\n\nTURNO ANTERIOR: "${previousContext.transcript}" -> "${previousContext.message}".`
     : '';
 
-  const instructions = ` Catálogo de órdenes activas en piso: ${JSON.stringify(simplifiedOrders)}.${contextBlock} Devuelve un objeto JSON estructurado según la intención operativa del operador.
-
-INSTRUCCIONES CLAVE DE NEGOCIO Y PRODUCCIÓN:
-1. ORDEN ESPERADA / IDENTIFICADA ('expected_order'): Si el operador pregunta o hace referencia a una orden específica (por PO, cliente o estado de retraso), identifica exactamente cuál es la orden esperada. Incluye:
-   - 'po_number': El número PO exacto (ej. "2026/S00546").
-   - 'client': Nombre del cliente.
-   - 'product': Nombre de la parte o producto principal.
-   - 'status': Estado ('overdue', 'pending', 'delivered', 'critical').
-   - 'delivery_progress': Avance de piezas (ej. "12/20 (60%)").
-   - 'reason': Explicación ultra-corta en español de por qué esta es la orden esperada (ej. "Orden con mayor atraso respecto a fecha compromiso").
-2. SÍNTESIS DE INTENCIÓN ('user_intent_summary'): Una frase muy corta en español que describa qué está pidiendo el operador (ej. "Buscando la orden con mayor retraso de cliente Bosch", "Filtrando órdenes vencidas").
-3. ACCIONES DE FILTRADO ('action' = 'filter'):
-   - Si el operador dice "muéstrame las vencidas", "cuáles están pendientes", etc., asigna action="filter" y 'filter_type' ('overdue', 'delivered', 'pending', 'critical', 'all').
-   - Si especifica un cliente ("las de Nissan"), asigna 'filter_client'.
-4. NÚMERO PO: Si menciona dígitos como "546", busca en el catálogo el PO correspondiente con formato estándar YYYY/SXXXXX.
-5. MENSAJE HABLADO ('message'): Respuesta natural y concisa para voz (máximo 12 palabras). Ejemplo: "Orden 546 seleccionada, avance del 60%", "Filtrando 4 órdenes vencidas".`;
+  const instructions = ` Catálogo activo: ${JSON.stringify(simplifiedOrders)}.${contextBlock} Devuelve JSON según la intención operativa.
+1. 'expected_order': Si pide una orden específica por PO o cliente, incluye: po_number, client, product, status ('overdue'|'pending'|'delivered'|'critical'), delivery_progress, reason.
+2. 'user_intent_summary': Frase muy corta en español.
+3. 'action'='filter': filter_type ('overdue'|'delivered'|'pending'|'critical'|'all') o filter_client.
+4. 'message': Respuesta muy corta en español (máx 10 palabras).`;
 
   const response = await generateContent({
     model: 'gemini-3.5-flash',
@@ -329,16 +472,15 @@ INSTRUCCIONES CLAVE DE NEGOCIO Y PRODUCCIÓN:
         type: Type.OBJECT,
         required: ['action', 'message'],
         properties: {
-          transcript: { type: Type.STRING, description: "Transcripción literal en español de lo que dijo el operador" },
-          po_number: { type: Type.STRING, description: "Número PO a resaltar si aplica" },
-          action: { type: Type.STRING, description: "Acción: 'highlight', 'filter', o 'answer'" },
-          filter_type: { type: Type.STRING, description: "Filtro: 'all', 'overdue', 'delivered', 'pending', 'critical'" },
-          filter_client: { type: Type.STRING, description: "Nombre de cliente si se filtra por cliente" },
-          message: { type: Type.STRING, description: "Respuesta corta hablada en español para el operador" },
-          user_intent_summary: { type: Type.STRING, description: "Síntesis corta de lo que el operador está pidiendo" },
+          transcript: { type: Type.STRING },
+          po_number: { type: Type.STRING },
+          action: { type: Type.STRING },
+          filter_type: { type: Type.STRING },
+          filter_client: { type: Type.STRING },
+          message: { type: Type.STRING },
+          user_intent_summary: { type: Type.STRING },
           expected_order: {
             type: Type.OBJECT,
-            description: "Información detallada de la orden esperada/encontrada",
             properties: {
               po_number: { type: Type.STRING },
               client: { type: Type.STRING },
@@ -352,7 +494,7 @@ INSTRUCCIONES CLAVE DE NEGOCIO Y PRODUCCIÓN:
         }
       }
     }
-  }, 15000, 0);
+  }, 10000, 0);
 
   try {
     return JSON.parse(response.text || '{"po_number":null,"action":"answer","message":"No pude entender el comando."}') as VoiceCommandResponse;
