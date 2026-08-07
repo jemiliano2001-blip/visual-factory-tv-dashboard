@@ -14,7 +14,7 @@ import {
 } from '../services/odoo';
 import { formatPONumber } from '../utils/formatters';
 import { useOdooOrders } from '../hooks/useOdooOrders';
-import { processTextVoiceCommand, tryLocalFastVoiceCommand, speakFastLocal, generateSpeech, AIError, type VoiceCommandResponse } from '../services/ai';
+import { processTextVoiceCommand, tryLocalFastVoiceCommand, speakFastLocal, getSpokenAudio, AIError, type VoiceCommandResponse } from '../services/ai';
 import { VoiceFeedbackOverlay } from '../components/VoiceFeedbackOverlay';
 import OdooOrderCard from '../components/OdooOrderCard';
 import type { ViewMode, ScreenTier } from '../components/OdooOrderCard';
@@ -647,8 +647,10 @@ export default function TVDashboard() {
               // ya depende de internet para todo lo demás (Odoo, interpretación de voz), así
               // que evitar la red aquí no compra nada real — y la voz de Gemini suena mejor
               // que la nativa del navegador. speakFastLocal queda solo como respaldo de
-              // emergencia si el TTS en la nube falla.
-              generateSpeech(result.message)
+              // emergencia si el TTS en la nube falla. getSpokenAudio memoiza por texto exacto,
+              // así que un mensaje repetido (p. ej. "Filtros limpiados...") no vuelve a golpear
+              // la red.
+              getSpokenAudio(result.message)
                 .then(audioBase64 => {
                   // Un turno más nuevo (el operador ya volvió a picarle al micro) superó a
                   // este: no hablar la respuesta vieja ni pisar el indicador de "hablando".
