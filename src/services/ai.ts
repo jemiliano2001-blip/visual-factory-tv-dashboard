@@ -426,7 +426,7 @@ export function tryLocalFastVoiceCommand(
       po_number: null,
       action: 'answer',
       message: count > 0
-        ? `Sí, hay ${count} orden${count === 1 ? '' : 'es'} ${count === 1 ? STATE_LABELS[status].slice(0, -1) : STATE_LABELS[status]}.`
+        ? `Sí, hay ${count} ${count === 1 ? 'orden' : 'órdenes'} ${count === 1 ? STATE_LABELS[status].slice(0, -1) : STATE_LABELS[status]}.`
         : 'No, no hay ninguna.',
       user_intent_summary: `Consultando si hay órdenes ${STATE_LABELS[status]}`,
     };
