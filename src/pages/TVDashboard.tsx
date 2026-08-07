@@ -14,7 +14,8 @@ import {
 } from '../services/odoo';
 import { formatPONumber } from '../utils/formatters';
 import { useOdooOrders } from '../hooks/useOdooOrders';
-import { processTextVoiceCommand, generateSpeech, AIError } from '../services/ai';
+import { processTextVoiceCommand, generateSpeech, AIError, type VoiceCommandResponse } from '../services/ai';
+import { VoiceFeedbackOverlay } from '../components/VoiceFeedbackOverlay';
 import OdooOrderCard from '../components/OdooOrderCard';
 import type { ViewMode, ScreenTier } from '../components/OdooOrderCard';
 import SkeletonCard from '../components/SkeletonCard';
@@ -245,12 +246,14 @@ export default function TVDashboard() {
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [isSpeaking, setIsSpeaking]             = useState(false);
   const [voiceTranscript, setVoiceTranscript]   = useState<string | null>(null);
-  const recognitionRef    = useRef<SpeechRecognitionInstance | null>(null);
-  const toastTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const transcriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [voiceResponse, setVoiceResponse]       = useState<VoiceCommandResponse | null>(null);
+  const recognitionRef          = useRef<SpeechRecognitionInstance | null>(null);
+  const toastTimerRef           = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transcriptTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voiceResponseTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightTimerRef       = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Último turno para dar contexto conversacional a seguimientos ("¿y las de Bosch?")
-  const lastVoiceTurnRef  = useRef<{ transcript: string; message: string } | null>(null);
+  const lastVoiceTurnRef        = useRef<{ transcript: string; message: string } | null>(null);
 
   const isMobile = useMobile();
   // En móvil siempre modo escritorio: sin paginación ni auto-rotación
@@ -491,6 +494,7 @@ export default function TVDashboard() {
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       if (transcriptTimerRef.current) clearTimeout(transcriptTimerRef.current);
+      if (voiceResponseTimerRef.current) clearTimeout(voiceResponseTimerRef.current);
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
       if (recognitionRef.current) recognitionRef.current.abort();
     };
@@ -555,7 +559,11 @@ export default function TVDashboard() {
 
             if (transcriptTimerRef.current) clearTimeout(transcriptTimerRef.current);
             setVoiceTranscript(result.transcript || finalTranscript);
-            transcriptTimerRef.current = setTimeout(() => setVoiceTranscript(null), 8000);
+            transcriptTimerRef.current = setTimeout(() => setVoiceTranscript(null), 10000);
+
+            setVoiceResponse(result);
+            if (voiceResponseTimerRef.current) clearTimeout(voiceResponseTimerRef.current);
+            voiceResponseTimerRef.current = setTimeout(() => setVoiceResponse(null), 12000);
 
             if (result.transcript && result.message) {
               lastVoiceTurnRef.current = { transcript: result.transcript, message: result.message };
@@ -583,11 +591,15 @@ export default function TVDashboard() {
                 setClientFilter(result.filter_client);
               }
               setCurrentPageIndex(0);
-            } else if (result.po_number) {
-              const target = formatPONumber(result.po_number);
+            }
+
+            // Manejo de orden esperada/encontrada
+            const targetPOString = result.expected_order?.po_number || result.po_number;
+            if (targetPOString) {
+              const target = formatPONumber(targetPOString);
               const found =
                 odooOrders.find(o => formatPONumber(o.name) === target) ??
-                odooOrders.find(o => o.name === result.po_number || o.name.includes(result.po_number));
+                odooOrders.find(o => o.name === targetPOString || o.name.includes(targetPOString));
               if (found) {
                 const soId = found.name;
                 const pageIdx = pages.findIndex(p => 
@@ -598,9 +610,9 @@ export default function TVDashboard() {
                 await playSuccessSound();
                 setHighlightedSO(soId);
                 if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-                highlightTimerRef.current = setTimeout(() => setHighlightedSO(null), 10000);
-              } else {
-                showToast(`No se encontró la orden ${result.po_number}.`, 'error');
+                highlightTimerRef.current = setTimeout(() => setHighlightedSO(null), 12000);
+              } else if (result.action !== 'filter') {
+                showToast(`No se encontró la orden ${targetPOString}.`, 'error');
                 await playErrorSound();
               }
             }
@@ -930,6 +942,15 @@ export default function TVDashboard() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Overlay HUD de Respuesta por Voz ───────────────────────────── */}
+      <VoiceFeedbackOverlay
+        response={voiceResponse}
+        isProcessing={isProcessingVoice}
+        isRecording={isRecording}
+        transcript={voiceTranscript}
+        onClose={() => setVoiceResponse(null)}
+      />
 
       {/* ── Modal de Detalles de Orden ───────────────────────────────────────── */}
       <OrderDetailsModal

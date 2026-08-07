@@ -29,6 +29,8 @@ interface GeminiSchemaProperty {
   enum?: string[];
   description?: string;
   items?: { type: string };
+  properties?: Record<string, GeminiSchemaProperty>;
+  required?: string[];
 }
 
 interface GeminiGenerateConfig {
@@ -254,6 +256,15 @@ export const filterOrdersByNaturalLanguage = async (query: string, orders: OdooS
   }
 };
 
+export interface ExpectedOrderInfo {
+  po_number: string;
+  client: string;
+  product: string;
+  status: 'overdue' | 'pending' | 'delivered' | 'critical';
+  delivery_progress: string;
+  reason: string;
+}
+
 export interface VoiceCommandResponse {
   transcript?: string;
   po_number: string | null;
@@ -261,6 +272,8 @@ export interface VoiceCommandResponse {
   filter_type?: 'all' | 'overdue' | 'delivered' | 'pending' | 'critical' | null;
   filter_client?: string | null;
   message: string;
+  user_intent_summary?: string;
+  expected_order?: ExpectedOrderInfo | null;
 }
 
 async function executeVoiceCommand(
@@ -275,24 +288,32 @@ async function executeVoiceCommand(
     part: o.main_product,
     priority: getOrderPriority(o),
     progress: `${o.qty_delivered}/${o.qty_total}`,
+    porcentaje_entrega: `${getDeliveryProgress(o)}%`,
     fecha_creacion: parseOdooDate(o.date_order)?.toISOString().split('T')[0] ?? null,
     fecha_promesa: parseOdooDate(o.commitment_date)?.toISOString().split('T')[0] ?? null,
     vencida: isOrderOverdue(o) ? 'SÍ' : 'NO'
   }));
 
   const contextBlock = previousContext
-    ? `\n\nPREVIOUS TURN (for follow-up context): the operator said "${previousContext.transcript}" and you replied "${previousContext.message}". If the current command is a follow-up (e.g. "¿y las de Bosch?", "ahora las vencidas"), interpret it relative to this previous turn.`
+    ? `\n\nTURNO ANTERIOR (contexto conversacional): el operador dijo "${previousContext.transcript}" y tú respondiste "${previousContext.message}". Si la instrucción actual es un seguimiento (ej. "¿y las de Bosch?", "ahora las vencidas"), interprétala en relación a este turno.`
     : '';
 
-  const instructions = ` Active orders data: ${JSON.stringify(simplifiedOrders)}.${contextBlock} Return a JSON object with 'transcript' (the exact text provided or transcription in SPANISH of what the operator said), 'po_number' (the matched PO exactly as it appears, or null), 'action' ('highlight', 'filter', or 'answer'), 'filter_type' ('all', 'overdue', 'delivered', 'pending', 'critical', or null), 'filter_client' (a client name to filter by, or null), and 'message' (a natural, helpful, conversational response in SPANISH to speak back to the user).
+  const instructions = ` Catálogo de órdenes activas en piso: ${JSON.stringify(simplifiedOrders)}.${contextBlock} Devuelve un objeto JSON estructurado según la intención operativa del operador.
 
-IMPORTANT INSTRUCTIONS:
-1. DELAY LOGIC: Use 'fecha_promesa' (commitment/delivery date) and 'vencida' to determine if an order is delayed/vencida. If the user asks for the oldest or most delayed order, find the one with the oldest 'fecha_promesa' or 'fecha_creacion' that is incomplete. Do NOT rely just on the PO number.
-2. FILTER ACTION: If the user says "muéstrame las vencidas", "filtra las entregadas", "cuáles están pendientes", etc., return action="filter" and set 'filter_type' to 'overdue', 'delivered', or 'pending' accordingly. If they ask for "las críticas", "las urgentes" or high-priority orders, set 'filter_type' to 'critical'. If they say "limpia el filtro" or "muestra todas", set 'filter_type' to 'all'.
-3. CLIENT FILTER: If the user asks to filter by a client/customer (e.g. "muéstrame las de Bosch", "filtra por cliente Nissan"), return action="filter" and set 'filter_client' to that client's name. You may combine 'filter_client' with a 'filter_type'.
-4. PO FORMATTING NOTE: Some POs might look like "546" or "5460" (4 digits) but should be interpreted as part of the sequence. The standard format is YYYY/SXXXXX (5 digits padded with zeros).
-5. If you find a specific order, mention its PO number in the 'message'.
-6. Keep the 'message' EXTREMELY short (maximum 12 words). Examples: "Aquí está la orden 546, avance del 60%", "Filtrando 3 órdenes vencidas", "No encontré esa orden".`;
+INSTRUCCIONES CLAVE DE NEGOCIO Y PRODUCCIÓN:
+1. ORDEN ESPERADA / IDENTIFICADA ('expected_order'): Si el operador pregunta o hace referencia a una orden específica (por PO, cliente o estado de retraso), identifica exactamente cuál es la orden esperada. Incluye:
+   - 'po_number': El número PO exacto (ej. "2026/S00546").
+   - 'client': Nombre del cliente.
+   - 'product': Nombre de la parte o producto principal.
+   - 'status': Estado ('overdue', 'pending', 'delivered', 'critical').
+   - 'delivery_progress': Avance de piezas (ej. "12/20 (60%)").
+   - 'reason': Explicación ultra-corta en español de por qué esta es la orden esperada (ej. "Orden con mayor atraso respecto a fecha compromiso").
+2. SÍNTESIS DE INTENCIÓN ('user_intent_summary'): Una frase muy corta en español que describa qué está pidiendo el operador (ej. "Buscando la orden con mayor retraso de cliente Bosch", "Filtrando órdenes vencidas").
+3. ACCIONES DE FILTRADO ('action' = 'filter'):
+   - Si el operador dice "muéstrame las vencidas", "cuáles están pendientes", etc., asigna action="filter" y 'filter_type' ('overdue', 'delivered', 'pending', 'critical', 'all').
+   - Si especifica un cliente ("las de Nissan"), asigna 'filter_client'.
+4. NÚMERO PO: Si menciona dígitos como "546", busca en el catálogo el PO correspondiente con formato estándar YYYY/SXXXXX.
+5. MENSAJE HABLADO ('message'): Respuesta natural y concisa para voz (máximo 12 palabras). Ejemplo: "Orden 546 seleccionada, avance del 60%", "Filtrando 4 órdenes vencidas".`;
 
   const response = await generateContent({
     model: 'gemini-3.5-flash',
@@ -308,12 +329,26 @@ IMPORTANT INSTRUCTIONS:
         type: Type.OBJECT,
         required: ['action', 'message'],
         properties: {
-          transcript: { type: Type.STRING, description: "Literal transcription in Spanish of what the operator said" },
-          po_number: { type: Type.STRING, description: "The PO number to highlight, if applicable" },
-          action: { type: Type.STRING, description: "The action: 'highlight', 'filter', or 'answer'" },
-          filter_type: { type: Type.STRING, description: "If action is filter: 'all', 'overdue', 'delivered', 'pending', 'critical'" },
-          filter_client: { type: Type.STRING, description: "If filtering by client/customer: the client name, otherwise null" },
-          message: { type: Type.STRING, description: "Conversational response in Spanish to speak to the user" }
+          transcript: { type: Type.STRING, description: "Transcripción literal en español de lo que dijo el operador" },
+          po_number: { type: Type.STRING, description: "Número PO a resaltar si aplica" },
+          action: { type: Type.STRING, description: "Acción: 'highlight', 'filter', o 'answer'" },
+          filter_type: { type: Type.STRING, description: "Filtro: 'all', 'overdue', 'delivered', 'pending', 'critical'" },
+          filter_client: { type: Type.STRING, description: "Nombre de cliente si se filtra por cliente" },
+          message: { type: Type.STRING, description: "Respuesta corta hablada en español para el operador" },
+          user_intent_summary: { type: Type.STRING, description: "Síntesis corta de lo que el operador está pidiendo" },
+          expected_order: {
+            type: Type.OBJECT,
+            description: "Información detallada de la orden esperada/encontrada",
+            properties: {
+              po_number: { type: Type.STRING },
+              client: { type: Type.STRING },
+              product: { type: Type.STRING },
+              status: { type: Type.STRING, enum: ['overdue', 'pending', 'delivered', 'critical'] },
+              delivery_progress: { type: Type.STRING },
+              reason: { type: Type.STRING }
+            },
+            required: ['po_number', 'client', 'product', 'status', 'delivery_progress', 'reason']
+          }
         }
       }
     }
@@ -332,8 +367,22 @@ export const processTextVoiceCommand = async (
   previousContext?: { transcript: string; message: string } | null,
 ) => {
   return executeVoiceCommand(
-    `The user is a factory operator talking to you, their AI assistant. They said the following (transcribed from voice): "${transcript}". They might ask to highlight/find a specific order, filter the view (by status, by client, or by priority), or ask a general question about the active orders.`,
+    `Eres el Asistente Operativo de la Planta. El operador dijo el siguiente comando por voz: "${transcript}". Analiza qué orden requiere, qué filtro o qué consulta realiza sobre las órdenes activas de producción.`,
     [],
+    activeOrders,
+    previousContext
+  );
+};
+
+export const processAudioVoiceCommand = async (
+  audioBase64: string,
+  mimeType: string,
+  activeOrders: OdooSaleOrder[],
+  previousContext?: { transcript: string; message: string } | null,
+) => {
+  return executeVoiceCommand(
+    `Eres el Asistente Operativo de la Planta. Escucha atentamente el audio adjunto enviado por el operador de piso. Transcribe exactamente lo que dijo e interpreta qué orden de producción está solicitando o qué acción de filtrado pide ejecutar.`,
+    [{ inlineData: { data: audioBase64, mimeType } }],
     activeOrders,
     previousContext
   );
