@@ -41,6 +41,15 @@ test('no duplica órdenes y conserva un único sobrante como página exclusiva',
   assert.equal(pages[1].type === 'company' && pages[1].company, 'B');
 });
 
+test('numera las páginas completas y el sobrante exclusivo de una empresa', () => {
+  const pages = buildTVPages(Array.from({ length: 16 }, (_, i) => order(i + 1, 'A')), 10);
+
+  assert.deepEqual(
+    pages.map(page => page.type === 'company' && [page.current, page.total]),
+    [[1, 2], [2, 2]],
+  );
+});
+
 test('normaliza una capacidad inválida y parte un sobrante solo para completar la página', () => {
   assert.equal(buildTVPages([order(1, 'A')], 0).length, 1);
   const pages = buildTVPages([

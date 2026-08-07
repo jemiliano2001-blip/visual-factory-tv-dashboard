@@ -48,7 +48,16 @@ export function buildTVPages(orders: OdooSaleOrder[], ordersPerPage: number): TV
   }
   if (remainders.length === 0) return complete;
   if (remainders.length === 1) {
-    return [...complete, { type: 'company', ...remainders[0] }];
+    const [remainder] = remainders;
+    const companyPages = complete.filter(page => page.company === remainder.company);
+    const total = companyPages.length + 1;
+    const numberedComplete = complete.map(page => page.company === remainder.company
+      ? { ...page, total }
+      : page);
+    return [
+      ...numberedComplete,
+      { type: 'company', ...remainder, current: total, total },
+    ];
   }
 
   const shared: SharedTVPageData[] = [];
