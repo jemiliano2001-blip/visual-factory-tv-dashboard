@@ -1,0 +1,74 @@
+import type { OdooSaleOrder } from '../services/odoo';
+
+export interface CompanyTVPage {
+  type: 'company';
+  company: string;
+  orders: OdooSaleOrder[];
+  current?: number;
+  total?: number;
+}
+
+export interface SharedCompanySegment {
+  company: string;
+  orders: OdooSaleOrder[];
+}
+
+export interface SharedTVPageData {
+  type: 'shared';
+  segments: SharedCompanySegment[];
+}
+
+export type TVPage = CompanyTVPage | SharedTVPageData;
+
+export function buildTVPages(orders: OdooSaleOrder[], ordersPerPage: number): TVPage[] {
+  const capacity = Number.isFinite(ordersPerPage) && ordersPerPage > 0
+    ? Math.max(1, Math.floor(ordersPerPage)) : 1;
+  const byCompany = new Map<string, OdooSaleOrder[]>();
+  for (const order of orders) {
+    const group = byCompany.get(order.partner_name) ?? [];
+    group.push(order);
+    byCompany.set(order.partner_name, group);
+  }
+
+  const complete: CompanyTVPage[] = [];
+  const remainders: SharedCompanySegment[] = [];
+  for (const [company, companyOrders] of byCompany) {
+    const fullPageCount = Math.floor(companyOrders.length / capacity);
+    for (let pageIndex = 0; pageIndex < fullPageCount; pageIndex++) {
+      complete.push({
+        type: 'company',
+        company,
+        orders: companyOrders.slice(pageIndex * capacity, (pageIndex + 1) * capacity),
+        current: pageIndex + 1,
+        total: fullPageCount,
+      });
+    }
+    const remainder = companyOrders.slice(fullPageCount * capacity);
+    if (remainder.length > 0) remainders.push({ company, orders: remainder });
+  }
+  if (remainders.length === 0) return complete;
+  if (remainders.length === 1) {
+    return [...complete, { type: 'company', ...remainders[0] }];
+  }
+
+  const shared: SharedTVPageData[] = [];
+  let remainderIndex = 0;
+  let orderOffset = 0;
+  while (remainderIndex < remainders.length) {
+    let remainingSlots = capacity;
+    const segments: SharedCompanySegment[] = [];
+    while (remainingSlots > 0 && remainderIndex < remainders.length) {
+      const remainder = remainders[remainderIndex];
+      const chunk = remainder.orders.slice(orderOffset, orderOffset + remainingSlots);
+      segments.push({ company: remainder.company, orders: chunk });
+      remainingSlots -= chunk.length;
+      orderOffset += chunk.length;
+      if (orderOffset === remainder.orders.length) {
+        remainderIndex++;
+        orderOffset = 0;
+      }
+    }
+    shared.push({ type: 'shared', segments });
+  }
+  return [...complete, ...shared];
+}

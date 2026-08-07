@@ -12,7 +12,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:tv-page-packing": "tsx --test src/utils/tvPagePacking.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.45.0",
