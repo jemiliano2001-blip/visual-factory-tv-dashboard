@@ -356,13 +356,16 @@ const CLIENT_CAPTURE_STOPWORDS = new Set([
   'que', 'esta', 'está', 'estan', 'están', 'esa', 'ese', 'y', 'del', 'la', 'el', 'los', 'las',
 ]);
 
-/** Frasea un conteo con concordancia singular/plural ("1 orden vencida" / "3 órdenes vencidas").
- * `pluralLabel` viene de STATE_LABELS (ya en plural femenino: "vencidas", "críticas", ...);
- * el singular se deriva quitando la 's' final, válido para las cuatro etiquetas existentes. */
+/** Frasea un conteo con concordancia singular/plural ("1 orden vencida en total" / "3 órdenes
+ * vencidas en total"). `pluralLabel` viene de STATE_LABELS (ya en plural femenino: "vencidas",
+ * "críticas", ...); el singular se deriva quitando la 's' final, válido para las cuatro
+ * etiquetas existentes. El conteo siempre corre sobre TODO el catálogo activo, sin importar
+ * clientFilter/textFilter de la pantalla — "en total" lo deja explícito para que la respuesta
+ * hablada nunca se lea como si estuviera acotada a lo que el operador ve filtrado en ese momento. */
 function countMessage(count: number, pluralLabel: string): string {
-  if (count === 0) return `No hay órdenes ${pluralLabel}.`;
-  if (count === 1) return `1 orden ${pluralLabel.slice(0, -1)}.`;
-  return `${count} órdenes ${pluralLabel}.`;
+  if (count === 0) return `No hay órdenes ${pluralLabel} en total.`;
+  if (count === 1) return `1 orden ${pluralLabel.slice(0, -1)} en total.`;
+  return `${count} órdenes ${pluralLabel} en total.`;
 }
 
 /**
@@ -426,7 +429,7 @@ export function tryLocalFastVoiceCommand(
       po_number: null,
       action: 'answer',
       message: count > 0
-        ? `Sí, hay ${count} ${count === 1 ? 'orden' : 'órdenes'} ${count === 1 ? STATE_LABELS[status].slice(0, -1) : STATE_LABELS[status]}.`
+        ? `Sí, hay ${countMessage(count, STATE_LABELS[status])}`
         : 'No, no hay ninguna.',
       user_intent_summary: `Consultando si hay órdenes ${STATE_LABELS[status]}`,
     };
