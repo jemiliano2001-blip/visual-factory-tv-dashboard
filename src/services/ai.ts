@@ -356,6 +356,15 @@ const CLIENT_CAPTURE_STOPWORDS = new Set([
   'que', 'esta', 'está', 'estan', 'están', 'esa', 'ese', 'y', 'del', 'la', 'el', 'los', 'las',
 ]);
 
+/** Frasea un conteo con concordancia singular/plural ("1 orden vencida" / "3 órdenes vencidas").
+ * `pluralLabel` viene de STATE_LABELS (ya en plural femenino: "vencidas", "críticas", ...);
+ * el singular se deriva quitando la 's' final, válido para las cuatro etiquetas existentes. */
+function countMessage(count: number, pluralLabel: string): string {
+  if (count === 0) return `No hay órdenes ${pluralLabel}.`;
+  if (count === 1) return `1 orden ${pluralLabel.slice(0, -1)}.`;
+  return `${count} órdenes ${pluralLabel}.`;
+}
+
 /**
  * Intenta procesar el comando de voz localmente en < 5ms mediante coincidencia de patrones.
  * Si encuentra una intención clara (PO específico, filtro de estado, filtro de cliente, limpiar,
@@ -369,9 +378,88 @@ export function tryLocalFastVoiceCommand(
   const text = transcript.trim().toLowerCase();
   if (!text) return null;
 
-  // 0. Preguntas ("qué", "cuánto", "hay algo urgente...") van directo a Gemini: el fast
-  // path solo sabe filtrar/resaltar, no responder. Sin esto, "hay algo urgente" se
-  // interpretaba como filtro crítico en vez de como pregunta.
+  // 0.a "¿Cuál es la más atrasada?" — la orden vencida con el commitment_date más antiguo.
+  // Mismo formato de respuesta que un PO directo (paso 2) para que el resaltado/overlay
+  // se comporten igual que si el operador hubiera dicho el número de orden.
+  if (/m[aá]s\s+atrasad/i.test(text)) {
+    const overdueOrders = activeOrders.filter(isOrderOverdue);
+    if (overdueOrders.length === 0) {
+      return {
+        transcript,
+        po_number: null,
+        action: 'answer',
+        message: 'No hay ninguna orden vencida.',
+        user_intent_summary: 'Consultando la orden más atrasada',
+      };
+    }
+    const worst = overdueOrders.reduce((oldest, o) => {
+      const oldestDate = parseOdooDate(oldest.commitment_date)?.getTime() ?? Infinity;
+      const currentDate = parseOdooDate(o.commitment_date)?.getTime() ?? Infinity;
+      return currentDate < oldestDate ? o : oldest;
+    });
+    const formattedPO = formatPONumber(worst.name);
+    const deliveryProgress = `${worst.qty_delivered}/${worst.qty_total} (${getDeliveryProgress(worst)}%)`;
+    return {
+      transcript,
+      po_number: formattedPO,
+      action: 'highlight',
+      message: `La más atrasada es la orden ${formattedPO} de ${worst.partner_name}.`,
+      user_intent_summary: 'Consultando la orden más atrasada',
+      expected_order: {
+        po_number: formattedPO,
+        client: worst.partner_name,
+        product: worst.main_product,
+        status: 'overdue',
+        delivery_progress: deliveryProgress,
+        reason: 'Orden vencida con la fecha de compromiso más antigua',
+      },
+    };
+  }
+
+  // 0.b "¿Hay algo urgente/crítico/vencido/atrasado?" — existencia, sin resaltar nada.
+  const existenceMatch = text.match(/^hay\s+(algo\s+|alguna\s+orden\s+)?(urgente|cr[ií]tic\w*|vencid\w*|atrasad\w*)/i);
+  if (existenceMatch) {
+    const status: 'overdue' | 'critical' = /urgente|cr[ií]tic/i.test(existenceMatch[2]) ? 'critical' : 'overdue';
+    const count = countByStatus(activeOrders, status);
+    return {
+      transcript,
+      po_number: null,
+      action: 'answer',
+      message: count > 0
+        ? `Sí, hay ${count} orden${count === 1 ? '' : 'es'} ${STATE_LABELS[status]}.`
+        : 'No, no hay ninguna.',
+      user_intent_summary: `Consultando si hay órdenes ${STATE_LABELS[status]}`,
+    };
+  }
+
+  // 0.c "¿Cuántas [estado] hay?" / "¿Cuántas órdenes hay en total?" — conteo exacto en vez
+  // de dejar que Gemini cuente (y potencialmente se equivoque) sobre el mismo catálogo.
+  if (/^cu[aá]nt[oa]s?\b/i.test(text)) {
+    const status = detectStatusWord(text);
+    if (status) {
+      const count = countByStatus(activeOrders, status);
+      return {
+        transcript,
+        po_number: null,
+        action: 'answer',
+        message: countMessage(count, STATE_LABELS[status]),
+        user_intent_summary: `Contando órdenes ${STATE_LABELS[status]}`,
+      };
+    }
+    if (/\b(ordenes|órdenes)\b/i.test(text)) {
+      const count = activeOrders.filter(o => !isOrderFullyDelivered(o)).length;
+      return {
+        transcript,
+        po_number: null,
+        action: 'answer',
+        message: count === 1 ? '1 orden activa.' : `${count} órdenes activas.`,
+        user_intent_summary: 'Contando órdenes activas',
+      };
+    }
+  }
+
+  // 0.z Preguntas ("qué", "cuánto", "hay algo urgente...") que no matchearon arriba van
+  // directo a Gemini: el fast path solo sabe filtrar/resaltar/contar, no narrar ni explicar.
   // Nota: se usa (?=\s|$) en vez de \b porque \b no detecta límite de palabra después de
   // una vocal acentuada en el motor de regex de JS ("qué" + \b nunca hace match).
   if (/^(qué|que|cuál|cual|cuáles|cuales|cuánto|cuanto|cuánta|cuanta|cuántos|cuantos|cuántas|cuantas|cómo|como|quién|quien|dónde|donde|hay|por qué|porque)(?=\s|$)/i.test(text)) {
