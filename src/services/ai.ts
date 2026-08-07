@@ -381,8 +381,8 @@ export function tryLocalFastVoiceCommand(
   // 0.a "¿Cuál es la más atrasada?" — la orden vencida con el commitment_date más antiguo.
   // Mismo formato de respuesta que un PO directo (paso 2) para que el resaltado/overlay
   // se comporten igual que si el operador hubiera dicho el número de orden.
-  if (/m[aá]s\s+atrasad/i.test(text)) {
-    const overdueOrders = activeOrders.filter(isOrderOverdue);
+  if (/m[aá]s\s+atrasada\b/i.test(text)) {
+    const overdueOrders = activeOrders.filter(o => isOrderOverdue(o) && !isOrderFullyDelivered(o));
     if (overdueOrders.length === 0) {
       return {
         transcript,
@@ -426,7 +426,7 @@ export function tryLocalFastVoiceCommand(
       po_number: null,
       action: 'answer',
       message: count > 0
-        ? `Sí, hay ${count} orden${count === 1 ? '' : 'es'} ${STATE_LABELS[status]}.`
+        ? `Sí, hay ${count} orden${count === 1 ? '' : 'es'} ${count === 1 ? STATE_LABELS[status].slice(0, -1) : STATE_LABELS[status]}.`
         : 'No, no hay ninguna.',
       user_intent_summary: `Consultando si hay órdenes ${STATE_LABELS[status]}`,
     };
@@ -446,7 +446,7 @@ export function tryLocalFastVoiceCommand(
         user_intent_summary: `Contando órdenes ${STATE_LABELS[status]}`,
       };
     }
-    if (/\b(ordenes|órdenes)\b/i.test(text)) {
+    if (/(^|\s)(ordenes|órdenes)(?=\s|$)/i.test(text)) {
       const count = activeOrders.filter(o => !isOrderFullyDelivered(o)).length;
       return {
         transcript,
