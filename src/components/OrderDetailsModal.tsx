@@ -44,6 +44,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
   const orderDate = parseOdooDate(order.date_order);
   const commitmentDate = parseOdooDate(order.commitment_date);
   const priority = getOrderPriority(order);
+  const customerReference = order.customer_reference?.trim() || null;
 
   const headerContent = (
     <>
@@ -101,6 +102,15 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                   {commitmentDate ? format(commitmentDate, 'dd/MM/yyyy') : '-'}
                 </div>
               </div>
+              {customerReference && (
+                <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
+                  <span className="text-[11px] text-zinc-500 uppercase tracking-widest font-bold">OC cliente</span>
+                  <div className="flex items-center gap-2 text-blue-400 font-semibold text-sm min-w-0">
+                    <FileText className="w-4 h-4 text-blue-500/70 flex-shrink-0" />
+                    <span className="truncate max-w-[180px] font-mono-data">{customerReference}</span>
+                  </div>
+                </div>
+              )}
               <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
                 <span className="text-[11px] text-zinc-500 uppercase tracking-widest font-bold">Responsable</span>
                 <div className="flex items-center gap-2 text-blue-400 font-semibold text-sm">
@@ -214,6 +224,15 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                 {commitmentDate ? format(commitmentDate, 'dd/MM/yyyy') : '-'}
               </div>
             </div>
+            {customerReference && (
+              <div className="flex justify-between items-center gap-3 px-4 py-3 min-h-[48px]">
+                <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">OC cliente</span>
+                <div className="flex items-center gap-2 text-blue-400 font-medium text-sm min-w-0">
+                  <FileText className="w-4 h-4 text-blue-500/70 flex-shrink-0" />
+                  <span className="truncate max-w-[160px] sm:max-w-full font-mono-data">{customerReference}</span>
+                </div>
+              </div>
+            )}
             <div className="flex justify-between items-center px-4 py-3">
               <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Responsable</span>
               <div className="flex items-center gap-2 text-blue-400 font-medium text-sm">
