@@ -1,6 +1,6 @@
 import type { RiskPrediction } from '../components/admin/riskTypes';
 import { formatPONumber } from '../utils/formatters';
-import { OdooSaleOrder, getOrderPriority, isOrderOverdue, getDeliveryProgress, parseOdooDate } from './odoo';
+import { OdooSaleOrder, getOrderPriority, isOrderOverdue, isOrderFullyDelivered, getDeliveryProgress, parseOdooDate } from './odoo';
 import { getIdTokenOrThrow } from '../firebase';
 
 export type { RiskPrediction };
@@ -330,6 +330,27 @@ const STATE_LABELS: Record<'overdue' | 'delivered' | 'pending' | 'critical', str
   overdue: 'vencidas', delivered: 'entregadas', pending: 'pendientes', critical: 'críticas',
 };
 
+/** Detecta una palabra de estado en el texto. Compartido entre el filtro de cliente/estado
+ * (paso 3) y las preguntas factuales de conteo (paso 0). */
+function detectStatusWord(text: string): 'overdue' | 'delivered' | 'pending' | 'critical' | null {
+  if (/(vencida[s]?|atrasada[s]?|retrasada[s]?)/i.test(text)) return 'overdue';
+  if (/(entregada[s]?|completada[s]?|terminada[s]?)/i.test(text)) return 'delivered';
+  if (/(critica[s]?|urgente[s]?)/i.test(text)) return 'critical';
+  if (/(pendiente[s]?|en proceso|activas)/i.test(text)) return 'pending';
+  return null;
+}
+
+/** Cuenta órdenes por estado con la misma semántica que TVDashboard.tsx usa para poblar
+ * filteredOdooOrders (isOrderFullyDelivered / isOrderOverdue / getDeliveryProgress /
+ * getOrderPriority) — una respuesta hablada nunca debe contradecir lo que se ve en pantalla. */
+function countByStatus(orders: OdooSaleOrder[], status: 'overdue' | 'pending' | 'delivered' | 'critical'): number {
+  if (status === 'delivered') return orders.filter(isOrderFullyDelivered).length;
+  const visible = orders.filter(o => !isOrderFullyDelivered(o));
+  if (status === 'overdue') return visible.filter(isOrderOverdue).length;
+  if (status === 'critical') return visible.filter(o => ['critical', 'high'].includes(getOrderPriority(o))).length;
+  return visible.filter(o => getDeliveryProgress(o) < 100 && !isOrderOverdue(o)).length;
+}
+
 /** Palabras que cortan la captura de un nombre de cliente ("las de Nissan que están vencidas" -> "nissan"). */
 const CLIENT_CAPTURE_STOPWORDS = new Set([
   'que', 'esta', 'está', 'estan', 'están', 'esa', 'ese', 'y', 'del', 'la', 'el', 'los', 'las',
@@ -428,11 +449,7 @@ export function tryLocalFastVoiceCommand(
     }
   }
 
-  let filterType: 'overdue' | 'delivered' | 'pending' | 'critical' | null = null;
-  if (/(vencida[s]?|atrasada[s]?|retrasada[s]?)/i.test(text)) filterType = 'overdue';
-  else if (/(entregada[s]?|completada[s]?|terminada[s]?)/i.test(text)) filterType = 'delivered';
-  else if (/(critica[s]?|urgente[s]?)/i.test(text)) filterType = 'critical';
-  else if (/(pendiente[s]?|en proceso|activas)/i.test(text)) filterType = 'pending';
+  const filterType = detectStatusWord(text);
 
   if (matchedClient || filterType) {
     const parts: string[] = [];
