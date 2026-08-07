@@ -18,6 +18,7 @@ import { processTextVoiceCommand, tryLocalFastVoiceCommand, speakFastLocal, getS
 import { VoiceFeedbackOverlay } from '../components/VoiceFeedbackOverlay';
 import OdooOrderCard from '../components/OdooOrderCard';
 import type { ViewMode, ScreenTier } from '../components/OdooOrderCard';
+import { SharedTVPage } from '../components/SharedTVPage';
 import SkeletonCard from '../components/SkeletonCard';
 import { OrderDetailsModal } from '../components/OrderDetailsModal';
 import DashboardHeader from '../components/DashboardHeader';
@@ -25,6 +26,7 @@ import DashboardFooter from '../components/DashboardFooter';
 import TVControlBar from '../components/TVControlBar';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useMobile } from '../hooks/useMobile';
+import { buildTVPages, type TVPage } from '../utils/tvPagePacking';
 import type {
   SpeechRecognitionInstance,
   SpeechRecognitionEvent,
@@ -136,10 +138,6 @@ const playErrorSound = async () => {
 
 const VALID_VOICE_FILTERS = ['all', 'overdue', 'pending', 'delivered', 'critical'] as const;
 type VoiceFilter = typeof VALID_VOICE_FILTERS[number];
-
-type PageData =
-  | { type: 'single'; company: string; orders: OdooSaleOrder[]; current: number; total: number }
-  | { type: 'split'; left: { company: string; orders: OdooSaleOrder[] }; right: { company: string; orders: OdooSaleOrder[] }; current: number; total: number };
 
 const CompanyTVSection: React.FC<{
   company: string;
@@ -445,62 +443,14 @@ export default function TVDashboard() {
     [filteredOdooOrders]
   );
 
-  const pages = useMemo(() => {
-    const result: PageData[] = [];
-    if (isTVMode) {
-      const smallCompanies: { company: string; orders: OdooSaleOrder[] }[] = [];
-      const threshold = Math.floor(gridCols / 2) * gridRows;
-
-      Object.entries(groupedOrders).forEach(([company, companyOrders]) => {
-        if (gridCols >= 4 && companyOrders.length <= threshold) {
-          smallCompanies.push({ company, orders: companyOrders });
-        } else {
-          const totalPages = Math.ceil(companyOrders.length / ordersPerPage);
-          for (let i = 0; i < totalPages; i++) {
-            result.push({
-              type: 'single',
-              company,
-              orders: companyOrders.slice(i * ordersPerPage, (i + 1) * ordersPerPage),
-              current: i + 1,
-              total: totalPages,
-            });
-          }
-        }
-      });
-
-      for (let i = 0; i < smallCompanies.length; i += 2) {
-        if (i + 1 < smallCompanies.length) {
-          result.push({
-            type: 'split',
-            left: smallCompanies[i],
-            right: smallCompanies[i + 1],
-            current: 1,
-            total: 1,
-          });
-        } else {
-          result.push({
-            type: 'single',
-            company: smallCompanies[i].company,
-            orders: smallCompanies[i].orders,
-            current: 1,
-            total: 1,
-          });
-        }
-      }
-    } else {
-      // Desktop: una sola "página" con todas las órdenes
-      Object.entries(groupedOrders).forEach(([company, companyOrders]) => {
-        result.push({
-          type: 'single',
-          company,
-          orders: companyOrders,
-          current: 1,
-          total: 1,
-        });
-      });
-    }
-    return result;
-  }, [groupedOrders, ordersPerPage, gridCols, gridRows, isTVMode]);
+  const pages = useMemo<TVPage[]>(() => {
+    if (isTVMode) return buildTVPages(filteredOdooOrders, ordersPerPage);
+    return Object.entries(groupedOrders).map(([company, orders]) => ({
+      type: 'company' as const,
+      company,
+      orders,
+    }));
+  }, [filteredOdooOrders, groupedOrders, ordersPerPage, isTVMode]);
 
   // Mantener la ref de catálogo al día con cada render, para que el handler async de
   // reconocimiento de voz siempre opere sobre los datos más recientes.
@@ -530,9 +480,10 @@ export default function TVDashboard() {
   // así que hay que esperar a que este efecto corra con la paginación ya actualizada.
   useEffect(() => {
     if (!highlightedSO) return;
-    const pageIdx = pages.findIndex(p =>
-      p.type === 'single' ? p.orders.some(o => o.name === highlightedSO)
-      : (p.left.orders.some(o => o.name === highlightedSO) || p.right.orders.some(o => o.name === highlightedSO))
+    const pageIdx = pages.findIndex(page =>
+      page.type === 'company'
+        ? page.orders.some(order => order.name === highlightedSO)
+        : page.segments.some(segment => segment.orders.some(order => order.name === highlightedSO))
     );
     if (pageIdx !== -1) setCurrentPageIndex(pageIdx);
   }, [highlightedSO, pages]);
@@ -773,9 +724,9 @@ export default function TVDashboard() {
       {/* ── Header ─────────────────────────────────────────────────────────────── */}
       <DashboardHeader
         currentTime={currentTime}
-        currentCompany={isTVMode ? (currentPage?.type === 'single' ? currentPage.company : (currentPage?.type === 'split' ? 'MÚLTIPLES CLIENTES' : undefined)) : undefined}
-        currentPageNum={currentPage?.current}
-        totalPages={currentPage?.total}
+        currentCompany={isTVMode ? (currentPage?.type === 'company' ? currentPage.company : (currentPage?.type === 'shared' ? 'MÚLTIPLES CLIENTES' : undefined)) : undefined}
+        currentPageNum={currentPage?.type === 'company' ? currentPage.current : undefined}
+        totalPages={currentPage?.type === 'company' ? currentPage.total : undefined}
         odooStatus={odooStatus}
         odooLastUpdated={odooLastUpdated}
         isRefreshing={isRefreshing}
@@ -875,13 +826,13 @@ export default function TVDashboard() {
         ) : isTVMode && currentPage ? (
           /* ── Modo TV: paginación con cards que caben en viewport ──── */
           <div className="flex flex-col h-full min-h-0 relative">
-            {currentPage.total > 1 && (
+            {currentPage.type === 'company' && currentPage.total && currentPage.total > 1 && (
               <div className="absolute top-0 right-0 z-10 text-zinc-500 font-bold uppercase tracking-widest text-xs lg:text-sm bg-background/50 px-2 py-1 rounded backdrop-blur-sm">
                 Página {currentPage.current} de {currentPage.total}
               </div>
             )}
             
-            {currentPage.type === 'single' ? (
+            {currentPage.type === 'company' ? (
               <CompanyTVSection 
                 company={currentPage.company}
                 orders={currentPage.orders}
@@ -895,43 +846,24 @@ export default function TVDashboard() {
                 onOrderClick={setSelectedOrder}
               />
             ) : (
-              <div className="flex w-full h-full gap-6 lg:gap-8">
-                <div className="flex-1 min-w-0 pr-6 lg:pr-8 border-r border-white/5">
-                  <CompanyTVSection 
-                    company={currentPage.left.company}
-                    orders={currentPage.left.orders}
-                    isWide={isWide}
-                    isDense={isDense}
-                    screenTier={screenTier}
-                    gridCols={Math.floor(gridCols / 2)}
-                    gridRows={gridRows}
-                    companyConfigs={companyConfigs}
-                    highlightedSO={highlightedSO}
-                    onOrderClick={setSelectedOrder}
-                  />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <CompanyTVSection 
-                    company={currentPage.right.company}
-                    orders={currentPage.right.orders}
-                    isWide={isWide}
-                    isDense={isDense}
-                    screenTier={screenTier}
-                    gridCols={Math.ceil(gridCols / 2)}
-                    gridRows={gridRows}
-                    companyConfigs={companyConfigs}
-                    highlightedSO={highlightedSO}
-                    onOrderClick={setSelectedOrder}
-                  />
-                </div>
-              </div>
+              <SharedTVPage
+                page={currentPage}
+                gridCols={gridCols}
+                gridRows={gridRows}
+                isWide={isWide}
+                isDense={isDense}
+                screenTier={screenTier}
+                highlightedSO={highlightedSO}
+                onOrderClick={setSelectedOrder}
+              />
             )}
           </div>
         ) : !isTVMode && pages.length > 0 ? (
           /* ── Modo Desktop: todas las órdenes con scroll, agrupadas ── */
           <div className={`flex flex-col ${isMobile ? 'gap-4' : 'gap-8'}`}>
-            {pages.map((p) => {
-              const pageData = p as Extract<PageData, { type: 'single' }>;
+            {pages.map((page) => {
+              if (page.type !== 'company') return null;
+              const pageData = page;
               return (
               <div key={pageData.company} className="flex flex-col gap-4">
                 {/* Company header */}

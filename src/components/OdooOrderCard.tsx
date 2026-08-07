@@ -15,6 +15,7 @@ export type ScreenTier = 'sm' | 'md' | 'lg' | 'xl';
 
 interface OdooOrderCardProps {
   order: OdooSaleOrder;
+  companyBadge?: { name: string; logoUrl: string | null };
   isHighlighted: boolean;
   isWide: boolean;
   isDense?: boolean;
@@ -57,6 +58,7 @@ const PRIORITY_LABELS: Record<string, string> = {
 
 const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   order,
+  companyBadge,
   isHighlighted,
   isWide,
   isDense,
@@ -262,9 +264,19 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
         
         <div className="flex flex-col flex-1 min-w-0 relative z-10 justify-center overflow-hidden">
           <div className="flex justify-between items-center mb-1">
-            <h3 className="text-sm lg:text-base font-black tracking-tight text-white truncate pr-2">
-              {order.name}
-            </h3>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <h3 className="text-sm lg:text-base font-black tracking-tight text-white truncate">
+                {order.name}
+              </h3>
+              {companyBadge && (
+                <span className="inline-flex max-w-[42%] items-center gap-1 truncate rounded border border-indigo-400/30 bg-zinc-800/90 px-1 py-0.5 text-[7px] font-black uppercase tracking-wider text-zinc-300 lg:text-[8px]">
+                  {companyBadge.logoUrl && (
+                    <img src={companyBadge.logoUrl} alt="" className="h-2.5 max-w-5 object-contain" />
+                  )}
+                  <span className="truncate">{companyBadge.name}</span>
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-1 flex-shrink-0">
               {hasDeliveryTime && (
                 <span className={`text-[8px] lg:text-[9px] font-black px-1 py-0.5 rounded border ${dtBadgeColor}`} title={dtTitle}>
@@ -358,6 +370,14 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
                 defaultLevel={2}
               />
             </div>
+            {companyBadge && (
+              <span className="inline-flex max-w-full items-center gap-1 rounded border border-indigo-400/30 bg-zinc-800/90 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-zinc-300">
+                {companyBadge.logoUrl && (
+                  <img src={companyBadge.logoUrl} alt="" className="h-3 max-w-7 object-contain" />
+                )}
+                <span className="truncate">{companyBadge.name}</span>
+              </span>
+            )}
             {commitmentDate && (
               <span className={`text-[10px] font-black px-2 py-0.5 rounded flex items-center gap-1 bg-zinc-800 border flex-shrink-0 ${isOverdue ? 'text-red-400 border-red-500/30' : 'text-zinc-500 border-zinc-700'}`}>
                 <Calendar className="w-2.5 h-2.5" />
