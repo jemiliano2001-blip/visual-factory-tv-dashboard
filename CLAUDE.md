@@ -68,17 +68,23 @@ There is **no test runner and no linter** beyond `tsc --noEmit`. Treat `npm run 
 
 ### The Odoo proxy (`server.ts`)
 
-A standalone Express server (not part of Vite) that exists to hide Odoo credentials and avoid CORS. It authenticates to Odoo via JSON-RPC (`/web/session/authenticate`), keeps the `session_id` cookie, and re-issues `call_kw` RPCs. Endpoints: `GET /api/odoo/status`, `GET /api/odoo/invoiceable-orders`, `POST /api/ai/generate`. **All `/api/*` routes require a valid Firebase ID token** (`Authorization: Bearer <idToken>`). The TV dashboard obtains that token via anonymous Firebase auth (`App.tsx` → `signInAnonymously`); admin/stats use email/password. Local bypass is **opt-in only**: set `DEV_AUTH_BYPASS=true` in `.env.local` to skip token checks for connections from `127.0.0.1` / `::1` — never rely on `NODE_ENV` alone (Cloudflare Tunnel arrives as localhost). The same auth posture exists in `functions/src/index.ts` for Firebase Hosting deploys. Configured from `.env.local` / `.env` (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`, `ODOO_PROXY_PORT`, `FIREBASE_API_KEY`, `GEMINI_API_KEY`).
+A standalone Express server (not part of Vite) that exists to hide Odoo credentials and avoid CORS. It authenticates to Odoo via JSON-RPC (`/web/session/authenticate`), keeps the `session_id` cookie, and re-issues `call_kw` RPCs. Endpoints: `GET /api/odoo/status`, `GET /api/odoo/invoiceable-orders`, `POST /api/ai/generate`. **All `/api/*` routes require a valid Firebase ID token** (`Authorization: Bearer <idToken>`). The TV dashboard obtains that token via anonymous Firebase auth (`App.tsx` → `signInAnonymously`); admin/stats use email/password. Local bypass is **opt-in only**: set `DEV_AUTH_BYPASS=true` in `.env.local` to skip token checks for connections from `127.0.0.1` / `::1` — never rely on `NODE_ENV` alone (Cloudflare Tunnel arrives as localhost). The same auth posture exists in `functions/src/index.ts` for Firebase Hosting deploys — both entry points import the same `OdooClient` from `shared/odooClient.ts` rather than duplicating it. Configured from `.env.local` / `.env` (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`, `ODOO_PROXY_PORT`, `FIREBASE_API_KEY`, `GEMINI_API_KEY`).
 
 ## AI layer (`src/services/ai.ts`)
 
 All Gemini calls go through the **server proxy** (`POST /api/ai/generate` on `server.ts` or Cloud Functions), keyed by `process.env.GEMINI_API_KEY` on the server only — the browser never holds the key. The client module `src/services/ai.ts` sends authenticated requests with the Firebase ID token. Functions cover: shift summaries (Stats), client report emails, global anomaly analysis, per-order risk prediction (ephemeral, not persisted), natural-language order filtering, **voice command processing** (Web Speech API transcript → JSON action for the TV dashboard), and TTS speech. All functions take `OdooSaleOrder` data; the `simplifyOrder` helper produces the compact Spanish-field projection used in prompts.
 
-Model IDs referenced as string literals: text tasks and voice-command understanding use `gemini-3.5-flash`; **TTS (`generateSpeech`) must use a dedicated audio model — `gemini-3.1-flash-tts-preview`** (newer Flash TTS: expressive, steerable via prompt, streaming-capable). Do not use `gemini-2.5-flash-preview-tts` unless rolling back. A text flash model does NOT emit audio (`inlineData` comes back empty → silent response), so never swap the TTS model for `gemini-3.5-flash` in a bulk model bump. `gemini-2.0-flash` is **deprecated — do not reintroduce it**. The server allowlists only these two model IDs on `/api/ai/generate`.
+Model IDs referenced as string literals: text tasks and voice-command understanding use `gemini-3.5-flash`; **TTS (`generateSpeech`) must use a dedicated audio model — `gemini-3.1-flash-tts-preview`** (newer Flash TTS: expressive, steerable via prompt, streaming-capable). Do not use `gemini-2.5-flash-preview-tts` unless rolling back. A text flash model does NOT emit audio (`inlineData` comes back empty → silent response), so never swap the TTS model for `gemini-3.5-flash` in a bulk model bump. `gemini-2.0-flash` is **deprecated — do not reintroduce it**. The allowlist (`ALLOWED_AI_MODELS`) lives in `shared/geminiProxy.ts`, imported by both `server.ts` and `functions/src/index.ts` — update it there once, not in each entry point separately.
 
-**Voice command TTS pipeline**: `processTextVoiceCommand()` (primary path — browser Web Speech API) sends the transcript to Gemini and returns a JSON action (`highlight | filter | answer`) plus a Spanish `message`, optional `filter_type` (`all | overdue | pending | delivered | critical`) / `filter_client`. `processVoiceCommand()` (audio inline) remains available but is not the TV default. `generateSpeech()` sends a short Spanish style prompt + transcript to `gemini-3.1-flash-tts-preview` with voice **Sulafat** (Warm), which returns raw **PCM audio at 24 kHz** encoded as base64. `playPCMBase64()` in `TVDashboard.tsx` decodes it manually (16-bit little-endian samples → Float32) and plays it via a singleton `AudioContext` (`sharedAudioCtx`, `sampleRate: 24000`). Don't replace this with `<audio src="data:...">` — browsers won't decode raw PCM without a WAV header.
+**Voice command pipeline** (`TVDashboard.tsx`, on every Web Speech API final transcript): `tryLocalFastVoiceCommand()` (`src/services/ai.ts`) runs first — pure regex pattern matching against the transcript, no network call, resolves in under 5ms. It handles clear filters, status filters (`overdue | delivered | pending | critical`), direct PO lookup against the active order catalog, and client-name filtering. It returns `null` when nothing matches, and only then does the code fall through to `processTextVoiceCommand()`, which sends the transcript to Gemini (`gemini-3.5-flash`, 10s timeout) and returns a JSON action (`highlight | filter | answer`) plus a Spanish `message`, optional `filter_type` (`all | overdue | pending | delivered | critical`) / `filter_client`, and an optional `expected_order` (`ExpectedOrderInfo`) describing the order the operator likely means — rendered by the `VoiceFeedbackOverlay.tsx` HUD. `processVoiceCommand()` (audio inline) remains available but is not the TV default. **When adding a new voice intent, add the deterministic pattern to `tryLocalFastVoiceCommand()` first** if it's a common/fixed phrasing — only intents that need real interpretation should fall through to Gemini.
+
+TTS follows the same split: if the local fast path matched, `speakFastLocal()` speaks the message instantly via the browser's native `window.speechSynthesis` (`es-MX`), no network round-trip. Otherwise `generateSpeech()` sends a short Spanish style prompt + transcript to `gemini-3.1-flash-tts-preview` with voice **Sulafat** (Warm), which returns raw **PCM audio at 24 kHz** encoded as base64. `playPCMBase64()` in `TVDashboard.tsx` decodes it manually (16-bit little-endian samples → Float32) and plays it via a singleton `AudioContext` (`sharedAudioCtx`, `sampleRate: 24000`). Don't replace this with `<audio src="data:...">` — browsers won't decode raw PCM without a WAV header. Both TTS paths fall back to the other if they fail (`speakFastLocal` returns `false` if `speechSynthesis` is unavailable → falls back to `generateSpeech`).
 
 `window.aistudio` (typed in `src/types.ts`) gates whether an API key is selected when running inside Google AI Studio; `App.tsx` blocks the UI until `hasSelectedApiKey()` is true in that environment only.
+
+## Discord notifications (`functions/src/notifications.ts`)
+
+A scheduled Firebase Function (`onSchedule`, wired in `functions/src/index.ts`) periodically checks Odoo order age thresholds and delivery events (`checkThresholds`, `checkEvents`) and posts Spanish-language embeds to Discord webhooks (`sendWebhook`, rate-limited to 1.5s between sends). Which webhook a notification goes to is resolved per client/channel via `buildWebhookChannels`. Already-notified state persists via `loadState`/`saveState` so restarts don't re-fire alerts. This is independent of the TV/Admin/Stats app — it exists purely to alert the team in Discord. See `docs/superpowers/specs/2026-06-20-discord-notifications-design.md` for the original design.
 
 ## Auth & routing
 
@@ -136,9 +142,10 @@ Voice filter types accepted by `setVoiceFilter`: `'all' | 'overdue' | 'pending' 
 │   │   ├── usePersistedState.ts  # localStorage-backed useState
 │   │   └── useProximityVisible.ts
 │   ├── components/
-│   │   ├── admin/         # OrdersTable, ConfigTab, AIModal, riskTypes
+│   │   ├── admin/         # OrdersTable, ConfigTab, AIModal, OrderReportTab, riskTypes
 │   │   ├── ui/            # shadcn/ui primitives (dialog, drawer, badge, button, …)
 │   │   ├── TVControlBar.tsx  # Voice mic + filter controls overlay
+│   │   ├── VoiceFeedbackOverlay.tsx  # HUD for voice command feedback + expected_order
 │   │   ├── OdooStatusBadge.tsx
 │   │   ├── ErrorBoundary.tsx
 │   │   └── ...            # Other reusable UI components
@@ -148,7 +155,13 @@ Voice filter types accepted by `setVoiceFilter`: `'all' | 'overdue' | 'pending' 
 │   │   ├── ai.ts          # Gemini API calls (voice, predictions, reports, etc.)
 │   │   └── ...
 │   └── utils/             # Helpers (formatPONumber, customerLogos, etc.)
+├── shared/                # Logic shared between server.ts and functions/src/index.ts
+│   ├── odooClient.ts      # OdooClient — Odoo JSON-RPC session + call_kw
+│   └── geminiProxy.ts     # runGeminiGenerate + ALLOWED_AI_MODELS allowlist
 ├── server.ts             # Express proxy for Odoo (auth + CORS wrapper)
+├── functions/src/
+│   ├── index.ts           # Firebase Hosting deploy of the same /api/* routes
+│   └── notifications.ts   # Scheduled Discord webhook alerts (order age/events)
 ├── firestore.rules       # Security rules for Firestore collections
 ├── vite.config.ts        # Vite + PWA + polyfills config
 ├── .env.example          # Environment variable template
@@ -158,6 +171,7 @@ Voice filter types accepted by `setVoiceFilter`: `'all' | 'overdue' | 'pending' 
 ├── dev-dist/             # Auto-generated by vite-plugin-pwa — DO NOT EDIT
 ├── .stitch/              # Stitch design-tool artifact — safe to ignore
 └── dist/                 # Build output (git-ignored)
+```
 
 ## gstack
 
@@ -171,7 +185,6 @@ Regla: usar siempre `/browse` para navegación web — **nunca** usar herramient
 
 Skills disponibles:
 `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/setup-gbrain`, `/retro`, `/investigate`, `/document-release`, `/document-generate`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`
-```
 
 ## Design System
 Always read `DESIGN.md` before making any visual or UI decisions.
