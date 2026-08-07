@@ -7,7 +7,7 @@
 - gstack is required for all AI-assisted work; verify install before starting.
 - When implementing attached plans: do not edit the plan file; use existing todos and complete all of them.
 - Ask clarifying questions when uncertain before coding.
-- TV order cards use one dominant status-color system (red → amber → green → gray precedence) for legibility at distance.
+- TV order cards use two additive color axes — progress (cyan → emerald → fuchsia, the dominant signal) and priority (separate badge glow; red pulse for overdue). See DESIGN.md's "Core rule". A prior single-hierarchy red/amber/green/gray scheme was tried 2026-06-26 and reverted 2026-06-30 — don't reintroduce it.
 - Run `npm run lint` as the compile gate before deploy or build workflows.
 
 ## Learned Workspace Facts
