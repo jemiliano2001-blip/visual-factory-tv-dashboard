@@ -86,6 +86,8 @@ TTS follows the same split: if the local fast path matched, `speakFastLocal()` s
 
 A scheduled Firebase Function (`onSchedule`, wired in `functions/src/index.ts`) periodically checks Odoo order age thresholds and delivery events (`checkThresholds`, `checkEvents`) and posts Spanish-language embeds to Discord webhooks (`sendWebhook`, rate-limited to 1.5s between sends). Which webhook a notification goes to is resolved per client/channel via `buildWebhookChannels`. Already-notified state persists via `loadState`/`saveState` so restarts don't re-fire alerts. This is independent of the TV/Admin/Stats app — it exists purely to alert the team in Discord. See `docs/superpowers/specs/2026-06-20-discord-notifications-design.md` for the original design.
 
+**Its env vars live in `functions/.env`, not the root `.env.local`.** `DISCORD_WEBHOOK_URL` (required), `DISCORD_WEBHOOK_URL_CRITICOS`/`DISCORD_WEBHOOK_URL_REPORTES` (optional, fall back to the main webhook), `DISCORD_ROLE_GENERAL`, `DISCORD_LARGE_ORDER_LINES`, `DASHBOARD_URL`, `STALL_THRESHOLD_DAYS`, and `NOTIFICATIONS_ENABLED` are only read by `functions/src/*.ts` — copy `functions/.env.example` to `functions/.env` to configure them for a Functions deploy. `server.ts` never touches these.
+
 ## Auth & routing
 
 - `App.tsx` signs every visitor in **anonymously** on load so the public TV Dashboard works without a visible login while still obtaining a Firebase ID token for `/api/*` and satisfying Firestore rules (`request.auth != null`). If anonymous auth is disabled in Firebase Console, the app shows a clear error screen.
