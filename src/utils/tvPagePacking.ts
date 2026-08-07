@@ -20,6 +20,8 @@ export interface SharedTVPageData {
 
 export type TVPage = CompanyTVPage | SharedTVPageData;
 
+const MAX_CLIENTS_PER_SHARED_PAGE = 2;
+
 export function buildTVPages(orders: OdooSaleOrder[], ordersPerPage: number): TVPage[] {
   const capacity = Number.isFinite(ordersPerPage) && ordersPerPage > 0
     ? Math.max(1, Math.floor(ordersPerPage)) : 1;
@@ -60,13 +62,13 @@ export function buildTVPages(orders: OdooSaleOrder[], ordersPerPage: number): TV
     ];
   }
 
-  const shared: SharedTVPageData[] = [];
+  const remainderPages: TVPage[] = [];
   let remainderIndex = 0;
   let orderOffset = 0;
   while (remainderIndex < remainders.length) {
     let remainingSlots = capacity;
     const segments: SharedCompanySegment[] = [];
-    while (remainingSlots > 0 && remainderIndex < remainders.length) {
+    while (remainingSlots > 0 && remainderIndex < remainders.length && segments.length < MAX_CLIENTS_PER_SHARED_PAGE) {
       const remainder = remainders[remainderIndex];
       const chunk = remainder.orders.slice(orderOffset, orderOffset + remainingSlots);
       segments.push({ company: remainder.company, orders: chunk });
@@ -77,7 +79,23 @@ export function buildTVPages(orders: OdooSaleOrder[], ordersPerPage: number): TV
         orderOffset = 0;
       }
     }
-    shared.push({ type: 'shared', segments });
+    if (segments.length === 1) {
+      const [segment] = segments;
+      const companyPages = complete.filter(page => page.company === segment.company);
+      if (companyPages.length > 0) {
+        const total = companyPages.length + 1;
+        for (let pageIndex = 0; pageIndex < complete.length; pageIndex++) {
+          if (complete[pageIndex].company === segment.company) {
+            complete[pageIndex] = { ...complete[pageIndex], total };
+          }
+        }
+        remainderPages.push({ type: 'company', ...segment, current: total, total });
+      } else {
+        remainderPages.push({ type: 'company', ...segment });
+      }
+    } else {
+      remainderPages.push({ type: 'shared', segments });
+    }
   }
-  return [...complete, ...shared];
+  return [...complete, ...remainderPages];
 }

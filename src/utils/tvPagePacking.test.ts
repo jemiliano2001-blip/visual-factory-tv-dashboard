@@ -26,8 +26,10 @@ test('emite páginas completas antes de las páginas compartidas', () => {
   assert.equal(pages[2].type, 'shared');
   assert.deepEqual(
     pages[2].type === 'shared' && pages[2].segments.map(segment => [segment.company, segment.orders.length]),
-    [['A', 6], ['B', 2], ['C', 2]],
+    [['A', 6], ['B', 2]],
   );
+  assert.equal(pages[3].type, 'company');
+  assert.equal(pages[3].type === 'company' && pages[3].company, 'C');
 });
 
 test('no duplica órdenes y conserva un único sobrante como página exclusiva', () => {
@@ -57,7 +59,24 @@ test('normaliza una capacidad inválida y parte un sobrante solo para completar 
     ...Array.from({ length: 8 }, (_, i) => order(i + 7, 'B')),
   ], 10);
   assert.deepEqual(pages[0].type === 'shared' && pages[0].segments.map(s => [s.company, s.orders.length]), [['A', 6], ['B', 4]]);
-  assert.deepEqual(pages[1].type === 'shared' && pages[1].segments.map(s => [s.company, s.orders.length]), [['B', 4]]);
+  assert.equal(pages[1].type, 'company');
+  assert.equal(pages[1].type === 'company' && pages[1].company, 'B');
+});
+
+test('limita las páginas compartidas a dos clientes para conservar bloques legibles', () => {
+  const pages = buildTVPages([
+    ...Array.from({ length: 7 }, (_, i) => order(i + 1, 'A')),
+    order(8, 'B'),
+    order(9, 'C'),
+  ], 9);
+
+  assert.equal(pages[0].type, 'shared');
+  assert.deepEqual(
+    pages[0].type === 'shared' && pages[0].segments.map(segment => [segment.company, segment.orders.length]),
+    [['A', 7], ['B', 1]],
+  );
+  assert.equal(pages[1].type, 'company');
+  assert.equal(pages[1].type === 'company' && pages[1].company, 'C');
 });
 
 test('mantiene cada orden localizable dentro de segmentos compartidos', () => {
