@@ -15,6 +15,12 @@ import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'node:path';
 import { GoogleGenAI } from '@google/genai';
 import { runGeminiGenerate } from './shared/geminiProxy.ts';
+import {
+  buildSpeechStreamRequest,
+  pipeGeminiSpeechStream,
+  serializeSpeechStreamEvent,
+  validateSpeechStreamBody,
+} from './shared/geminiSpeechStream.ts';
 import { OdooClient } from './shared/odooClient.ts';
 
 // Carga .env.local primero (alta prioridad, no se sube a git),
@@ -147,6 +153,53 @@ app.post('/api/ai/generate', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('[Gemini AI Error]', err);
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/ai/speech-stream', async (req: Request, res: Response) => {
+  const validated = validateSpeechStreamBody(req.body);
+  if (validated.ok === false) {
+    res.status(400).json({ error: validated.error });
+    return;
+  }
+
+  if (!process.env.GEMINI_API_KEY) {
+    res.status(503).json({ error: 'Servicio de voz no configurado.' });
+    return;
+  }
+
+  res.status(200);
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const controller = new AbortController();
+  const onRequestAborted = () => controller.abort();
+  const onResponseClosed = () => {
+    if (!res.writableEnded) controller.abort();
+  };
+  req.once('aborted', onRequestAborted);
+  res.once('close', onResponseClosed);
+  const request = buildSpeechStreamRequest(validated.text, controller.signal);
+  const stream: AsyncIterable<unknown> = {
+    async *[Symbol.asyncIterator](): AsyncGenerator<unknown> {
+      yield* await ai.models.generateContentStream(request);
+    },
+  };
+
+  try {
+    await pipeGeminiSpeechStream(
+      stream,
+      event => {
+        if (res.writable && !res.writableEnded) res.write(serializeSpeechStreamEvent(event));
+      },
+      controller,
+    );
+  } finally {
+    req.off('aborted', onRequestAborted);
+    res.off('close', onResponseClosed);
+    if (res.writable && !res.writableEnded) res.end();
   }
 });
 

@@ -13,7 +13,9 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test:tv-page-packing": "tsx --test src/utils/tvPagePacking.test.ts"
+    "test:tv-page-packing": "tsx --test src/utils/tvPagePacking.test.ts",
+    "test:voice-risk": "tsx --test src/services/voiceRisk.test.ts",
+    "test:voice-stream": "tsx --test shared/geminiSpeechStream.test.ts src/services/speechStream.test.ts src/services/voiceAcknowledgement.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.45.0",

@@ -2,16 +2,18 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, CheckCircle2, AlertTriangle, Clock, ArrowRight, X } from 'lucide-react';
 import type { VoiceCommandResponse, ExpectedOrderInfo } from '../services/ai';
+import type { VoiceRiskOrder } from '../services/voiceRisk';
 
 interface VoiceFeedbackOverlayProps {
   response: VoiceCommandResponse | null;
   isProcessing: boolean;
+  isRiskProcessing: boolean;
   isRecording: boolean;
   transcript: string | null;
   onClose: () => void;
 }
 
-const getStatusBadge = (status: ExpectedOrderInfo['status']) => {
+const getStatusBadge = (status: ExpectedOrderInfo['status'] | VoiceRiskOrder['status']) => {
   switch (status) {
     case 'overdue':
       return {
@@ -44,6 +46,7 @@ const getStatusBadge = (status: ExpectedOrderInfo['status']) => {
 export const VoiceFeedbackOverlay: React.FC<VoiceFeedbackOverlayProps> = ({
   response,
   isProcessing,
+  isRiskProcessing,
   isRecording,
   transcript,
   onClose,
@@ -52,6 +55,7 @@ export const VoiceFeedbackOverlay: React.FC<VoiceFeedbackOverlayProps> = ({
   if (!visible) return null;
 
   const expectedOrder = response?.expected_order;
+  const riskOrders = response?.risk_orders ?? [];
 
   return (
     <AnimatePresence>
@@ -82,7 +86,9 @@ export const VoiceFeedbackOverlay: React.FC<VoiceFeedbackOverlayProps> = ({
                   {isRecording
                     ? 'Escuchando comando de voz...'
                     : isProcessing
-                    ? 'Procesando con Gemini 3.5 Flash...'
+                    ? isRiskProcessing && !response
+                      ? 'Analizando prioridades...'
+                      : 'Procesando con Gemini 3.5 Flash...'
                     : 'Asistente de Voz Operativo'}
                 </div>
                 <div className="text-sm md:text-base font-medium text-zinc-200 line-clamp-1 italic">
@@ -113,7 +119,53 @@ export const VoiceFeedbackOverlay: React.FC<VoiceFeedbackOverlayProps> = ({
               )}
 
               {/* Tarjeta de Orden Esperada */}
-              {expectedOrder ? (
+              {riskOrders.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+                    <div>
+                      <div className="text-xs font-black uppercase tracking-widest text-red-300">Atención hoy</div>
+                      <div className="mt-1 text-base font-bold text-white">La TV quedó enfocada en estas prioridades.</div>
+                    </div>
+                    <span className="rounded-full border border-red-400/40 bg-red-500/15 px-3 py-1 text-xs font-black tracking-wider text-red-200">
+                      {riskOrders.length} {riskOrders.length === 1 ? 'PRIORIDAD' : 'PRIORIDADES'}
+                    </span>
+                  </div>
+
+                  {riskOrders.map((order, index) => {
+                    const badge = getStatusBadge(order.status);
+                    const IconComp = badge.icon;
+                    const isPrimary = index === 0;
+                    return (
+                      <div
+                        key={order.po_number}
+                        className={isPrimary
+                          ? 'rounded-xl border border-red-500/50 bg-gradient-to-br from-red-950/70 to-zinc-900 p-4 shadow-[0_0_24px_rgba(239,68,68,0.18)]'
+                          : 'rounded-xl border border-zinc-700 bg-zinc-900/90 p-3'}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="text-xs font-black uppercase tracking-widest text-zinc-400">
+                              Prioridad {order.rank}
+                            </div>
+                            <div className={`${isPrimary ? 'text-2xl lg:text-3xl' : 'text-lg'} mt-1 font-mono font-black tracking-wider text-white`}>
+                              {order.po_number}
+                            </div>
+                            <div className="mt-1 text-sm font-bold text-zinc-100">{order.client} · {order.product}</div>
+                          </div>
+                          <div className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wider ${badge.bg}`}>
+                            <IconComp className="h-3.5 w-3.5" />
+                            {badge.label}
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-700/80 pt-3 text-xs md:text-sm">
+                          <span className="font-mono font-bold text-emerald-300">Avance: {order.delivery_progress}</span>
+                          <span className="text-indigo-200">⚡ {order.reason}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : expectedOrder ? (
                 <div className="rounded-xl bg-zinc-900/90 border border-zinc-800 p-4 space-y-3">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-3">

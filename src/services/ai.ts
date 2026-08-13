@@ -2,6 +2,7 @@ import type { RiskPrediction } from '../components/admin/riskTypes';
 import { formatPONumber } from '../utils/formatters';
 import { OdooSaleOrder, getOrderPriority, isOrderOverdue, isOrderFullyDelivered, getDeliveryProgress, parseOdooDate } from './odoo';
 import { getIdTokenOrThrow } from '../firebase';
+import { buildVoiceRiskCatalog, isVoiceRiskQuestion, type VoiceRiskOrder } from './voiceRisk';
 
 export type { RiskPrediction };
 
@@ -28,7 +29,7 @@ interface GeminiSchemaProperty {
   type: string;
   enum?: string[];
   description?: string;
-  items?: { type: string };
+  items?: GeminiSchemaProperty;
   properties?: Record<string, GeminiSchemaProperty>;
   required?: string[];
 }
@@ -268,12 +269,13 @@ export interface ExpectedOrderInfo {
 export interface VoiceCommandResponse {
   transcript?: string;
   po_number: string | null;
-  action: 'highlight' | 'filter' | 'answer';
+  action: 'highlight' | 'filter' | 'answer' | 'focus';
   filter_type?: 'all' | 'overdue' | 'delivered' | 'pending' | 'critical' | null;
   filter_client?: string | null;
   message: string;
   user_intent_summary?: string;
   expected_order?: ExpectedOrderInfo | null;
+  risk_orders?: VoiceRiskOrder[];
 }
 
 /** Palabras numéricas en español → valor. Cubre 0-999 mil, suficiente para números de PO. */
@@ -590,9 +592,10 @@ async function executeVoiceCommand(
   basePrompt: string,
   inputParts: GeminiContentPart[],
   activeOrders: OdooSaleOrder[],
-  previousContext?: { transcript: string; message: string } | null
+  previousContext?: { transcript: string; message: string } | null,
+  isRiskQuery = false,
 ): Promise<VoiceCommandResponse> {
-  const simplifiedOrders = activeOrders.map(o => ({
+  const simplifiedOrders = isRiskQuery ? buildVoiceRiskCatalog(activeOrders) : activeOrders.map(o => ({
     po: formatPONumber(o.name),
     cli: o.partner_name,
     prod: o.main_product,
@@ -616,7 +619,9 @@ async function executeVoiceCommand(
     contents: {
       parts: [
         ...inputParts,
-        { text: basePrompt + instructions }
+        { text: basePrompt + (isRiskQuery
+          ? " Esta es una consulta de riesgos. Debes responder action='focus' con una a tres POs reales del catálogo, ordenadas por prioridad. Cada risk_orders debe traer po_number y reason. No inventes datos. message será una sola frase breve con el hallazgo y la primera PO."
+          : '') + instructions }
       ]
     },
     config: {
@@ -632,6 +637,17 @@ async function executeVoiceCommand(
           filter_client: { type: Type.STRING },
           message: { type: Type.STRING },
           user_intent_summary: { type: Type.STRING },
+          risk_orders: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              required: ['po_number', 'reason'],
+              properties: {
+                po_number: { type: Type.STRING },
+                reason: { type: Type.STRING },
+              },
+            },
+          },
           expected_order: {
             type: Type.OBJECT,
             properties: {
@@ -661,11 +677,13 @@ export const processTextVoiceCommand = async (
   activeOrders: OdooSaleOrder[],
   previousContext?: { transcript: string; message: string } | null,
 ) => {
+  const isRiskQuery = isVoiceRiskQuestion(transcript);
   return executeVoiceCommand(
     `Eres el Asistente Operativo de la Planta. El operador dijo el siguiente comando por voz: "${transcript}". Analiza qué orden requiere, qué filtro o qué consulta realiza sobre las órdenes activas de producción.`,
     [],
     activeOrders,
-    previousContext
+    previousContext,
+    isRiskQuery,
   );
 };
 
@@ -686,11 +704,11 @@ export const processAudioVoiceCommand = async (
 export const generateSpeech = async (text: string) => {
   // TTS dedicado: gemini-3.1-flash-tts-preview (natural + steerable + streaming).
   // No usar gemini-3.5-flash — no emite audio.
-  // Es la voz principal de los comandos de voz (ver speakFastLocal para el respaldo de
-  // emergencia): timeout corto y sin reintentos para no dejar al operador esperando si
-  // el modelo de TTS falla, y un prompt corto para minimizar el tiempo de síntesis.
+  // Ruta completa heredada para el prefetch del acknowledgement y otros consumidores
+  // existentes: timeout corto y sin reintentos para no dejar al operador esperando si
+  // el modelo de TTS falla.
   const spoken = text.trim();
-  const prompt = `Habla en español mexicano, tono cálido y natural. No leas esta instrucción.\n${spoken}`;
+  const prompt = `Habla el siguiente texto en español mexicano claro, con una cadencia norteña cálida y sutil de Monterrey. Mantén un ritmo operativo directo y seguro. No uses jerga, estereotipos, pronunciación exagerada ni caricaturas. No leas estas instrucciones.\n\nTexto a decir:\n${spoken}`;
 
   const response = await generateContent({
     model: 'gemini-3.1-flash-tts-preview',
