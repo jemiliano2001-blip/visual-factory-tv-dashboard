@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CompanyConfig } from '../types';
 import { subscribeToCompanyConfigs } from '../services/companyConfigs';
@@ -35,6 +34,8 @@ import TVControlBar from '../components/TVControlBar';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useMobile } from '../hooks/useMobile';
 import { buildTVPages, type TVPage } from '../utils/tvPagePacking';
+import { getCenteredLastRowStart } from '../utils/tvGridLayout';
+import { INITIAL_ROTATION_PAUSED, shouldAutoRotate } from '../services/rotationPolicy';
 import type {
   SpeechRecognitionInstance,
   SpeechRecognitionEvent,
@@ -174,82 +175,50 @@ const CompanyTVSection: React.FC<{
   screenTier: ScreenTier;
   gridCols: number;
   gridRows: number;
-  companyConfigs: CompanyConfig[];
   highlightedSO: string | null;
   onOrderClick: (order: OdooSaleOrder) => void;
-}> = ({ company, orders, isWide, isDense, screenTier, gridCols, gridRows, companyConfigs, highlightedSO, onOrderClick }) => (
-  <div className="flex flex-col h-full min-h-0 w-full">
-    <div className="mb-3 lg:mb-4 flex items-center justify-between flex-shrink-0">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-3 lg:gap-5">
-          <AnimatePresence mode="wait">
-            {getCustomerLogo(company) && (
-              <motion.div
-                key={company}
-                initial={{ opacity: 0, scale: 0.85, x: -10 }}
-                animate={{ opacity: 1, scale: 1, x: 0 }}
-                exit={{ opacity: 0, scale: 0.85, x: -10 }}
-                transition={{ duration: 0.4, ease: 'easeOut' }}
-                className={`flex-shrink-0 flex items-center justify-center rounded-2xl bg-white/8 border border-white/10 backdrop-blur-sm shadow-[0_0_20px_rgba(255,255,255,0.05)] ${
-                  isWide ? 'h-20 px-5 py-2' : 'h-12 px-3 py-1.5'
-                }`}
-              >
-                <img
-                  src={getCustomerLogo(company)!}
-                  alt={company}
-                  className={`object-contain ${
-                    isWide ? 'max-h-16 max-w-[200px]' : 'max-h-9 max-w-[120px]'
-                  }`}
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <h2 className={`${isWide ? 'text-4xl lg:text-5xl' : 'text-xl lg:text-2xl'} font-black text-white tracking-tight uppercase`}>
-            {company}
-          </h2>
-        </div>
-        {companyConfigs.find(c => c.company_name === company) && (
-          <div className="flex items-center gap-2 mt-1 text-zinc-400">
-            <Clock className={`${isWide ? 'w-6 h-6' : 'w-4 h-4'}`} />
-            <span className={`${isWide ? 'text-lg' : 'text-xs lg:text-sm'} font-bold uppercase tracking-widest`}>
-              Horario: {companyConfigs.find(c => c.company_name === company)?.delivery_schedule}
-            </span>
-          </div>
-        )}
-      </div>
-    </div>
-
+}> = ({ company, orders, isWide, isDense, screenTier, gridCols, gridRows, highlightedSO, onOrderClick }) => (
+  <div className="h-full min-h-0 w-full">
     <motion.div
       key={`${company}-grid`}
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
       transition={{ duration: 0.5 }}
-      className="grid gap-3 lg:gap-4 flex-1 min-h-0"
+      className="grid h-full min-h-0 gap-3 lg:gap-4"
       style={{
-        gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
+        gridTemplateColumns: `repeat(${gridCols * 2}, minmax(0, 1fr))`,
         gridTemplateRows: `repeat(${Math.ceil(orders.length / gridCols)}, minmax(0, 1fr))`,
       }}
     >
-      {orders.map((order) => (
-        <OdooOrderCard
-          key={order.id}
-          order={order}
-          isHighlighted={highlightedSO === order.name}
-          isWide={isWide}
-          isDense={isDense}
-          screenTier={screenTier}
-          viewMode="tv"
-          onClick={() => onOrderClick(order)}
-        />
-      ))}
+      {orders.map((order, index) => {
+        const centeredStart = getCenteredLastRowStart(index, orders.length, gridCols);
+
+        return (
+          <div
+            key={order.id}
+            className="min-h-0"
+            style={{
+              gridColumn: centeredStart ? `${centeredStart} / span 2` : 'span 2',
+            }}
+          >
+            <OdooOrderCard
+              order={order}
+              isHighlighted={highlightedSO === order.name}
+              isWide={isWide}
+              isDense={isDense}
+              screenTier={screenTier}
+              viewMode="tv"
+              onClick={() => onOrderClick(order)}
+            />
+          </div>
+        );
+      })}
     </motion.div>
   </div>
 );
 
 export default function TVDashboard() {
-  const navigate = useNavigate();
 
   // ── Odoo state (hook compartido) ─────────────────────────────────────────────
   const {
@@ -272,7 +241,6 @@ export default function TVDashboard() {
   const [selectedOrder, setSelectedOrder]   = useState<OdooSaleOrder | null>(null);
   const [viewMode, setViewMode]             = usePersistedState<ViewMode>('vftv:tv:viewMode', 'tv');
   const [isFullscreen, setIsFullscreen]     = useState(false);
-  const [showGradient, setShowGradient]     = useState(true);
   const containerRef                        = useRef<HTMLDivElement>(null);
   const mainViewportRef                     = useRef<HTMLDivElement>(null);
   const [gridCols, setGridCols]             = useState(4);
@@ -286,7 +254,7 @@ export default function TVDashboard() {
   const [voiceRiskFocusPOs, setVoiceRiskFocusPOs] = useState<string[]>([]);
   const [clientFilter, setClientFilter]     = usePersistedState<string | null>('vftv:tv:client', null);
   const [textFilter, setTextFilter]         = usePersistedState<string>('vftv:tv:text', '');
-  const [rotationPaused, setRotationPaused] = usePersistedState<boolean>('vftv:tv:paused', false);
+  const [rotationPaused, setRotationPaused] = useState(INITIAL_ROTATION_PAUSED);
 
   // ── Voice ────────────────────────────────────────────────────────────────────
   const [isRecording, setIsRecording]           = useState(false);
@@ -556,13 +524,15 @@ export default function TVDashboard() {
   );
 
   const pages = useMemo<TVPage[]>(() => {
-    if (isTVMode) return buildTVPages(filteredOdooOrders, ordersPerPage);
+    if (isTVMode) {
+      return buildTVPages(filteredOdooOrders, { ordersPerPage, gridCols, gridRows });
+    }
     return Object.entries(groupedOrders).map(([company, orders]) => ({
       type: 'company' as const,
       company,
       orders,
     }));
-  }, [filteredOdooOrders, groupedOrders, ordersPerPage, isTVMode]);
+  }, [filteredOdooOrders, groupedOrders, ordersPerPage, gridCols, gridRows, isTVMode]);
 
   // Mantener la ref de catálogo al día con cada render, para que el handler async de
   // reconocimiento de voz siempre opere sobre los datos más recientes.
@@ -570,7 +540,12 @@ export default function TVDashboard() {
 
   // ── Auto-rotate pages (solo en modo TV) ──────────────────────────────────────
   useEffect(() => {
-    if (!isTVMode || pages.length <= 1 || highlightedSO || rotationPaused) return;
+    if (!shouldAutoRotate({
+      isTVMode,
+      pageCount: pages.length,
+      highlightedOrder: Boolean(highlightedSO),
+      paused: rotationPaused,
+    })) return;
     const interval = setInterval(() => {
       setCurrentPageIndex(prev => (prev + 1) % pages.length);
     }, 10000);
@@ -613,6 +588,26 @@ export default function TVDashboard() {
   }, [interruptVoicePlayback]);
 
   const currentPage = pages.length > 0 ? pages[currentPageIndex] : null;
+  const currentHeaderCompany = isTVMode
+    ? currentPage?.type === 'company'
+      ? currentPage.company
+      : currentPage?.type === 'shared'
+        ? 'CLIENTES COMPARTIDOS'
+        : undefined
+    : undefined;
+  const currentHeaderCompanyLogo = isTVMode && currentPage?.type === 'company'
+    ? getCustomerLogo(currentPage.company)
+    : null;
+  const currentPageOrders = currentPage?.type === 'company'
+    ? currentPage.orders
+    : currentPage?.type === 'shared'
+      ? currentPage.segments.flatMap(segment => segment.orders)
+      : [];
+  const currentPageOverdueCount = currentPageOrders.filter(isOrderOverdue).length;
+  const currentPageCriticalCount = currentPageOrders.filter(order => {
+    const priority = getOrderPriority(order);
+    return priority === 'critical' || priority === 'high';
+  }).length;
 
   // ── Voice control ────────────────────────────────────────────────────────────
   const toggleRecording = async () => {
@@ -938,40 +933,35 @@ export default function TVDashboard() {
         isTVMode ? 'tv-viewport' : 'desktop-viewport'
       } ${isFullscreen ? 'w-full h-full' : ''}`}
     >
-      {/* Background gradient */}
-      <AnimatePresence>
-        {showGradient && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="absolute inset-0 pointer-events-none z-0"
-          >
-            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/8 blur-[130px] rounded-full" />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* ── Header ─────────────────────────────────────────────────────────────── */}
       <DashboardHeader
         currentTime={currentTime}
-        currentCompany={isTVMode ? (currentPage?.type === 'company' ? currentPage.company : (currentPage?.type === 'shared' ? 'MÚLTIPLES CLIENTES' : undefined)) : undefined}
-        currentPageNum={currentPage?.type === 'company' ? currentPage.current : undefined}
-        totalPages={currentPage?.type === 'company' ? currentPage.total : undefined}
+        currentCompany={currentHeaderCompany}
+        currentCompanyLogo={currentHeaderCompanyLogo}
+        screenOrderCount={currentPageOrders.length}
+        screenOverdueCount={currentPageOverdueCount}
+        screenCriticalCount={currentPageCriticalCount}
+        onShowOverdue={() => {
+          if (currentPageOverdueCount === 0) return;
+          setVoiceFilter('overdue');
+          setRotationPaused(true);
+          setCurrentPageIndex(0);
+        }}
         odooStatus={odooStatus}
         odooLastUpdated={odooLastUpdated}
         isRefreshing={isRefreshing}
         onRefresh={loadOdooOrders}
         viewMode={effectiveViewMode}
         onViewModeChange={setViewMode}
-        showGradient={showGradient}
-        onToggleGradient={() => setShowGradient(!showGradient)}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
         voiceFilter={voiceFilter}
         clientFilter={clientFilter}
         textFilter={textFilter}
-        onClearFilter={() => { setVoiceFilter('all'); setClientFilter(null); setTextFilter(''); setRotationPaused(false); setCurrentPageIndex(0); }}
+        onClearFilter={handleClearControls}
         isSpeaking={isSpeaking}
-        onNavigateAdmin={() => navigate('/admin')}
+        isRotationPaused={rotationPaused}
+        onResumeRotation={() => setRotationPaused(false)}
       />
 
       {/* ── Main grid ──────────────────────────────────────────────────────────── */}
@@ -1070,7 +1060,6 @@ export default function TVDashboard() {
                 screenTier={screenTier}
                 gridCols={gridCols}
                 gridRows={gridRows}
-                companyConfigs={companyConfigs}
                 highlightedSO={highlightedSO}
                 onOrderClick={setSelectedOrder}
               />
@@ -1212,7 +1201,7 @@ export default function TVDashboard() {
 
       {/* ── Footer ─────────────────────────────────────────────────────────────── */}
       <DashboardFooter
-        totalOrders={odooOrders.length}
+        totalOrders={filteredOdooOrders.length}
         pages={isTVMode ? pages : []}
         currentPageIndex={currentPageIndex}
         onPageChange={setCurrentPageIndex}

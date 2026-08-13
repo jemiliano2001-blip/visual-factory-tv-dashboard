@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { MotionConfig } from 'framer-motion';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { auth } from './firebase';
 
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
+import AdminRoute from './components/AdminRoute';
 import TVDashboard from './pages/TVDashboard';
 import AdminPanel from './pages/AdminPanel';
 import StatsDashboard from './pages/StatsDashboard';
@@ -109,8 +111,9 @@ export default function App() {
   return (
     <ErrorBoundary>
       <TooltipProvider delayDuration={300}>
-        <BrowserRouter>
-          <Routes>
+        <MotionConfig reducedMotion="user">
+          <BrowserRouter>
+            <Routes>
             <Route path="/login" element={<Login />} />
 
             <Route path="/" element={<Layout />}>
@@ -118,9 +121,9 @@ export default function App() {
               <Route index element={<TVDashboard />} />
 
               <Route path="admin" element={
-                <ProtectedRoute>
+                <AdminRoute>
                   <AdminPanel />
-                </ProtectedRoute>
+                </AdminRoute>
               } />
 
               <Route path="stats" element={
@@ -129,8 +132,9 @@ export default function App() {
                 </ProtectedRoute>
               } />
             </Route>
-          </Routes>
-        </BrowserRouter>
+            </Routes>
+          </BrowserRouter>
+        </MotionConfig>
       </TooltipProvider>
     </ErrorBoundary>
   );

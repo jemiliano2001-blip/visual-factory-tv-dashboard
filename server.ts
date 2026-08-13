@@ -68,15 +68,37 @@ if (!FIREBASE_API_KEY && existsSync('./firebase-applet-config.json')) {
 
 // Caché en memoria de tokens ya verificados (clave → expiración). Evita una
 // llamada a Google por cada poll (cada 30s × usuarios activos).
-const tokenCache = new Map<string, number>();
+interface AuthPrincipal {
+  expiresAt: number;
+  isAdmin: boolean;
+  isVerifiedAdmin: boolean;
+}
+
+interface FirebaseLookupUser {
+  customAttributes?: string;
+  emailVerified?: boolean;
+  providerUserInfo?: Array<{ providerId?: string }>;
+}
+
+const tokenCache = new Map<string, AuthPrincipal>();
 setInterval(() => {
   const now = Date.now();
-  for (const [k, exp] of tokenCache) if (now > exp) tokenCache.delete(k);
+  for (const [k, principal] of tokenCache) if (now > principal.expiresAt) tokenCache.delete(k);
 }, 10 * 60 * 1000);
 
-async function verifyFirebaseToken(token: string): Promise<boolean> {
+function readAdminClaim(customAttributes: string | undefined): boolean {
+  if (!customAttributes) return false;
+  try {
+    const claims: unknown = JSON.parse(customAttributes);
+    return typeof claims === 'object' && claims !== null && (claims as Record<string, unknown>).admin === true;
+  } catch {
+    return false;
+  }
+}
+
+async function verifyFirebaseToken(token: string): Promise<AuthPrincipal | null> {
   const cached = tokenCache.get(token);
-  if (cached && Date.now() < cached) return true;
+  if (cached && Date.now() < cached.expiresAt) return cached;
   try {
     const res = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`,
@@ -87,13 +109,20 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
         signal: AbortSignal.timeout(5000),
       }
     );
-    if (!res.ok) return false;
-    const data = await res.json() as { users?: unknown[] };
-    if (!data.users?.length) return false;
-    tokenCache.set(token, Date.now() + 5 * 60 * 1000); // caché 5 min
-    return true;
+    if (!res.ok) return null;
+    const data = await res.json() as { users?: FirebaseLookupUser[] };
+    const user = data.users?.[0];
+    if (!user) return null;
+    const principal = {
+      expiresAt: Date.now() + 5 * 60 * 1000,
+      isAdmin: readAdminClaim(user.customAttributes),
+      isVerifiedAdmin: user.emailVerified === true
+        && user.providerUserInfo?.some(provider => provider.providerId !== 'anonymous') === true,
+    };
+    tokenCache.set(token, principal); // caché 5 min
+    return principal;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -106,7 +135,10 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
 app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
   if (process.env.DEV_AUTH_BYPASS === 'true') {
     const addr = req.socket.localAddress ?? '';
-    if (addr === '127.0.0.1' || addr === '::1') return next();
+    if (addr === '127.0.0.1' || addr === '::1') {
+      res.locals.auth = { isAdmin: true, isVerifiedAdmin: true } satisfies Pick<AuthPrincipal, 'isAdmin' | 'isVerifiedAdmin'>;
+      return next();
+    }
   }
 
   const token = req.headers.authorization?.replace('Bearer ', '') || '';
@@ -120,19 +152,25 @@ app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
     return;
   }
 
-  const valid = await verifyFirebaseToken(token).catch(() => false);
-  if (!valid) {
+  const principal = await verifyFirebaseToken(token).catch(() => null);
+  if (!principal) {
     res.status(401).json({ error: 'Token inválido o expirado. Vuelve a iniciar sesión.' });
     return;
   }
 
+  res.locals.auth = principal;
   next();
 });
+
+function requireAdmin(_req: Request, res: Response, next: NextFunction) {
+  if (res.locals.auth?.isAdmin === true && res.locals.auth?.isVerifiedAdmin === true) return next();
+  res.status(403).json({ error: 'Se requiere el permiso administrativo.' });
+}
 
 // ─── Gemini AI Proxy ────────────────────────────────────────────────────────
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-app.post('/api/ai/generate', async (req: Request, res: Response) => {
+async function generateAI(req: Request, res: Response) {
   if (!process.env.GEMINI_API_KEY) {
     res.status(503).json({ error: 'GEMINI_API_KEY no configurada en el servidor.' });
     return;
@@ -154,7 +192,10 @@ app.post('/api/ai/generate', async (req: Request, res: Response) => {
     console.error('[Gemini AI Error]', err);
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
-});
+}
+
+app.post('/api/ai/generate', generateAI);
+app.post('/api/ai/admin-generate', requireAdmin, generateAI);
 
 app.post('/api/ai/speech-stream', async (req: Request, res: Response) => {
   const validated = validateSpeechStreamBody(req.body);

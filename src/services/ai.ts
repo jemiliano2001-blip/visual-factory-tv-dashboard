@@ -131,14 +131,14 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 }
 
-async function fetchOnce(params: GeminiRequest, timeoutMs: number): Promise<GeminiProxyResponse> {
+async function fetchOnce(params: GeminiRequest, timeoutMs: number, endpoint = '/api/ai/generate'): Promise<GeminiProxyResponse> {
   const headers = await getAuthHeaders();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   let response: Response;
   try {
-    response = await fetch(`${PROXY_BASE}/api/ai/generate`, {
+    response = await fetch(`${PROXY_BASE}${endpoint}`, {
       method: 'POST',
       headers,
       body: JSON.stringify(params),
@@ -158,8 +158,12 @@ async function fetchOnce(params: GeminiRequest, timeoutMs: number): Promise<Gemi
   return await response.json() as GeminiProxyResponse;
 }
 
-async function generateContent(params: GeminiRequest, timeoutMs = 30000, retries = 2): Promise<GeminiProxyResponse> {
-  return withRetry(() => fetchOnce(params, timeoutMs), retries);
+async function generateContent(params: GeminiRequest, timeoutMs = 30000, retries = 2, endpoint = '/api/ai/generate'): Promise<GeminiProxyResponse> {
+  return withRetry(() => fetchOnce(params, timeoutMs, endpoint), retries);
+}
+
+async function generateAdminContent(params: GeminiRequest): Promise<GeminiProxyResponse> {
+  return generateContent(params, 30000, 2, '/api/ai/admin-generate');
 }
 
 /** Proyección compacta de una orden Odoo para prompts (menos tokens, campos en español). */
@@ -185,23 +189,15 @@ export const generateShiftSummary = async (orders: OdooSaleOrder[]) => {
 };
 
 export const generateClientReport = async (order: OdooSaleOrder) => {
-  const response = await generateContent({
+  const response = await generateAdminContent({
     model: 'gemini-3.5-flash',
     contents: `Draft a professional, concise email in SPANISH to the client (${order.partner_name}) updating them on sale order ${order.name} for "${order.main_product}". Delivery progress is ${order.qty_delivered}/${order.qty_total} units${order.commitment_date ? `, committed delivery date is ${order.commitment_date}` : ''}. Focus on delivery status and dates only; do NOT include prices or monetary amounts.`,
   });
   return response.text;
 };
 
-export const analyzeOrderAnomalies = async (orders: OdooSaleOrder[]) => {
-  const response = await generateContent({
-    model: 'gemini-3.5-flash',
-    contents: `You are a manufacturing operations analyst. Analyze this set of Odoo sale orders pending invoicing and identify anomalies and red flags: overdue orders with 0% delivery, orders with unusually large quantities or that are stale (old), clients accumulating backlog, orders without commitment date. Do NOT mention or estimate any monetary amounts. Be brief and actionable, use markdown bullet points. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders.map(simplifyOrder))}`,
-  });
-  return response.text;
-};
-
 export const predictOrderRisk = async (order: OdooSaleOrder): Promise<RiskPrediction> => {
-  const response = await generateContent({
+  const response = await generateAdminContent({
     model: 'gemini-3.5-flash',
     contents: `You are a manufacturing delivery-risk AI. Analyze this Odoo sale order pending invoicing and predict potential delivery/invoicing issues.
     Order data: ${JSON.stringify(simplifyOrder(order))}
@@ -239,7 +235,7 @@ export const predictOrderRisk = async (order: OdooSaleOrder): Promise<RiskPredic
 };
 
 export const filterOrdersByNaturalLanguage = async (query: string, orders: OdooSaleOrder[]): Promise<number[]> => {
-  const response = await generateContent({
+  const response = await generateAdminContent({
     model: 'gemini-3.5-flash',
     contents: `Given the following JSON list of Odoo sale orders and a user query in SPANISH, return a JSON array of the 'id's (numbers) of the orders that match the query. Query: "${query}". Orders: ${JSON.stringify(orders.map(o => ({ id: o.id, ...simplifyOrder(o) })))}`,
     config: {

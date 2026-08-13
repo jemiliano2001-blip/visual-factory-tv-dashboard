@@ -57,11 +57,12 @@ interface OrdersTableProps {
   predictions: Record<number, RiskPrediction | 'loading'>;
   onClientReport: (order: OdooSaleOrder) => void;
   onPredictRisk: (order: OdooSaleOrder) => void;
+  reportingOrderId: number | null;
 }
 
 const columnHelper = createColumnHelper<OdooSaleOrder>();
 
-export default function OrdersTable({ orders, predictions, onClientReport, onPredictRisk }: OrdersTableProps) {
+export default function OrdersTable({ orders, predictions, onClientReport, onPredictRisk, reportingOrderId }: OrdersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'commitment_date', desc: false }]);
   const [expanded, setExpanded] = useState<ExpandedState>({});
 
@@ -73,7 +74,9 @@ export default function OrdersTable({ orders, predictions, onClientReport, onPre
         <button
           type="button"
           onClick={row.getToggleExpandedHandler()}
-          className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          aria-label={`${row.getIsExpanded() ? 'Contraer' : 'Expandir'} detalles de ${row.original.name}`}
+          aria-expanded={row.getIsExpanded()}
+          className="min-h-11 min-w-11 cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           {row.getIsExpanded() ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
         </button>
@@ -171,10 +174,11 @@ export default function OrdersTable({ orders, predictions, onClientReport, onPre
                   variant="ghost"
                   size="icon-sm"
                   onClick={() => onClientReport(row.original)}
+                  disabled={reportingOrderId !== null}
                   aria-label="Generar reporte para el cliente"
                   className="hover:text-primary"
                 >
-                  <Mail />
+                  {reportingOrderId === row.original.id ? <Loader2 className="animate-spin" /> : <Mail />}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Reporte para el cliente</TooltipContent>
@@ -199,7 +203,7 @@ export default function OrdersTable({ orders, predictions, onClientReport, onPre
         );
       },
     }),
-  ], [predictions, onClientReport, onPredictRisk]);
+  ], [predictions, onClientReport, onPredictRisk, reportingOrderId]);
 
   const table = useReactTable({
     data: orders,
@@ -224,15 +228,17 @@ export default function OrdersTable({ orders, predictions, onClientReport, onPre
                 {hg.headers.map(header => (
                   <th
                     key={header.id}
-                    className={`px-3 py-3 font-bold ${(header.column.columnDef.meta as { className?: string } | undefined)?.className ?? ''} ${header.column.getCanSort() ? 'cursor-pointer select-none transition-colors hover:text-foreground' : ''}`}
-                    onClick={header.column.getToggleSortingHandler()}
+                    aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : 'none'}
+                    className={`px-3 py-3 font-bold ${(header.column.columnDef.meta as { className?: string } | undefined)?.className ?? ''}`}
                   >
-                    <span className="inline-flex items-center gap-1">
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                      <span className="text-primary">
-                        {{ asc: '↑', desc: '↓' }[header.column.getIsSorted() as string] ?? ''}
-                      </span>
-                    </span>
+                    {header.column.getCanSort() ? (
+                      <button type="button" onClick={header.column.getToggleSortingHandler()} className="inline-flex min-h-11 items-center gap-1 rounded px-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        <span className="text-primary" aria-hidden="true">{{ asc: '↑', desc: '↓' }[header.column.getIsSorted() as string] ?? ''}</span>
+                      </button>
+                    ) : (
+                      <span className="inline-flex min-h-11 items-center">{flexRender(header.column.columnDef.header, header.getContext())}</span>
+                    )}
                   </th>
                 ))}
               </tr>

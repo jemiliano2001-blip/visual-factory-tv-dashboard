@@ -14,6 +14,10 @@ export function isRealUser(user: User | null): boolean {
   return user != null && !user.isAnonymous;
 }
 
+export function isVerifiedRealUser(user: User | null): boolean {
+  return isRealUser(user) && user.emailVerified;
+}
+
 /** ID token de Firebase para llamadas al proxy /api. Lanza si no hay sesión. */
 export async function getIdTokenOrThrow(): Promise<string> {
   const user = auth.currentUser;
@@ -28,4 +32,3 @@ export async function getIdTokenOrThrow(): Promise<string> {
   }
   return token;
 }
-

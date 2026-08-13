@@ -49,21 +49,32 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // ─── Firebase Auth ─────────────────────────────────────────────────────────────
 // Caché en memoria por instancia para no llamar a firebase-admin por cada poll.
-const tokenCache = new Map<string, number>(); // token → exp timestamp ms
+interface AuthPrincipal {
+  expiresAt: number;
+  isAdmin: boolean;
+  isVerifiedAdmin: boolean;
+}
+
+const tokenCache = new Map<string, AuthPrincipal>(); // token -> principal
 setInterval(() => {
   const now = Date.now();
-  for (const [k, exp] of tokenCache) if (now > exp) tokenCache.delete(k);
+  for (const [k, principal] of tokenCache) if (now > principal.expiresAt) tokenCache.delete(k);
 }, 10 * 60 * 1000);
 
-async function verifyFirebaseToken(token: string): Promise<boolean> {
+async function verifyFirebaseToken(token: string): Promise<AuthPrincipal | null> {
   const cached = tokenCache.get(token);
-  if (cached && Date.now() < cached) return true;
+  if (cached && Date.now() < cached.expiresAt) return cached;
   try {
     const decoded = await admin.auth().verifyIdToken(token);
-    tokenCache.set(token, decoded.exp * 1000);
-    return true;
+    const principal = {
+      expiresAt: decoded.exp * 1000,
+      isAdmin: decoded.admin === true,
+      isVerifiedAdmin: decoded.email_verified === true && decoded.firebase.sign_in_provider !== 'anonymous',
+    };
+    tokenCache.set(token, principal);
+    return principal;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -76,10 +87,16 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
 app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
   const token = req.headers.authorization?.replace('Bearer ', '') ?? '';
   if (!token) { res.status(401).json({ error: 'Se requiere autenticación.' }); return; }
-  const valid = await verifyFirebaseToken(token).catch(() => false);
-  if (!valid) { res.status(401).json({ error: 'Token inválido o expirado.' }); return; }
+  const principal = await verifyFirebaseToken(token).catch(() => null);
+  if (!principal) { res.status(401).json({ error: 'Token inválido o expirado.' }); return; }
+  res.locals.auth = principal;
   next();
 });
+
+function requireAdmin(_req: Request, res: Response, next: NextFunction) {
+  if (res.locals.auth?.isAdmin === true && res.locals.auth?.isVerifiedAdmin === true) return next();
+  res.status(403).json({ error: 'Se requiere el permiso administrativo.' });
+}
 
 // ─── Odoo + Gemini (módulo compartido con server.ts) ───────────────────────────
 const odooClient = new OdooClient({
@@ -91,7 +108,7 @@ const odooClient = new OdooClient({
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-app.post('/api/ai/generate', async (req: Request, res: Response) => {
+async function generateAI(req: Request, res: Response) {
   if (!process.env.GEMINI_API_KEY) {
     res.status(503).json({ error: 'GEMINI_API_KEY no configurada en Cloud Functions.' });
     return;
@@ -113,7 +130,7 @@ app.post('/api/ai/generate', async (req: Request, res: Response) => {
     console.error('[Gemini AI Error]', err);
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
-});
+}
 
 app.post('/api/ai/speech-stream', async (req: Request, res: Response) => {
   const validated = validateSpeechStreamBody(req.body);
@@ -161,6 +178,9 @@ app.post('/api/ai/speech-stream', async (req: Request, res: Response) => {
     if (res.writable && !res.writableEnded) res.end();
   }
 });
+
+app.post('/api/ai/generate', generateAI);
+app.post('/api/ai/admin-generate', requireAdmin, generateAI);
 
 app.get('/api/odoo/status', async (_req: Request, res: Response) => {
   if (!odooClient.getConfiguredUrl()) {

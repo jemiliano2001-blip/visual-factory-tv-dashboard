@@ -22,6 +22,10 @@ service cloud.firestore {
       return isRealUser() && request.auth.token.email_verified == true;
     }
 
+    function isAdmin() {
+      return isVerifiedUser() && request.auth.token.admin == true;
+    }
+
     function hasOnlyAllowedFields(allowedFields) {
       return request.resource.data.keys().hasOnly(allowedFields);
     }
@@ -59,9 +63,9 @@ service cloud.firestore {
 
     match /company_configs/{configId} {
       allow read: if isAuthenticated();
-      allow create: if isVerifiedUser() && isValidCompanyConfig();
-      allow update: if isVerifiedUser() && isValidCompanyConfig();
-      allow delete: if isVerifiedUser();
+      allow create: if isAdmin() && isValidCompanyConfig();
+      allow update: if isAdmin() && isValidCompanyConfig();
+      allow delete: if isAdmin();
     }
 
     // Las órdenes ahora viven en Odoo. Los datos históricos de estas

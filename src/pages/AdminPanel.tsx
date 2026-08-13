@@ -8,7 +8,7 @@ import { useOdooOrders } from '../hooks/useOdooOrders';
 import { OdooSaleOrder, isOrderOverdue, parseOdooDate } from '../services/odoo';
 import {
   filterOrdersByNaturalLanguage, generateClientReport,
-  analyzeOrderAnomalies, predictOrderRisk, AIError,
+  predictOrderRisk, AIError,
 } from '../services/ai';
 import { RiskPrediction } from '../components/admin/riskTypes';
 import OrdersTable from '../components/admin/OrdersTable';
@@ -23,7 +23,7 @@ import {
 } from '../components/ui/select';
 import { TooltipProvider } from '../components/ui/tooltip';
 import {
-  Search, Sparkles, Download, ScanSearch, X,
+  Search, Sparkles, Download, X,
   WifiOff, Loader2, RefreshCw, Table2, Settings, FileText,
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -43,8 +43,10 @@ export default function AdminPanel() {
   const [nlQuery, setNlQuery] = useState('');
   const [isSearchingAI, setIsSearchingAI] = useState(false);
   const [aiFilterIds, setAiFilterIds] = useState<number[] | null>(null);
-  const [aiModal, setAiModal] = useState<{ title: string; content: string | null } | null>(null);
+  const [aiFilterSummary, setAiFilterSummary] = useState<string | null>(null);
+  const [aiModal, setAiModal] = useState<{ title: string; content: string | null; isEmailDraft?: boolean } | null>(null);
   const [predictions, setPredictions] = useState<Record<number, RiskPrediction | 'loading'>>({});
+  const [reportingOrderId, setReportingOrderId] = useState<number | null>(null);
 
   const uniqueClients = useMemo(
     () => Array.from(new Set(orders.map(o => o.partner_name))).sort(),
@@ -74,10 +76,12 @@ export default function AdminPanel() {
     e.preventDefault();
     if (!nlQuery.trim()) return;
     setAiFilterIds(null);
+    setAiFilterSummary(null);
     setIsSearchingAI(true);
     try {
       const ids = await filterOrdersByNaturalLanguage(nlQuery, orders);
       setAiFilterIds(ids);
+      setAiFilterSummary(`La IA seleccionó ${ids.length} de ${orders.length} órdenes. Puedes combinar este resultado con los filtros locales.`);
     } catch (err) {
       console.error('Error en búsqueda IA', err);
       const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al buscar.';
@@ -89,29 +93,22 @@ export default function AdminPanel() {
   const clearAIFilter = () => {
     setAiFilterIds(null);
     setNlQuery('');
+    setAiFilterSummary(null);
   };
 
   const handleClientReport = async (order: OdooSaleOrder) => {
-    setAiModal({ title: `Reporte para ${order.partner_name} — ${order.name}`, content: null });
+    if (reportingOrderId !== null) return;
+    setReportingOrderId(order.id);
+    setAiModal({ title: `Correo para ${order.partner_name} — ${order.name}`, content: null, isEmailDraft: true });
     try {
       const text = await generateClientReport(order);
-      setAiModal({ title: `Reporte para ${order.partner_name} — ${order.name}`, content: text || 'Sin respuesta del modelo.' });
+      setAiModal({ title: `Correo para ${order.partner_name} — ${order.name}`, content: text || 'Sin respuesta del modelo.', isEmailDraft: true });
     } catch (err) {
       console.error(err);
       const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al generar el reporte.';
       setAiModal({ title: 'Error', content: msg });
-    }
-  };
-
-  const handleAnomalies = async () => {
-    setAiModal({ title: `Análisis de anomalías (${filteredOrders.length} órdenes)`, content: null });
-    try {
-      const text = await analyzeOrderAnomalies(filteredOrders);
-      setAiModal({ title: `Análisis de anomalías (${filteredOrders.length} órdenes)`, content: text || 'Sin respuesta del modelo.' });
-    } catch (err) {
-      console.error(err);
-      const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al analizar.';
-      setAiModal({ title: 'Error', content: msg });
+    } finally {
+      setReportingOrderId(null);
     }
   };
 
@@ -197,7 +194,9 @@ export default function AdminPanel() {
               <form onSubmit={handleNLSearch} className="flex flex-wrap gap-2">
                 <div className="relative min-w-[260px] flex-1">
                   <Sparkles className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-primary" />
+                  <label htmlFor="ai-order-query" className="sr-only">Búsqueda con IA</label>
                   <Input
+                    id="ai-order-query"
                     value={nlQuery}
                     onChange={e => setNlQuery(e.target.value)}
                     placeholder='Búsqueda IA: "las vencidas de más de 100 mil pesos"…'
@@ -215,11 +214,15 @@ export default function AdminPanel() {
                 )}
               </form>
 
+              {aiFilterSummary && <p role="status" className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary">{aiFilterSummary}</p>}
+
               {/* Filtros + acciones secundarias */}
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative min-w-[200px] flex-1">
                   <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <label htmlFor="order-search" className="sr-only">Buscar órdenes</label>
                   <Input
+                    id="order-search"
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                     placeholder="Buscar SO, cliente o producto…"
@@ -230,7 +233,7 @@ export default function AdminPanel() {
                   value={clientFilter || ALL_CLIENTS}
                   onValueChange={v => setClientFilter(v === ALL_CLIENTS ? '' : v)}
                 >
-                  <SelectTrigger className="w-[210px]">
+                  <SelectTrigger aria-label="Filtrar por cliente" className="w-[210px]">
                     <SelectValue placeholder="Todos los clientes" />
                   </SelectTrigger>
                   <SelectContent>
@@ -239,7 +242,7 @@ export default function AdminPanel() {
                   </SelectContent>
                 </Select>
                 <Select value={statusFilter} onValueChange={v => setStatusFilter(v as 'all' | 'overdue' | 'ontime')}>
-                  <SelectTrigger className="w-[150px]">
+                  <SelectTrigger aria-label="Filtrar por estado de entrega" className="w-[150px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -249,9 +252,6 @@ export default function AdminPanel() {
                   </SelectContent>
                 </Select>
                 <div className="ml-auto flex gap-2">
-                  <Button type="button" variant="secondary" onClick={handleAnomalies} disabled={filteredOrders.length === 0}>
-                    <ScanSearch /> Anomalías
-                  </Button>
                   <Button type="button" variant="secondary" onClick={handleExport} disabled={filteredOrders.length === 0}>
                     <Download /> Excel
                   </Button>
@@ -273,6 +273,7 @@ export default function AdminPanel() {
                   predictions={predictions}
                   onClientReport={handleClientReport}
                   onPredictRisk={handlePredictRisk}
+                  reportingOrderId={reportingOrderId}
                 />
               )}
             </TabsContent>
@@ -288,7 +289,7 @@ export default function AdminPanel() {
         </div>
 
         {aiModal && (
-          <AIModal title={aiModal.title} content={aiModal.content} onClose={() => setAiModal(null)} />
+          <AIModal title={aiModal.title} content={aiModal.content} isEmailDraft={aiModal.isEmailDraft} onClose={() => setAiModal(null)} />
         )}
       </div>
     </TooltipProvider>
