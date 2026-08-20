@@ -4,6 +4,7 @@ import { AlertTriangle, Check, CheckCircle2, Clock, Package, PlayCircle } from '
 import { OdooSaleOrder, OdooOrderLine, getDeliveryProgress, getOrderPriority, isOrderOverdue } from '../services/odoo';
 import { getCardPresentation, isLargeTVCard } from '../services/cardPresentation';
 import SmartText from './SmartText';
+import { Badge } from './ui/badge';
 
 export type ViewMode = 'tv' | 'desktop';
 export type ScreenTier = 'sm' | 'md' | 'lg' | 'xl';
@@ -19,16 +20,19 @@ interface OdooOrderCardProps {
   onClick?: () => void;
 }
 
-const PRIORITY_COLORS: Record<string, string> = {
-  low: 'bg-zinc-800/80 text-zinc-300 border-zinc-600',
-  normal: 'bg-blue-600/20 text-blue-300 border-blue-400',
-  high: 'bg-orange-500/20 text-orange-300 border-orange-400',
-  critical: 'bg-red-600 text-white border-red-400 shadow-[0_0_20px_rgba(239,68,68,0.7)] animate-pulse',
-};
-
-const PRIORITY_LABELS: Record<string, string> = {
-  low: 'Baja', normal: 'Normal', high: 'Alta', critical: 'Crítica',
-};
+/**
+ * Un solo badge de urgencia por tarjeta.
+ *
+ * Antes se pintaban dos: "Crítica" (prioridad) y "Vencida" (atraso). Son el mismo
+ * hecho — `getOrderPriority` devuelve 'critical' exactamente cuando `diffMs < 0`,
+ * que es la definición de `isOrderOverdue` — así que siempre aparecían juntas, en
+ * dos colores distintos. Se colapsan en una.
+ */
+function getUrgencyBadge(isOverdue: boolean, priority: string) {
+  if (isOverdue) return { label: 'Vencida', variant: 'dangerSolid' as const, pulse: true };
+  if (priority === 'high') return { label: 'Alta', variant: 'warning' as const, pulse: false };
+  return null;
+}
 
 // Remisiones (stock.picking). Se excluye 'cancel' — una remisión cancelada no
 // dice nada del avance real del pedido.
@@ -65,6 +69,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   const isOverdue = isOrderOverdue(order);
   const isCritical = priority === 'critical';
   const presentation = getCardPresentation({ progress, isHighlighted, isOverdue, isCritical });
+  const urgencyBadge = getUrgencyBadge(isOverdue, priority);
   const isLarge = isLargeTVCard(viewMode, isWide, screenTier);
   const { deliveryCounts, deliveryStates } = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -128,20 +133,13 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       id={`so-${order.name.replace(/\//g, '-')}`}
       onClick={onClick}
       aria-label={cardLabel}
-      className={`group flex w-full flex-col rounded-2xl border text-left relative overflow-hidden h-full ${cardSize} ${presentation.borderClass} ${presentation.urgencyClass} ${onClick ? 'cursor-pointer active:scale-[0.98]' : 'cursor-default'} focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
+      className={`group flex w-full flex-col rounded-2xl border text-left relative overflow-hidden h-full ${cardSize} ${presentation.borderClass} ${onClick ? 'cursor-pointer active:scale-[0.98]' : 'cursor-default'} focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
       style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
     >
       <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${presentation.accentClass}`} aria-hidden="true" />
       <span className={`absolute -top-12 -right-12 h-40 w-40 rounded-full blur-[70px] opacity-10 pointer-events-none ${presentation.glowClass}`} aria-hidden="true" />
 
-      {isOverdue && (
-        <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full border border-orange-300/50 bg-orange-500/20 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-orange-200">
-          <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-          Vencida
-        </span>
-      )}
-
-      <div className={`relative z-10 flex items-start justify-between gap-3 ${isOverdue ? 'pr-20' : ''}`}>
+      <div className="relative z-10 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className={`${headingSize} truncate font-mono-data font-black tracking-tight text-white`}>
             {order.name}
@@ -153,10 +151,15 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
             defaultLevel={2}
           />
         </div>
-        {(isCritical || priority === 'high') && (
-          <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-black uppercase tracking-wider ${PRIORITY_COLORS[priority]}`}>
-            {PRIORITY_LABELS[priority]}
-          </span>
+        {urgencyBadge && (
+          <Badge
+            variant={urgencyBadge.variant}
+            size={isLarge ? 'lg' : isDense || isMobile ? 'sm' : 'md'}
+            className={`shrink-0 ${urgencyBadge.pulse ? 'animate-pulse' : ''}`}
+          >
+            <AlertTriangle className={isLarge ? 'h-4 w-4' : 'h-3 w-3'} aria-hidden="true" />
+            {urgencyBadge.label}
+          </Badge>
         )}
       </div>
 

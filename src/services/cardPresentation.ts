@@ -10,7 +10,6 @@ export interface CardPresentation {
   progressClass: string;
   statusTextClass: string;
   tone: ProgressTone;
-  urgencyClass: string;
 }
 
 export function getCardPresentation(input: {
@@ -49,15 +48,17 @@ export function getCardPresentation(input: {
           statusTextClass: 'text-cyan-400',
         };
 
+  // La urgencia NO pinta la superficie de la tarjeta: antes se sumaba un anillo
+  // rojo con glow encima del acento de avance, y a la vista quedaban dos colores
+  // peleándose por la misma tarjeta (más aún en las páginas compartidas, donde el
+  // panel del cliente ya trae su propio borde). El aviso de vencida vive ahora en
+  // un solo badge; el color de la tarjeta sigue siendo el del avance.
+  // Nota: la rama antigua `isOverdue → anillo naranja` era inalcanzable —
+  // `getOrderPriority` devuelve 'critical' exactamente cuando `isOrderOverdue` es
+  // true, así que `isCritical` siempre ganaba primero.
   return {
     ...progressVisual,
     tone,
-    // La urgencia se agrega como anillo: nunca sustituye el color de avance.
-    urgencyClass: input.isCritical
-      ? 'ring-2 ring-red-500/70 shadow-[0_0_22px_rgba(220,38,38,0.34)]'
-      : input.isOverdue
-        ? 'ring-1 ring-orange-500/55 shadow-[0_0_18px_rgba(249,115,22,0.25)]'
-        : '',
     ...(input.isHighlighted ? {
       borderClass: 'bg-primary/10 border-primary/60 shadow-[0_0_45px_rgba(99,102,241,0.35)] z-50',
       accentClass: progressVisual.accentClass,

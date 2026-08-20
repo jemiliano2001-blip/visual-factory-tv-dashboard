@@ -76,9 +76,9 @@ supervisor reads "where is each order" across the whole wall at a glance.
   - **Pendiente / 0%** — cyan (`cyan-400`): accent stripe, bar, status icon/text.
   - **En proceso / >0%** — emerald (`emerald-400`).
   - **Entregado / 100%** — fuchsia (`fuchsia-400`).
-- **Priority badge + overdue tint (additive):** *Normal* blue glow, *Alta* orange glow,
-  *Vencida* red with pulse; overdue/critical also tints the card border red/orange and
-  shows a "Vencida" marker.
+- **Urgency badge (one per card, no surface tint):** *Alta* = warning badge; *Vencida* =
+  solid destructive badge with pulse. Urgency does **not** tint the card border, ring or
+  glow — the card surface belongs to the progress axis alone. See the 2026-08-20 log entry.
 - **`status-*` tokens still live in `src/index.css`** (`overdue #ef4444`, `warning
   #f59e0b`, `ontime`, `none`) and may be used by **Admin / Stats** surfaces, but they do
   **not** drive the TV card anymore — the card is progress-based.
@@ -89,8 +89,9 @@ supervisor reads "where is each order" across the whole wall at a glance.
 
 ### Decoration rules (vivid, but legibility first)
 - **Cards use soft glow + blur as part of the language.** The TV/desktop card has a light
-  `backdrop-blur(8px)`, a dim progress-colored glow blob, an accent stripe, and glowing
-  priority badges. Keep them subtle enough that text stays crisp at distance.
+  `backdrop-blur(8px)`, a dim progress-colored glow blob and an accent stripe — all in the
+  *progress* color. Keep them subtle enough that text stays crisp at distance. Never stack
+  a second color (ring, outer glow, border tint) on the card surface for urgency.
 - **Glow scales with importance.** *Vencida* is loudest (red glow + pulse + "Vencida"
   marker); progress glows are gentle. Never let decoration outshine the SO number / %.
 - **Still avoid true slop:** no full-card gradient fills, no gradient CTAs,
@@ -120,8 +121,8 @@ supervisor reads "where is each order" across the whole wall at a glance.
 ## Motion
 - **Approach:** Functional + light expressive accents. Cards mount with a spring
   fade/scale; the progress bar animates its fill.
-- **Alarm motion:** `animate-pulse` on the *Vencida* priority badge and `animate-bounce`
-  on the overdue marker — reserved for critical/overdue, the loudest state.
+- **Alarm motion:** `animate-pulse` on the single *Vencida* badge — reserved for overdue,
+  the loudest state. (The separate bouncing overdue marker was removed 2026-08-20.)
 - **Everything else:** plain fades/transitions for state changes and page rotation.
 - **Easing:** enter `ease-out`, exit `ease-in`, move `ease-in-out`.
 - **Duration:** micro 50-100ms, short 150-250ms, medium 250-400ms, long 400-700ms.
@@ -136,3 +137,4 @@ supervisor reads "where is each order" across the whole wall at a glance.
 | 2026-06-26 | Alarm hierarchy implemented in code | `--color-status-ontime` → `#3f6b54`; on-time cards neutral chrome + muted text; overdue border/tint strengthened (`/70`, `/[0.08]`). Doc and `src/index.css` now agree. |
 | 2026-06-30 | **Reverted to vibrant progress-based card (look of 23-jun, `5f616fe`)** | User preference: the flat alarm-hierarchy card was disliked. Card color now encodes progress (cyan/emerald/fuchsia) with glow/blur + priority glow; `status-*` tokens kept for Admin/Stats only. Reverses the 06-26 alarm-hierarchy decision for the TV card. |
 | 2026-08-20 | Reoriented `/admin` from supervision console to design-team work tool | The people actually using Admin daily are the design/production team ("what's still missing, what do I print"), not a supervisor. Dropped vendor/priority columns, anomaly analysis and risk prediction; added **Pendientes** (missing pieces by line, sorted by urgency) and **Entregas** (deliveries by state) tabs, row selection + a real multi-sheet Excel export, and reoriented the IA tools (`summarizePendingWork`, `explainOrderRequirements`) to help design read requirements, not to evaluate the business. Admin now uses the unified `getOrderStatus` (same as Stats) instead of the looser `isOrderOverdue`/`getOrderPriority` pair. `status-*` badge tokens (`STATUS_VARIANT` in `src/components/admin/orderStatusMeta.ts`) are now visibly used in Admin's own table/tabs, not just Stats. |
+| 2026-08-20 | **One urgency signal per card: dropped the red ring/glow and merged the two pills** | The card was carrying two competing color systems at once — a progress-colored accent stripe *and* a red ring + outer glow layered over the whole surface — plus **two** badges for one fact. Root cause found in code, not taste: `getOrderPriority` returns `'critical'` exactly when `diffMs < 0`, which is the definition of `isOrderOverdue`, so `isCritical` and `isOverdue` are the same boolean and "Crítica"/"Vencida" were *guaranteed* to render together in two different colors. (Consequently the `isOverdue → orange ring` branch in `cardPresentation.ts` was unreachable dead code and was deleted.) Fix keeps the 06-30 vibrant progress-based direction intact — **the axis was not flipped**: urgency no longer paints the card surface at all, it lives in one `Badge` (shadcn `dangerSolid` + pulse). Worst case was the shared pages, where client-panel border + card ring + stripe stacked three treatments. `Badge` gained a `size` variant so it still scales with `isLarge` on TV. |
