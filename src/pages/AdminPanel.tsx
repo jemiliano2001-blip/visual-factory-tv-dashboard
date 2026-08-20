@@ -1,50 +1,49 @@
 /**
- * Consola de administración — vista read-only de las órdenes por facturar
- * de Odoo (mismos datos que la TV) con acciones de IA y configuración.
- * No hay CRUD de órdenes: Odoo es la única fuente de verdad.
+ * Consola de administración — herramienta de trabajo diaria del equipo de
+ * diseño sobre las órdenes por facturar de Odoo (mismos datos que la TV).
+ * No hay CRUD de órdenes: Odoo es la única fuente de verdad, todo es read-only.
  */
 import React, { useMemo, useState } from 'react';
+import type { RowSelectionState } from '@tanstack/react-table';
 import { useOdooOrders } from '../hooks/useOdooOrders';
-import { OdooSaleOrder, isOrderOverdue, parseOdooDate } from '../services/odoo';
-import {
-  filterOrdersByNaturalLanguage, generateClientReport,
-  analyzeOrderAnomalies, predictOrderRisk, AIError,
-} from '../services/ai';
-import { RiskPrediction } from '../components/admin/riskTypes';
+import { OdooSaleOrder, getOrderStatus } from '../services/odoo';
+import { filterOrdersByNaturalLanguage, summarizePendingWork, explainOrderRequirements, AIError } from '../services/ai';
+import { exportOrdersToExcel } from '../services/exportExcel';
+import type { OrderStatusFilter } from '../components/admin/orderStatusMeta';
+import PendingTab from '../components/admin/PendingTab';
 import OrdersTable from '../components/admin/OrdersTable';
+import OrdersFilterBar from '../components/admin/OrdersFilterBar';
+import DeliveriesTab from '../components/admin/DeliveriesTab';
 import ConfigTab from '../components/admin/ConfigTab';
 import OrderReportTab from '../components/admin/OrderReportTab';
 import AIModal from '../components/admin/AIModal';
 import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
-import {
-  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
-} from '../components/ui/select';
 import { TooltipProvider } from '../components/ui/tooltip';
 import {
-  Search, Sparkles, Download, ScanSearch, X,
-  WifiOff, Loader2, RefreshCw, Table2, Settings, FileText,
+  Download, WifiOff, Loader2, RefreshCw, Table2, Settings, FileText, ListChecks, Truck, Users2,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import * as XLSX from 'xlsx-js-style';
 
-const ALL_CLIENTS = '__all__';
+type AdminTab = 'pending' | 'orders' | 'deliveries' | 'report' | 'config';
 
 export default function AdminPanel() {
   const { orders, error, isLoading, isFetching, lastUpdated, refetch } = useOdooOrders();
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'report' | 'config'>('orders');
+  const [activeTab, setActiveTab] = useState<AdminTab>('pending');
   const [search, setSearch] = useState('');
   const [clientFilter, setClientFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'overdue' | 'ontime'>('all');
+  const [statusFilter, setStatusFilter] = useState<OrderStatusFilter>('all');
+  const [groupByClient, setGroupByClient] = useState(false);
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
   // IA
   const [nlQuery, setNlQuery] = useState('');
   const [isSearchingAI, setIsSearchingAI] = useState(false);
   const [aiFilterIds, setAiFilterIds] = useState<number[] | null>(null);
   const [aiModal, setAiModal] = useState<{ title: string; content: string | null } | null>(null);
-  const [predictions, setPredictions] = useState<Record<number, RiskPrediction | 'loading'>>({});
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [explainingId, setExplainingId] = useState<number | null>(null);
 
   const uniqueClients = useMemo(
     () => Array.from(new Set(orders.map(o => o.partner_name))).sort(),
@@ -55,8 +54,7 @@ export default function AdminPanel() {
     let result = orders;
     if (aiFilterIds) result = result.filter(o => aiFilterIds.includes(o.id));
     if (clientFilter) result = result.filter(o => o.partner_name === clientFilter);
-    if (statusFilter === 'overdue') result = result.filter(isOrderOverdue);
-    if (statusFilter === 'ontime') result = result.filter(o => !isOrderOverdue(o));
+    if (statusFilter !== 'all') result = result.filter(o => getOrderStatus(o).level === statusFilter);
     const q = search.trim().toLowerCase();
     if (q) {
       result = result.filter(o =>
@@ -67,6 +65,11 @@ export default function AdminPanel() {
     }
     return result;
   }, [orders, aiFilterIds, clientFilter, statusFilter, search]);
+
+  const selectedCount = useMemo(
+    () => Object.values(rowSelection).filter(Boolean).length,
+    [rowSelection]
+  );
 
   // ── Handlers IA ──────────────────────────────────────────────────────────────
 
@@ -91,68 +94,41 @@ export default function AdminPanel() {
     setNlQuery('');
   };
 
-  const handleClientReport = async (order: OdooSaleOrder) => {
-    setAiModal({ title: `Reporte para ${order.partner_name} — ${order.name}`, content: null });
+  const handleSummarizePending = async () => {
+    setIsSummarizing(true);
+    setAiModal({ title: 'Plan del día', content: null });
     try {
-      const text = await generateClientReport(order);
-      setAiModal({ title: `Reporte para ${order.partner_name} — ${order.name}`, content: text || 'Sin respuesta del modelo.' });
+      const text = await summarizePendingWork(filteredOrders);
+      setAiModal({ title: 'Plan del día', content: text || 'Sin respuesta del modelo.' });
     } catch (err) {
       console.error(err);
-      const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al generar el reporte.';
+      const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al generar el plan.';
       setAiModal({ title: 'Error', content: msg });
     }
+    setIsSummarizing(false);
   };
 
-  const handleAnomalies = async () => {
-    setAiModal({ title: `Análisis de anomalías (${filteredOrders.length} órdenes)`, content: null });
+  const handleExplainRequirements = async (order: OdooSaleOrder) => {
+    setExplainingId(order.id);
+    setAiModal({ title: `Requisitos — ${order.name}`, content: null });
     try {
-      const text = await analyzeOrderAnomalies(filteredOrders);
-      setAiModal({ title: `Análisis de anomalías (${filteredOrders.length} órdenes)`, content: text || 'Sin respuesta del modelo.' });
+      const text = await explainOrderRequirements(order);
+      setAiModal({ title: `Requisitos — ${order.name}`, content: text || 'Sin respuesta del modelo.' });
     } catch (err) {
       console.error(err);
-      const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al analizar.';
+      const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al explicar la orden.';
       setAiModal({ title: 'Error', content: msg });
     }
-  };
-
-  const handlePredictRisk = async (order: OdooSaleOrder) => {
-    setPredictions(p => ({ ...p, [order.id]: 'loading' }));
-    try {
-      const result = await predictOrderRisk(order);
-      setPredictions(p => ({ ...p, [order.id]: result }));
-    } catch (err) {
-      console.error(err);
-      setPredictions(p => {
-        const { [order.id]: _removed, ...rest } = p;
-        return rest;
-      });
-      const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al predecir el riesgo.';
-      setAiModal({ title: 'Error', content: msg });
-    }
+    setExplainingId(null);
   };
 
   // ── Export Excel ─────────────────────────────────────────────────────────────
 
   const handleExport = () => {
-    const data = filteredOrders.map(o => {
-      const dOrder = parseOdooDate(o.date_order);
-      const dCommit = parseOdooDate(o.commitment_date);
-      return {
-        'SO': o.name,
-        'Cliente': o.partner_name,
-        'Producto': o.main_product,
-        'Fecha Orden': dOrder ? format(dOrder, 'dd/MM/yyyy') : '',
-        'Compromiso': dCommit ? format(dCommit, 'dd/MM/yyyy') : '',
-        'Vencida': isOrderOverdue(o) ? 'SÍ' : 'NO',
-        'Entregado': o.qty_delivered,
-        'Total': o.qty_total,
-        'Vendedor': o.salesperson || '',
-      };
-    });
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Órdenes Odoo');
-    XLSX.writeFile(wb, `ordenes_odoo_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);
+    const selectedIds = selectedCount > 0
+      ? new Set(Object.entries(rowSelection).filter(([, v]) => v).map(([id]) => Number(id)))
+      : null;
+    exportOrdersToExcel({ orders: filteredOrders, selectedIds });
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -165,7 +141,7 @@ export default function AdminPanel() {
           <div className="order-report-no-print flex flex-wrap items-center justify-between gap-3 border-b border-border pb-6">
             <div>
               <h1 className="font-display text-3xl font-extrabold tracking-tight text-foreground">
-                Consola de Administración
+                Órdenes
               </h1>
               <p className="mt-1.5 font-mono-data text-xs uppercase tracking-widest text-muted-foreground">
                 Órdenes por facturar — solo lectura
@@ -185,96 +161,81 @@ export default function AdminPanel() {
             </div>
           )}
 
-          <Tabs value={activeTab} onValueChange={v => setActiveTab(v as 'orders' | 'report' | 'config')}>
+          <Tabs value={activeTab} onValueChange={v => setActiveTab(v as AdminTab)}>
             <TabsList>
+              <TabsTrigger value="pending"><ListChecks /> Pendientes</TabsTrigger>
               <TabsTrigger value="orders"><Table2 /> Órdenes</TabsTrigger>
+              <TabsTrigger value="deliveries"><Truck /> Entregas</TabsTrigger>
               <TabsTrigger value="report"><FileText /> Reporte</TabsTrigger>
               <TabsTrigger value="config"><Settings /> Configuración</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="orders" className="mt-5 space-y-4">
-              {/* Búsqueda IA — acción principal */}
-              <form onSubmit={handleNLSearch} className="flex flex-wrap gap-2">
-                <div className="relative min-w-[260px] flex-1">
-                  <Sparkles className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-primary" />
-                  <Input
-                    value={nlQuery}
-                    onChange={e => setNlQuery(e.target.value)}
-                    placeholder='Búsqueda IA: "las vencidas de más de 100 mil pesos"…'
-                    className="pl-10"
-                  />
-                </div>
-                <Button type="submit" disabled={isSearchingAI || !nlQuery.trim()}>
-                  {isSearchingAI ? <Loader2 className="animate-spin" /> : <Sparkles />}
-                  Buscar con IA
-                </Button>
-                {aiFilterIds && (
-                  <Button type="button" variant="ghost" onClick={clearAIFilter}>
-                    <X /> Limpiar filtro IA ({aiFilterIds.length})
-                  </Button>
-                )}
-              </form>
+            {activeTab !== 'config' && (
+              <div className="order-report-no-print mt-5 space-y-4">
+                <OrdersFilterBar
+                  nlQuery={nlQuery}
+                  onNlQueryChange={setNlQuery}
+                  onNlSubmit={handleNLSearch}
+                  isSearchingAI={isSearchingAI}
+                  aiFilterCount={aiFilterIds ? aiFilterIds.length : null}
+                  onClearAIFilter={clearAIFilter}
+                  search={search}
+                  onSearchChange={setSearch}
+                  clientFilter={clientFilter}
+                  onClientFilterChange={setClientFilter}
+                  clients={uniqueClients}
+                  statusFilter={statusFilter}
+                  onStatusFilterChange={setStatusFilter}
+                />
 
-              {/* Filtros + acciones secundarias */}
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="relative min-w-[200px] flex-1">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    placeholder="Buscar SO, cliente o producto…"
-                    className="pl-10"
-                  />
-                </div>
-                <Select
-                  value={clientFilter || ALL_CLIENTS}
-                  onValueChange={v => setClientFilter(v === ALL_CLIENTS ? '' : v)}
-                >
-                  <SelectTrigger className="w-[210px]">
-                    <SelectValue placeholder="Todos los clientes" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL_CLIENTS}>Todos los clientes</SelectItem>
-                    {uniqueClients.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Select value={statusFilter} onValueChange={v => setStatusFilter(v as 'all' | 'overdue' | 'ontime')}>
-                  <SelectTrigger className="w-[150px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas</SelectItem>
-                    <SelectItem value="overdue">Vencidas</SelectItem>
-                    <SelectItem value="ontime">En tiempo</SelectItem>
-                  </SelectContent>
-                </Select>
-                <div className="ml-auto flex gap-2">
-                  <Button type="button" variant="secondary" onClick={handleAnomalies} disabled={filteredOrders.length === 0}>
-                    <ScanSearch /> Anomalías
-                  </Button>
-                  <Button type="button" variant="secondary" onClick={handleExport} disabled={filteredOrders.length === 0}>
-                    <Download /> Excel
-                  </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-mono-data font-bold text-foreground">{filteredOrders.length}</span> de{' '}
+                    <span className="font-mono-data">{orders.length}</span> órdenes
+                  </p>
+                  <div className="ml-auto flex gap-2">
+                    {activeTab === 'orders' && (
+                      <Button
+                        type="button"
+                        variant={groupByClient ? 'default' : 'secondary'}
+                        onClick={() => setGroupByClient(g => !g)}
+                      >
+                        <Users2 /> Agrupar por cliente
+                      </Button>
+                    )}
+                    <Button type="button" variant="secondary" onClick={handleExport} disabled={filteredOrders.length === 0}>
+                      <Download /> Excel{selectedCount > 0 ? ` (${selectedCount} seleccionadas)` : ''}
+                    </Button>
+                  </div>
                 </div>
               </div>
+            )}
 
-              <p className="text-xs text-muted-foreground">
-                <span className="font-mono-data font-bold text-foreground">{filteredOrders.length}</span> de{' '}
-                <span className="font-mono-data">{orders.length}</span> órdenes
-              </p>
-
+            <TabsContent value="pending" className="mt-4">
               {isLoading ? (
-                <div className="flex items-center justify-center gap-3 py-24 text-muted-foreground">
-                  <Loader2 className="size-6 animate-spin" /> Cargando órdenes de Odoo…
-                </div>
+                <LoadingState />
+              ) : (
+                <PendingTab orders={filteredOrders} onSummarize={handleSummarizePending} isSummarizing={isSummarizing} />
+              )}
+            </TabsContent>
+
+            <TabsContent value="orders" className="mt-4">
+              {isLoading ? (
+                <LoadingState />
               ) : (
                 <OrdersTable
                   orders={filteredOrders}
-                  predictions={predictions}
-                  onClientReport={handleClientReport}
-                  onPredictRisk={handlePredictRisk}
+                  groupByClient={groupByClient}
+                  rowSelection={rowSelection}
+                  onRowSelectionChange={setRowSelection}
+                  explainingId={explainingId}
+                  onExplainRequirements={handleExplainRequirements}
                 />
               )}
+            </TabsContent>
+
+            <TabsContent value="deliveries" className="mt-4">
+              {isLoading ? <LoadingState /> : <DeliveriesTab orders={filteredOrders} />}
             </TabsContent>
 
             <TabsContent value="report" className="mt-5">
@@ -292,5 +253,13 @@ export default function AdminPanel() {
         )}
       </div>
     </TooltipProvider>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="flex items-center justify-center gap-3 py-24 text-muted-foreground">
+      <Loader2 className="size-6 animate-spin" /> Cargando órdenes de Odoo…
+    </div>
   );
 }
