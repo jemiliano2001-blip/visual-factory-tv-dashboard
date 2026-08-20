@@ -1,71 +1,75 @@
 /**
- * Tabla read-only de órdenes Odoo para la consola admin.
- * Sorting por columna y filas expandibles con líneas de producto.
+ * Tabla read-only de órdenes Odoo para la consola admin (herramienta de
+ * trabajo del equipo de diseño). Sorting por columna, selección de filas para
+ * exportar, agrupación opcional por cliente y filas expandibles con líneas
+ * de producto, remisiones y la nota de la orden.
  */
 import React, { useMemo, useState } from 'react';
 import {
   useReactTable, getCoreRowModel, getSortedRowModel, getExpandedRowModel,
-  flexRender, createColumnHelper, SortingState, ExpandedState,
+  flexRender, createColumnHelper, SortingState, ExpandedState, RowSelectionState,
 } from '@tanstack/react-table';
 import { format } from 'date-fns';
-import { ChevronDown, ChevronRight, Mail, Activity, Loader2, AlertTriangle } from 'lucide-react';
+import DOMPurify from 'dompurify';
+import { ChevronDown, ChevronRight, Sparkles, Loader2 } from 'lucide-react';
 import {
-  OdooSaleOrder, parseOdooDate, getOrderPriority, isOrderOverdue,
-  getDeliveryProgress,
+  OdooSaleOrder, parseOdooDate, getOrderStatus, getDeliveryProgress,
 } from '../../services/odoo';
-import { RiskPrediction } from './riskTypes';
-import { Badge, type BadgeProps } from '../ui/badge';
+import { getOrderMissingQty } from '../../services/pendingItems';
+import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
-
-type BadgeVariant = BadgeProps['variant'];
-
-const DELIVERY_STATE_VARIANT: Record<string, BadgeVariant> = {
-  done: 'success',
-  assigned: 'info',
-  waiting: 'warning',
-  confirmed: 'warning',
-  draft: 'muted',
-  cancel: 'muted',
-};
-
-const DELIVERY_STATE_LABEL: Record<string, string> = {
-  done: 'Hecho',
-  assigned: 'Listo',
-  waiting: 'En espera',
-  confirmed: 'Confirmado',
-  draft: 'Borrador',
-  cancel: 'Cancelado',
-};
-
-const PRIORITY_VARIANT: Record<string, BadgeVariant> = {
-  low: 'success', normal: 'info', high: 'warning', critical: 'danger',
-};
-const PRIORITY_LABELS: Record<string, string> = {
-  low: 'Baja', normal: 'Normal', high: 'Alta', critical: 'Crítica',
-};
-const RISK_TEXT: Record<string, string> = {
-  low: 'text-success', medium: 'text-warning', high: 'text-destructive',
-};
-const RISK_LABELS: Record<string, string> = {
-  low: 'Bajo', medium: 'Medio', high: 'Alto',
-};
+import { DELIVERY_STATE_LABEL, DELIVERY_STATE_VARIANT } from './deliveryMeta';
+import { STATUS_VARIANT } from './orderStatusMeta';
 
 interface OrdersTableProps {
   orders: OdooSaleOrder[];
-  /** Predicciones por id de orden; 'loading' mientras la IA trabaja */
-  predictions: Record<number, RiskPrediction | 'loading'>;
-  onClientReport: (order: OdooSaleOrder) => void;
-  onPredictRisk: (order: OdooSaleOrder) => void;
+  groupByClient: boolean;
+  rowSelection: RowSelectionState;
+  onRowSelectionChange: (selection: RowSelectionState) => void;
+  explainingId: number | null;
+  onExplainRequirements: (order: OdooSaleOrder) => void;
 }
 
 const columnHelper = createColumnHelper<OdooSaleOrder>();
 
-export default function OrdersTable({ orders, predictions, onClientReport, onPredictRisk }: OrdersTableProps) {
+export default function OrdersTable({
+  orders, groupByClient, rowSelection, onRowSelectionChange, explainingId, onExplainRequirements,
+}: OrdersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'commitment_date', desc: false }]);
   const [expanded, setExpanded] = useState<ExpandedState>({});
 
+  const data = useMemo(() => {
+    if (!groupByClient) return orders;
+    // Agrupa preservando el orden relativo dentro de cada cliente.
+    const byClient = new Map<string, OdooSaleOrder[]>();
+    for (const o of orders) {
+      const list = byClient.get(o.partner_name) ?? [];
+      list.push(o);
+      byClient.set(o.partner_name, list);
+    }
+    return Array.from(byClient.values()).flat();
+  }, [orders, groupByClient]);
+
   const columns = useMemo(() => [
+    columnHelper.display({
+      id: 'select',
+      header: ({ table }) => (
+        <Checkbox
+          checked={table.getIsAllRowsSelected() ? true : table.getIsSomeRowsSelected() ? 'indeterminate' : false}
+          onCheckedChange={v => table.toggleAllRowsSelected(!!v)}
+          aria-label="Seleccionar todas"
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={v => row.toggleSelected(!!v)}
+          aria-label="Seleccionar fila"
+        />
+      ),
+    }),
     columnHelper.display({
       id: 'expander',
       header: () => null,
@@ -93,14 +97,11 @@ export default function OrdersTable({ orders, predictions, onClientReport, onPre
       header: 'Compromiso',
       cell: ({ row }) => {
         const d = parseOdooDate(row.original.commitment_date);
-        const overdue = isOrderOverdue(row.original);
+        const status = getOrderStatus(row.original);
         return (
-          <div className="flex items-center gap-2">
-            <span className={`font-mono-data text-xs tabular-nums ${overdue ? 'font-bold text-destructive' : 'text-muted-foreground'}`}>
-              {d ? format(d, 'dd/MM/yyyy') : 'Sin fecha'}
-            </span>
-            {overdue && <Badge variant="danger">Vencida</Badge>}
-          </div>
+          <span className={`font-mono-data text-xs tabular-nums ${status.level === 'overdue' ? 'font-bold text-destructive' : 'text-muted-foreground'}`}>
+            {d ? format(d, 'dd/MM/yyyy') : 'Sin fecha'}
+          </span>
         );
       },
       sortingFn: (a, b) =>
@@ -143,76 +144,68 @@ export default function OrdersTable({ orders, predictions, onClientReport, onPre
         );
       },
     }),
-    columnHelper.accessor('salesperson', {
-      id: 'salesperson',
-      header: 'Vendedor',
-      meta: { className: 'hidden 2xl:table-cell' },
-      cell: info => <span className="text-xs text-muted-foreground">{info.getValue() || '—'}</span>,
+    columnHelper.display({
+      id: 'missing',
+      header: 'Falta',
+      cell: ({ row }) => {
+        const missing = getOrderMissingQty(row.original);
+        return (
+          <span className={`font-mono-data text-sm font-bold tabular-nums ${missing > 0 ? 'text-primary' : 'text-muted-foreground'}`}>
+            {missing}
+          </span>
+        );
+      },
     }),
     columnHelper.display({
-      id: 'priority',
-      header: 'Prioridad',
+      id: 'status',
+      header: 'Estado',
       cell: ({ row }) => {
-        const p = getOrderPriority(row.original);
-        return <Badge variant={PRIORITY_VARIANT[p]}>{PRIORITY_LABELS[p]}</Badge>;
+        const status = getOrderStatus(row.original);
+        return <Badge variant={STATUS_VARIANT[status.level]}>{status.label}</Badge>;
       },
     }),
     columnHelper.display({
       id: 'actions',
       header: 'IA',
-      cell: ({ row }) => {
-        const pred = predictions[row.original.id];
-        return (
-          <div className="flex gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => onClientReport(row.original)}
-                  aria-label="Generar reporte para el cliente"
-                  className="hover:text-primary"
-                >
-                  <Mail />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Reporte para el cliente</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => onPredictRisk(row.original)}
-                  disabled={pred === 'loading'}
-                  aria-label="Predecir riesgo de retraso"
-                  className="hover:text-warning"
-                >
-                  {pred === 'loading' ? <Loader2 className="animate-spin" /> : <Activity />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Predecir riesgo</TooltipContent>
-            </Tooltip>
-          </div>
-        );
-      },
+      cell: ({ row }) => (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => onExplainRequirements(row.original)}
+              disabled={explainingId === row.original.id}
+              aria-label="Explicar requisitos de la orden"
+              className="hover:text-primary"
+            >
+              {explainingId === row.original.id ? <Loader2 className="animate-spin" /> : <Sparkles />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Explicar requisitos</TooltipContent>
+        </Tooltip>
+      ),
     }),
-  ], [predictions, onClientReport, onPredictRisk]);
+  ], [explainingId, onExplainRequirements]);
 
   const table = useReactTable({
-    data: orders,
+    data,
     columns,
-    state: { sorting, expanded },
+    state: { sorting, expanded, rowSelection },
     onSortingChange: setSorting,
     onExpandedChange: setExpanded,
+    onRowSelectionChange: updater =>
+      onRowSelectionChange(typeof updater === 'function' ? updater(rowSelection) : updater),
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
     getRowCanExpand: () => true,
     getRowId: row => String(row.id),
+    enableSortingRemoval: false,
   });
+
+  const rows = table.getRowModel().rows;
+  let lastClient: string | null = groupByClient ? null : undefined as unknown as string | null;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
@@ -239,31 +232,42 @@ export default function OrdersTable({ orders, predictions, onClientReport, onPre
             ))}
           </thead>
           <tbody className="divide-y divide-border">
-            {table.getRowModel().rows.length === 0 ? (
+            {rows.length === 0 ? (
               <tr>
                 <td colSpan={columns.length} className="px-4 py-12 text-center text-sm text-muted-foreground">
                   No hay órdenes que coincidan con los filtros
                 </td>
               </tr>
             ) : (
-              table.getRowModel().rows.map(row => (
-                <React.Fragment key={row.id}>
-                  <tr className="transition-colors hover:bg-accent/40">
-                    {row.getVisibleCells().map(cell => (
-                      <td key={cell.id} className={`px-3 py-3 ${(cell.column.columnDef.meta as { className?: string } | undefined)?.className ?? ''}`}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
-                  {row.getIsExpanded() && (
-                    <tr className="bg-background/50">
-                      <td colSpan={columns.length} className="px-6 py-4">
-                        <ExpandedRow order={row.original} prediction={predictions[row.original.id]} />
-                      </td>
+              rows.map(row => {
+                const showGroupHeader = groupByClient && row.original.partner_name !== lastClient;
+                if (showGroupHeader) lastClient = row.original.partner_name;
+                return (
+                  <React.Fragment key={row.id}>
+                    {showGroupHeader && (
+                      <tr className="bg-muted/50">
+                        <td colSpan={columns.length} className="px-4 py-2 text-xs font-bold uppercase tracking-wide text-foreground">
+                          {row.original.partner_name}
+                        </td>
+                      </tr>
+                    )}
+                    <tr className="transition-colors hover:bg-accent/40">
+                      {row.getVisibleCells().map(cell => (
+                        <td key={cell.id} className={`px-3 py-3 ${(cell.column.columnDef.meta as { className?: string } | undefined)?.className ?? ''}`}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      ))}
                     </tr>
-                  )}
-                </React.Fragment>
-              ))
+                    {row.getIsExpanded() && (
+                      <tr className="bg-background/50">
+                        <td colSpan={columns.length} className="px-6 py-4">
+                          <ExpandedRow order={row.original} />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -272,7 +276,7 @@ export default function OrdersTable({ orders, predictions, onClientReport, onPre
   );
 }
 
-function ExpandedRow({ order, prediction }: { order: OdooSaleOrder; prediction?: RiskPrediction | 'loading' }) {
+function ExpandedRow({ order }: { order: OdooSaleOrder }) {
   return (
     <div className="space-y-4">
       <div>
@@ -324,16 +328,15 @@ function ExpandedRow({ order, prediction }: { order: OdooSaleOrder; prediction?:
         </div>
       )}
 
-      {prediction && prediction !== 'loading' && (
-        <div className="flex items-start gap-3 rounded-xl border border-border bg-background/50 p-3">
-          <AlertTriangle className={`mt-0.5 size-5 shrink-0 ${RISK_TEXT[prediction.risk_level]}`} />
-          <div className="text-sm">
-            <span className={`font-bold ${RISK_TEXT[prediction.risk_level]}`}>
-              Riesgo {RISK_LABELS[prediction.risk_level]}:
-            </span>{' '}
-            <span className="text-foreground/90">{prediction.issue}</span>
-            <p className="mt-1 text-muted-foreground">{prediction.suggestion}</p>
-          </div>
+      {order.note && (
+        <div>
+          <h4 className="mb-2 font-mono-data text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            Nota / términos
+          </h4>
+          <div
+            className="prose prose-sm max-w-none text-sm text-foreground/90 [&_a]:text-primary"
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(order.note) }}
+          />
         </div>
       )}
     </div>
