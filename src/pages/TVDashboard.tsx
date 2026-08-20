@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CompanyConfig } from '../types';
 import { subscribeToCompanyConfigs } from '../services/companyConfigs';
@@ -234,7 +235,9 @@ export default function TVDashboard() {
   const loadOdooOrders = () => refetch();
 
   // ── Configs + UI ─────────────────────────────────────────────────────────────
+  const navigate = useNavigate();
   const [companyConfigs, setCompanyConfigs] = useState<CompanyConfig[]>([]);
+  const [showGradient, setShowGradient]     = useState(true);
   const [currentTime, setCurrentTime]       = useState(new Date());
   const [highlightedSO, setHighlightedSO]   = useState<string | null>(null);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
@@ -933,11 +936,26 @@ export default function TVDashboard() {
         isTVMode ? 'tv-viewport' : 'desktop-viewport'
       } ${isFullscreen ? 'w-full h-full' : ''}`}
     >
+      {/* Fondo degradado — decorativo, alternable desde el header. */}
+      <AnimatePresence>
+        {showGradient && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 pointer-events-none z-0"
+            aria-hidden="true"
+          >
+            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/8 blur-[130px] rounded-full" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── Header ─────────────────────────────────────────────────────────────── */}
       <DashboardHeader
         currentTime={currentTime}
         currentCompany={currentHeaderCompany}
         currentCompanyLogo={currentHeaderCompanyLogo}
+        currentPageNum={currentPage?.type === 'company' ? currentPage.current : undefined}
+        totalPages={currentPage?.type === 'company' ? currentPage.total : undefined}
         screenOrderCount={currentPageOrders.length}
         screenOverdueCount={currentPageOverdueCount}
         screenCriticalCount={currentPageCriticalCount}
@@ -953,6 +971,8 @@ export default function TVDashboard() {
         onRefresh={loadOdooOrders}
         viewMode={effectiveViewMode}
         onViewModeChange={setViewMode}
+        showGradient={showGradient}
+        onToggleGradient={() => setShowGradient(v => !v)}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
         voiceFilter={voiceFilter}
@@ -962,6 +982,7 @@ export default function TVDashboard() {
         isSpeaking={isSpeaking}
         isRotationPaused={rotationPaused}
         onResumeRotation={() => setRotationPaused(false)}
+        onNavigateAdmin={() => navigate('/admin')}
       />
 
       {/* ── Main grid ──────────────────────────────────────────────────────────── */}

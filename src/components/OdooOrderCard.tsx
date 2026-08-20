@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { AlertTriangle, CheckCircle2, Clock, Package, PlayCircle } from 'lucide-react';
-import { OdooSaleOrder, getDeliveryProgress, getOrderPriority, isOrderOverdue } from '../services/odoo';
+import { AlertTriangle, Check, CheckCircle2, Clock, Package, PlayCircle } from 'lucide-react';
+import { OdooSaleOrder, OdooOrderLine, getDeliveryProgress, getOrderPriority, isOrderOverdue } from '../services/odoo';
 import { getCardPresentation, isLargeTVCard } from '../services/cardPresentation';
 import SmartText from './SmartText';
 
@@ -30,6 +30,26 @@ const PRIORITY_LABELS: Record<string, string> = {
   low: 'Baja', normal: 'Normal', high: 'Alta', critical: 'Crítica',
 };
 
+// Remisiones (stock.picking). Se excluye 'cancel' — una remisión cancelada no
+// dice nada del avance real del pedido.
+const DELIVERY_STATE_LABEL: Record<string, string> = {
+  done: 'Entregada',
+  assigned: 'Lista',
+  waiting: 'En espera',
+  confirmed: 'Confirmada',
+  draft: 'Borrador',
+};
+
+const DELIVERY_STATE_COLOR: Record<string, string> = {
+  done: 'text-emerald-400 border-emerald-800/60',
+  assigned: 'text-cyan-400 border-cyan-800/60',
+  waiting: 'text-amber-400 border-amber-800/60',
+  confirmed: 'text-amber-400 border-amber-800/60',
+  draft: 'text-zinc-500 border-zinc-700/60',
+};
+
+const DELIVERY_STATE_ORDER = ['done', 'assigned', 'waiting', 'confirmed', 'draft'];
+
 const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   order,
   isHighlighted,
@@ -46,8 +66,16 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   const isCritical = priority === 'critical';
   const presentation = getCardPresentation({ progress, isHighlighted, isOverdue, isCritical });
   const isLarge = isLargeTVCard(viewMode, isWide, screenTier);
-  const primaryLine = order.lines[0];
-  const extraLineCount = Math.max(0, order.lines.length - 1);
+  const { deliveryCounts, deliveryStates } = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const d of order.deliveries ?? []) {
+      if (d.state !== 'cancel') counts[d.state] = (counts[d.state] ?? 0) + 1;
+    }
+    return {
+      deliveryCounts: counts,
+      deliveryStates: DELIVERY_STATE_ORDER.filter(state => (counts[state] ?? 0) > 0),
+    };
+  }, [order.deliveries]);
   const statusLabel = progress >= 100 ? 'Entregada' : progress > 0 ? 'En proceso' : 'Pendiente';
   const StatusIcon = progress >= 100
     ? CheckCircle2
@@ -75,6 +103,19 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       : isLarge
         ? 'text-4xl xl:text-5xl'
         : 'text-2xl lg:text-3xl';
+  // Cuántas líneas caben sin desbordar: escritorio las lista todas; en TV
+  // depende de si la tarjeta es grande o va apretada en una página compartida.
+  const maxVisibleLines = viewMode === 'desktop'
+    ? order.lines.length
+    : isMobile
+      ? 1
+      : isDense
+        ? 3
+        : isLarge
+          ? 6
+          : 4;
+  const visibleLines = order.lines.slice(0, maxVisibleLines);
+  const hiddenLineCount = Math.max(0, order.lines.length - visibleLines.length);
   const cardLabel = `${order.name}, ${order.partner_name}, ${progress}% ${statusLabel}${isOverdue ? ', vencida' : ''}`;
 
   return (
@@ -119,15 +160,47 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
         )}
       </div>
 
-      <div className={`relative z-10 flex min-w-0 items-center gap-2 ${isLarge ? 'mt-5' : 'mt-3'}`}>
-        <Package className={`${isLarge ? 'h-5 w-5' : 'h-4 w-4'} shrink-0 text-zinc-500`} aria-hidden="true" />
-        <SmartText
-          text={primaryLine?.name || order.main_product}
-          maxLines={isMobile || isDense ? 1 : 2}
-          className={`${isLarge ? 'text-lg' : 'text-sm'} font-semibold text-zinc-100`}
-          defaultLevel={2}
-        />
-        {extraLineCount > 0 && <span className="shrink-0 text-xs font-bold text-zinc-500">+{extraLineCount}</span>}
+      {/* flex-1 + min-h-0: las líneas ocupan el espacio libre de la tarjeta y se
+          repliegan solas en las páginas compartidas más apretadas, donde el
+          porcentaje y la barra tienen prioridad sobre el nombre del producto. */}
+      <div className={`relative z-10 min-w-0 flex-1 min-h-0 overflow-hidden ${isLarge ? 'mt-5' : 'mt-3'}`}>
+        <div className="flex flex-col gap-1">
+          {visibleLines.length === 0 && (
+            <div className="flex min-w-0 items-center gap-2">
+              <Package className={`${isLarge ? 'h-5 w-5' : 'h-4 w-4'} shrink-0 text-zinc-500`} aria-hidden="true" />
+              <SmartText
+                text={order.main_product}
+                maxLines={isMobile || isDense ? 1 : 2}
+                className={`${isLarge ? 'text-lg' : 'text-sm'} font-semibold text-zinc-100`}
+                defaultLevel={2}
+              />
+            </div>
+          )}
+          {visibleLines.map((line: OdooOrderLine, idx: number) => {
+            const lineComplete = line.qty > 0 && line.delivered >= line.qty;
+            return (
+              <div key={idx} className="flex min-w-0 items-center gap-2">
+                {lineComplete
+                  ? <Check className={`${isLarge ? 'h-5 w-5' : 'h-4 w-4'} shrink-0 ${presentation.statusTextClass}`} aria-hidden="true" />
+                  : <Package className={`${isLarge ? 'h-5 w-5' : 'h-4 w-4'} shrink-0 text-zinc-500`} aria-hidden="true" />}
+                <SmartText
+                  text={line.name}
+                  maxLines={1}
+                  className={`${isLarge ? 'text-lg' : 'text-sm'} font-semibold leading-tight ${lineComplete ? 'text-zinc-500 line-through' : 'text-zinc-100'}`}
+                  defaultLevel={2}
+                />
+                <span className={`shrink-0 font-mono-data font-black ${isLarge ? 'text-sm' : 'text-xs'} ${lineComplete ? presentation.statusTextClass : 'text-zinc-300'}`}>
+                  {line.delivered}/{line.qty}
+                </span>
+              </div>
+            );
+          })}
+          {hiddenLineCount > 0 && (
+            <span className={`pl-6 font-bold text-zinc-400 ${isLarge ? 'text-sm' : 'text-xs'}`}>
+              +{hiddenLineCount} más
+            </span>
+          )}
+        </div>
       </div>
 
       <div className={`relative z-10 mt-auto ${isLarge ? 'pt-7' : 'pt-4'}`}>
@@ -147,6 +220,23 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
             style={{ width: `${Math.max(progress, progress > 0 ? 4 : 0)}%` }}
           />
         </div>
+
+        {/* Remisiones — se omiten sólo en móvil, donde la tarjeta es una fila. */}
+        {deliveryStates.length > 0 && !isMobile && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className={`shrink-0 font-bold uppercase tracking-wider text-zinc-500 ${isLarge ? 'text-xs' : 'text-[11px]'}`}>
+              Rem.
+            </span>
+            {deliveryStates.map(state => (
+              <span
+                key={state}
+                className={`rounded border px-1.5 py-0.5 font-black ${isLarge ? 'text-xs' : 'text-[11px]'} ${DELIVERY_STATE_COLOR[state]}`}
+              >
+                {deliveryCounts[state]} {DELIVERY_STATE_LABEL[state]}{(deliveryCounts[state] ?? 0) > 1 ? 's' : ''}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </motion.button>
   );

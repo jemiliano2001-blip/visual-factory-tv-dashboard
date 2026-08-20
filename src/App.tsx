@@ -6,7 +6,6 @@ import { auth } from './firebase';
 
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
-import AdminRoute from './components/AdminRoute';
 import TVDashboard from './pages/TVDashboard';
 import AdminPanel from './pages/AdminPanel';
 import StatsDashboard from './pages/StatsDashboard';
@@ -120,10 +119,12 @@ export default function App() {
               {/* TV dashboard: público sin login visible — auth anónima provee el ID token */}
               <Route index element={<TVDashboard />} />
 
+              {/* /admin es herramienta de trabajo del equipo de diseño, no un panel
+                  restringido — cualquier cuenta real (no anónima) entra, igual que /stats. */}
               <Route path="admin" element={
-                <AdminRoute>
+                <ProtectedRoute>
                   <AdminPanel />
-                </AdminRoute>
+                </ProtectedRoute>
               } />
 
               <Route path="stats" element={

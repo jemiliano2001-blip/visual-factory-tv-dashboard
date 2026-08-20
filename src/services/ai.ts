@@ -193,7 +193,7 @@ const simplifyOrderWithLines = (o: OdooSaleOrder) => ({
 
 export const generateShiftSummary = async (orders: OdooSaleOrder[]) => {
   const response = await generateContent({
-    model: 'gemini-3.5-flash',
+    model: 'gemini-3.7-flash',
     contents: `You are a manufacturing plant manager. Analyze the following Odoo sale orders pending invoicing and provide a brief executive summary of the current state: highlight overdue orders, clients with the largest backlog (by number of orders), and overall delivery progress. Do NOT mention or estimate any monetary amounts. Use markdown. RESPOND IN SPANISH.\n\nOrders: ${JSON.stringify(orders.map(simplifyOrder))}`,
   });
   return response.text;
@@ -202,7 +202,7 @@ export const generateShiftSummary = async (orders: OdooSaleOrder[]) => {
 /** Resumen para el equipo de diseño: qué atacar hoy y por qué, agrupado por cliente. */
 export const summarizePendingWork = async (orders: OdooSaleOrder[]) => {
   const response = await generateContent({
-    model: 'gemini-3.5-flash',
+    model: 'gemini-3.7-flash',
     contents: `Eres un asistente para el equipo de diseño/producción de un taller de manufactura. Con la siguiente lista de órdenes de venta pendientes de entrega (con sus piezas faltantes y estado de urgencia), arma un plan de trabajo breve para hoy: qué órdenes atacar primero y por qué, agrupando por cliente cuando tenga sentido. No menciones montos. Usa markdown con encabezados por prioridad. RESPONDE EN ESPAÑOL.\n\nÓrdenes: ${JSON.stringify(orders.map(simplifyOrder))}`,
   });
   return response.text;
@@ -212,7 +212,7 @@ export const summarizePendingWork = async (orders: OdooSaleOrder[]) => {
  * leyendo su nota y sus líneas pendientes — ayuda al diseñador a entender qué le piden. */
 export const explainOrderRequirements = async (order: OdooSaleOrder) => {
   const response = await generateContent({
-    model: 'gemini-3.5-flash',
+    model: 'gemini-3.7-flash',
     contents: `Eres un asistente para el equipo de diseño de un taller de manufactura. Lee los datos de esta orden de venta de Odoo (incluida su nota de términos) y explica en español, breve y accionable: (1) qué se debe fabricar/entregar y qué falta, (2) el tiempo de entrega comprometido si la nota lo menciona, (3) cualquier ambigüedad o dato faltante que convenga confirmar con ventas. No menciones montos. Usa markdown con viñetas cortas.\n\nOrden: ${JSON.stringify(simplifyOrderWithLines(order))}`,
   });
   return response.text;
@@ -220,7 +220,7 @@ export const explainOrderRequirements = async (order: OdooSaleOrder) => {
 
 export const filterOrdersByNaturalLanguage = async (query: string, orders: OdooSaleOrder[]): Promise<number[]> => {
   const response = await generateAdminContent({
-    model: 'gemini-3.5-flash',
+    model: 'gemini-3.7-flash',
     contents: `Given the following JSON list of Odoo sale orders and a user query in SPANISH, return a JSON array of the 'id's (numbers) of the orders that match the query. Query: "${query}". Orders: ${JSON.stringify(orders.map(o => ({ id: o.id, ...simplifyOrder(o) })))}`,
     config: {
       responseMimeType: "application/json",
@@ -595,7 +595,7 @@ async function executeVoiceCommand(
 4. 'message': Respuesta muy corta en español (máx 10 palabras).`;
 
   const response = await generateContent({
-    model: 'gemini-3.5-flash',
+    model: 'gemini-3.7-flash',
     contents: {
       parts: [
         ...inputParts,
@@ -683,7 +683,7 @@ export const processAudioVoiceCommand = async (
 
 export const generateSpeech = async (text: string) => {
   // TTS dedicado: gemini-3.1-flash-tts-preview (natural + steerable + streaming).
-  // No usar gemini-3.5-flash — no emite audio.
+  // No usar un modelo de texto (gemini-3.5/3.6/3.7-flash) — no emiten audio.
   // Ruta completa heredada para el prefetch del acknowledgement y otros consumidores
   // existentes: timeout corto y sin reintentos para no dejar al operador esperando si
   // el modelo de TTS falla.

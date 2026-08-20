@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Monitor, Maximize, Minimize, Volume2 } from 'lucide-react';
+import { Monitor, Maximize, Minimize, Palette, Volume2, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { OdooConnectionStatus } from '../services/odoo';
 import OdooStatusBadge from './OdooStatusBadge';
@@ -21,12 +21,29 @@ const SoundWave = () => (
   </div>
 );
 
+// ─── Breadcrumbs ────────────────────────────────────────────────────────────────
+
+// El nombre del cliente ya está en el título de arriba — el breadcrumb solo
+// aporta cuando hay más de una página que recorrer.
+const Breadcrumbs = ({ current, total }: { current?: number; total?: number }) => {
+  if (!total || total <= 1) return null;
+  return (
+    <div className="hidden md:flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 mt-2">
+      <span className="text-zinc-600">Dashboard</span>
+      <ChevronRight className="w-3 h-3 text-zinc-700" />
+      <span className="text-zinc-400">Pág. {current}/{total}</span>
+    </div>
+  );
+};
+
 // ─── Props ──────────────────────────────────────────────────────────────────────
 
 interface DashboardHeaderProps {
   currentTime: Date;
   currentCompany?: string;
   currentCompanyLogo?: string | null;
+  currentPageNum?: number;
+  totalPages?: number;
   screenOrderCount: number;
   screenOverdueCount: number;
   screenCriticalCount: number;
@@ -39,6 +56,8 @@ interface DashboardHeaderProps {
   // View controls
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  showGradient: boolean;
+  onToggleGradient: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   // Voice filter
@@ -50,6 +69,8 @@ interface DashboardHeaderProps {
   isSpeaking: boolean;
   isRotationPaused: boolean;
   onResumeRotation: () => void;
+  // Navegación
+  onNavigateAdmin?: () => void;
 }
 
 // ─── Componente ─────────────────────────────────────────────────────────────────
@@ -58,6 +79,8 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   currentTime,
   currentCompany,
   currentCompanyLogo,
+  currentPageNum,
+  totalPages,
   screenOrderCount,
   screenOverdueCount,
   screenCriticalCount,
@@ -68,6 +91,8 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   onRefresh,
   viewMode,
   onViewModeChange,
+  showGradient,
+  onToggleGradient,
   isFullscreen,
   onToggleFullscreen,
   voiceFilter,
@@ -77,6 +102,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   isSpeaking,
   isRotationPaused,
   onResumeRotation,
+  onNavigateAdmin,
 }) => {
   const isTVMode = viewMode === 'tv';
   const headerLabel = currentCompany ?? 'FÁBRICA VISUAL';
@@ -99,7 +125,8 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
     >
       {/* La pantalla TV prioriza el cliente visible; la marca queda para vistas sin empresa. */}
-      <div className="flex min-w-0 max-w-[52vw] items-center gap-2.5 lg:max-w-[60vw] lg:gap-4">
+      <div className="flex min-w-0 max-w-[52vw] flex-col lg:max-w-[60vw]">
+      <div className="flex min-w-0 items-center gap-2.5 lg:gap-4">
         {currentCompanyLogo && (
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white p-1.5 shadow-[0_0_18px_rgba(255,255,255,0.08)] lg:h-14 lg:w-14 lg:rounded-xl lg:p-2">
             <img
@@ -110,9 +137,25 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             />
           </div>
         )}
-        <h1 className="truncate font-display text-xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 lg:text-4xl">
-          {headerLabel}
-        </h1>
+        {onNavigateAdmin ? (
+          <button
+            type="button"
+            onClick={onNavigateAdmin}
+            title="Ir al panel de administración"
+            aria-label="Ir al panel de administración"
+            className="min-w-0 truncate rounded-lg text-left transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <span className="block truncate font-display text-xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 lg:text-4xl">
+              {headerLabel}
+            </span>
+          </button>
+        ) : (
+          <h1 className="truncate font-display text-xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 lg:text-4xl">
+            {headerLabel}
+          </h1>
+        )}
+      </div>
+      <Breadcrumbs current={currentPageNum} total={totalPages} />
       </div>
 
       {/* Center: Speaking indicator */}
@@ -196,6 +239,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         {/* Controles de escritorio — ocultos en móvil */}
         <div className="hidden md:flex items-center gap-2">
           <div className="w-px h-6" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
+          {iconBtn(onToggleGradient, showGradient, 'Alternar gradiente de fondo', <Palette className="w-4 h-4" />)}
           {iconBtn(onToggleFullscreen, isFullscreen, isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa', isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />)}
           {iconBtn(() => onViewModeChange(isTVMode ? 'desktop' : 'tv'), isTVMode, isTVMode ? 'Modo Escritorio' : 'Modo TV', <Monitor className="w-4 h-4" />)}
           <div className="w-px h-6 ml-1" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
