@@ -1,10 +1,11 @@
-import type { RiskPrediction } from '../components/admin/riskTypes';
 import { formatPONumber } from '../utils/formatters';
-import { OdooSaleOrder, getOrderPriority, isOrderOverdue, isOrderFullyDelivered, getDeliveryProgress, parseOdooDate } from './odoo';
+import {
+  OdooSaleOrder, getOrderStatus, getOrderPriority, isOrderOverdue, isOrderFullyDelivered,
+  getDeliveryProgress, parseOdooDate,
+} from './odoo';
+import { getOrderMissingQty, getPendingLines } from './pendingItems';
 import { getIdTokenOrThrow } from '../firebase';
 import { buildVoiceRiskCatalog, isVoiceRiskQuestion, type VoiceRiskOrder } from './voiceRisk';
-
-export type { RiskPrediction };
 
 const Type = {
   STRING: 'STRING',
@@ -65,13 +66,6 @@ interface GeminiProxyResponse {
       }>;
     };
   }>;
-}
-
-interface RiskPredictionRaw {
-  risk_level: 'low' | 'medium' | 'high';
-  issue: string;
-  suggestion: string;
-  analyzedAt: string;
 }
 
 export type AIErrorKind = 'network' | 'timeout' | 'auth' | 'rate_limit' | 'invalid_response' | 'server' | 'unknown';
@@ -166,18 +160,35 @@ async function generateAdminContent(params: GeminiRequest): Promise<GeminiProxyR
   return generateContent(params, 30000, 2, '/api/ai/admin-generate');
 }
 
+/** Nota de la orden (HTML de Odoo) a texto plano y truncado, para no inflar el prompt. */
+function noteToPlainText(note: string | null, max = 400): string {
+  if (!note) return '';
+  const doc = new DOMParser().parseFromString(note, 'text/html');
+  const text = doc.body.textContent?.replace(/\s+/g, ' ').trim() || '';
+  return text.length > max ? text.slice(0, max).trimEnd() + '…' : text;
+}
+
 /** Proyección compacta de una orden Odoo para prompts (menos tokens, campos en español). */
 const simplifyOrder = (o: OdooSaleOrder) => ({
   so: o.name,
+  referencia_cliente: o.customer_reference,
   cliente: o.partner_name,
   producto: o.main_product,
   avance_entrega: `${o.qty_delivered}/${o.qty_total}`,
   porcentaje_entrega: getDeliveryProgress(o),
+  piezas_faltantes: getOrderMissingQty(o),
   fecha_orden: parseOdooDate(o.date_order)?.toISOString().split('T')[0] ?? null,
   fecha_compromiso: parseOdooDate(o.commitment_date)?.toISOString().split('T')[0] ?? null,
-  vencida: isOrderOverdue(o) ? 'SÍ' : 'NO',
-  prioridad: getOrderPriority(o),
+  estado: getOrderStatus(o).label,
   vendedor: o.salesperson,
+  nota: noteToPlainText(o.note),
+});
+
+/** Igual que simplifyOrder pero incluye el desglose de líneas pendientes —
+ * solo para prompts sobre una única orden (evita inflar listas largas). */
+const simplifyOrderWithLines = (o: OdooSaleOrder) => ({
+  ...simplifyOrder(o),
+  lineas_pendientes: getPendingLines(o).map(pl => ({ producto: pl.line.name, faltan: pl.missing })),
 });
 
 export const generateShiftSummary = async (orders: OdooSaleOrder[]) => {
@@ -188,50 +199,23 @@ export const generateShiftSummary = async (orders: OdooSaleOrder[]) => {
   return response.text;
 };
 
-export const generateClientReport = async (order: OdooSaleOrder) => {
-  const response = await generateAdminContent({
+/** Resumen para el equipo de diseño: qué atacar hoy y por qué, agrupado por cliente. */
+export const summarizePendingWork = async (orders: OdooSaleOrder[]) => {
+  const response = await generateContent({
     model: 'gemini-3.5-flash',
-    contents: `Draft a professional, concise email in SPANISH to the client (${order.partner_name}) updating them on sale order ${order.name} for "${order.main_product}". Delivery progress is ${order.qty_delivered}/${order.qty_total} units${order.commitment_date ? `, committed delivery date is ${order.commitment_date}` : ''}. Focus on delivery status and dates only; do NOT include prices or monetary amounts.`,
+    contents: `Eres un asistente para el equipo de diseño/producción de un taller de manufactura. Con la siguiente lista de órdenes de venta pendientes de entrega (con sus piezas faltantes y estado de urgencia), arma un plan de trabajo breve para hoy: qué órdenes atacar primero y por qué, agrupando por cliente cuando tenga sentido. No menciones montos. Usa markdown con encabezados por prioridad. RESPONDE EN ESPAÑOL.\n\nÓrdenes: ${JSON.stringify(orders.map(simplifyOrder))}`,
   });
   return response.text;
 };
 
-export const predictOrderRisk = async (order: OdooSaleOrder): Promise<RiskPrediction> => {
-  const response = await generateAdminContent({
+/** Extrae en español los requisitos, tiempos comprometidos y ambigüedades de una orden,
+ * leyendo su nota y sus líneas pendientes — ayuda al diseñador a entender qué le piden. */
+export const explainOrderRequirements = async (order: OdooSaleOrder) => {
+  const response = await generateContent({
     model: 'gemini-3.5-flash',
-    contents: `You are a manufacturing delivery-risk AI. Analyze this Odoo sale order pending invoicing and predict potential delivery/invoicing issues.
-    Order data: ${JSON.stringify(simplifyOrder(order))}
-
-    Return a JSON object with:
-    - risk_level: 'low', 'medium', or 'high'
-    - issue: a brief description of the predicted issue in SPANISH
-    - suggestion: a brief actionable suggestion in SPANISH
-    - analyzedAt: the current ISO date string`,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          risk_level: { type: Type.STRING, enum: ['low', 'medium', 'high'] },
-          issue: { type: Type.STRING },
-          suggestion: { type: Type.STRING },
-          analyzedAt: { type: Type.STRING }
-        },
-        required: ['risk_level', 'issue', 'suggestion', 'analyzedAt']
-      }
-    }
+    contents: `Eres un asistente para el equipo de diseño de un taller de manufactura. Lee los datos de esta orden de venta de Odoo (incluida su nota de términos) y explica en español, breve y accionable: (1) qué se debe fabricar/entregar y qué falta, (2) el tiempo de entrega comprometido si la nota lo menciona, (3) cualquier ambigüedad o dato faltante que convenga confirmar con ventas. No menciones montos. Usa markdown con viñetas cortas.\n\nOrden: ${JSON.stringify(simplifyOrderWithLines(order))}`,
   });
-
-  let result: RiskPredictionRaw;
-  try {
-    result = JSON.parse(response.text || '{}') as RiskPredictionRaw;
-  } catch {
-    throw new AIError('invalid_response');
-  }
-  return {
-    ...result,
-    analyzedAt: new Date(result.analyzedAt || Date.now())
-  };
+  return response.text;
 };
 
 export const filterOrdersByNaturalLanguage = async (query: string, orders: OdooSaleOrder[]): Promise<number[]> => {
