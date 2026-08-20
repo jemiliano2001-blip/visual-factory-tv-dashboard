@@ -53,10 +53,14 @@ npm run dev:full   # Both of the above concurrently (VITE + ODOO) — use this f
 npm run build      # vite build → dist/
 npm run preview    # Serve the production build (:4173)
 npm run clean      # Remove dist/ build artifacts
-npm run lint       # tsc --noEmit — the ONLY check; there are no unit tests or ESLint
+npm run lint       # tsc --noEmit — there is no ESLint
+npm run test:tv-page-packing   # tsx --test src/utils/tvPagePacking.test.ts
+npm run test:voice-risk        # tsx --test src/services/voiceRisk.test.ts
+npm run test:voice-stream      # tsx --test shared/geminiSpeechStream.test.ts + speech/voice-ack tests
+npm run test:ops-remediation   # tsx --test adminAccess/cardPresentation/companyConfigGuards/rotationPolicy tests
 ```
 
-There is **no test runner and no linter** beyond `tsc --noEmit`. Treat `npm run lint` as the gate for "does this compile."
+There is **no ESLint**, but there are real `node:test`-based unit tests (via `tsx --test`) covering page packing, voice risk, voice streaming, and the admin/ops modules below — run the relevant `test:*` script when touching that code, not just `npm run lint`.
 
 ## Data sources
 
@@ -64,7 +68,7 @@ There is **no test runner and no linter** beyond `tsc --noEmit`. Treat `npm run 
 
 `OdooSaleOrder` includes a `deliveries: OdooDelivery[]` field — the linked `stock.picking` records (outgoing transfers). Each `OdooDelivery` has `name` (e.g. `WH/OUT/00042`), `state` (`draft | confirmed | waiting | assigned | done | cancel`), and `date_done`. `OdooOrderCard` shows a badge row ("Rem.") summarising delivery counts by state, excluding cancelled ones.
 
-**Firestore** only holds `company_configs` (per-client delivery schedules, shown on the TV cards and managed from the Admin → Configuración tab) and backs Firebase **auth**. The legacy `work_orders` / `work_orders_history` collections were retired in 2026-06 (data preserved but rules closed — see `docs/superpowers/specs/2026-06-12-admin-odoo-console-design.md`). The Admin console is **read-only** over Odoo: there is no order CRUD anywhere in the app.
+**Firestore** only holds `company_configs` (per-client delivery schedules, shown on the TV cards and managed from the Admin → Configuración tab) and backs Firebase **auth**. The Configuración tab rejects duplicate client names via `hasDuplicateCompanyConfig()` (`src/services/companyConfigGuards.ts`), which compares names through `normalizeCompanyName()` (trim, collapse whitespace, lowercase with `es-MX` locale) — so "Bosch " and "bosch" collide even though they're not byte-identical. The legacy `work_orders` / `work_orders_history` collections were retired in 2026-06 (data preserved but rules closed — see `docs/superpowers/specs/2026-06-12-admin-odoo-console-design.md`). The Admin console is **read-only** over Odoo: there is no order CRUD anywhere in the app.
 
 ### The Odoo proxy (`server.ts`)
 
@@ -91,19 +95,21 @@ A scheduled Firebase Function (`onSchedule`, wired in `functions/src/index.ts`) 
 ## Auth & routing
 
 - `App.tsx` signs every visitor in **anonymously** on load so the public TV Dashboard works without a visible login while still obtaining a Firebase ID token for `/api/*` and satisfying Firestore rules (`request.auth != null`). If anonymous auth is disabled in Firebase Console, the app shows a clear error screen.
-- Admins sign in via **email/password** (`Login.tsx`). `ProtectedRoute` guards `/admin` and `/stats` using `isRealUser()` (rejects anonymous sessions) and subscribes to `onAuthStateChanged`.
+- Admins sign in via **email/password** (`Login.tsx`). `/stats` is guarded by `ProtectedRoute` using `isRealUser()` (rejects anonymous sessions). `/admin` is guarded by the stricter `AdminRoute` (`src/components/AdminRoute.tsx`): it requires a **verified** real user (`isVerifiedRealUser()` — email/password must have confirmed their email; Google is always verified) **and** the Firebase custom claim `admin: true` on their ID token, checked via `hasAdminClaim()` (`src/services/adminAccess.ts`). Both route guards subscribe to `onAuthStateChanged`. Granting admin access means setting the `admin` custom claim on the user's Firebase Auth account (e.g. via the Admin SDK) — there is no in-app UI for it.
 - `Layout.tsx` renders a bare full-screen shell for `/` (the TV view) and the sidebar chrome for everything else.
 
 ## Firestore rules (`firestore.rules`)
 
-Only `company_configs` is writable (validated: exact field set, string lengths, timestamp). `work_orders` and `work_orders_history` are **closed** (`allow read, write: if false`) — legacy data is preserved in Firestore but unreachable. If you add a field to `CompanyConfig`, update both `src/types.ts` **and** `isValidCompanyConfig()` here, or writes will be rejected. Deploy with `firebase deploy --only firestore:rules`.
+Only `company_configs` is writable, and only by an **admin** (`isAdmin()` = verified user + `admin` custom claim — same check as `AdminRoute`, see Auth & routing above); create/update are also validated (exact field set, string lengths, timestamp). `work_orders` and `work_orders_history` are **closed** (`allow read, write: if false`) — legacy data is preserved in Firestore but unreachable. If you add a field to `CompanyConfig`, update both `src/types.ts` **and** `isValidCompanyConfig()` here, or writes will be rejected. Deploy with `firebase deploy --only firestore:rules`.
 
 ## TV Dashboard — view modes & layout
 
 `TVDashboard` has two rendering modes toggled by the `viewMode` state (`'tv' | 'desktop'`):
 
-- **TV mode** (default): paginated view — orders are grouped by `partner_name`, each group split into pages of `ordersPerPage` cards. Pages auto-rotate every 10 seconds (`setInterval`). The page index resets to 0 when a voice filter is applied or a PO highlight expires.
+- **TV mode** (default): paginated view — orders are grouped by `partner_name`, each group split into pages of `ordersPerPage` cards. Pages auto-rotate every 10 seconds (`setInterval`), gated by `shouldAutoRotate()` (`src/services/rotationPolicy.ts`): it only rotates when in TV mode, there's more than one page, nothing is highlighted, and the operator hasn't paused it. That pause is a deliberate **operational** action, not a persisted preference — it resets on reload by design. The page index resets to 0 when a voice filter is applied or a PO highlight expires.
 - **Desktop mode**: all groups shown at once in a single scrollable column; no pagination, no auto-rotate.
+
+**Page packing** (`src/utils/tvPagePacking.ts`) decides how companies fill pages, not just plain per-company chunking. A company with **≥20 orders** (`EXCLUSIVE_COMPANY_ORDER_THRESHOLD`) always gets exclusive pages — even its trailing partial page — so a big client's last few orders never get visually mixed with another client's. Smaller companies are packed together onto **shared pages** (`type: 'shared'`, rendered by `SharedTVPage.tsx`), laid out as `split` (up to a few clients) or `quad` (up to `MAX_CLIENTS_PER_SHARED_PAGE` clients, up to `MAX_ORDERS_PER_QUAD_SEGMENT` orders each) depending on how many clients/orders need to fit. Card tone/color (pending vs. in-progress vs. delivered, overdue/critical accents) is centralized in `getCardPresentation()` (`src/services/cardPresentation.ts`) and shared by both the plain per-company cards and `SharedTVPage`.
 
 A `ResizeObserver` on the grid container recomputes `gridCols` / `gridRows` / `ordersPerPage` on every resize. It also derives two layout flags passed to `OdooOrderCard`:
 - `isWide`: few columns + few rows + wide aspect ratio → cards render larger text and padding
