@@ -1,7 +1,7 @@
 import React, { useEffect, useState, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { MotionConfig } from 'framer-motion';
-import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { onAuthStateChanged, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
 import { auth } from './firebase';
 
 import Layout from './components/Layout';
@@ -35,6 +35,26 @@ export default function App() {
       }
     };
     checkApiKey();
+
+    // Detección de SSO token desde SMV Hub
+    const hash = typeof window !== 'undefined' && window.location.hash.startsWith('#')
+      ? window.location.hash.slice(1)
+      : '';
+    if (hash) {
+      const params = new URLSearchParams(hash);
+      const ssoToken = params.get('sso_token');
+      if (ssoToken) {
+        signInWithCustomToken(auth, ssoToken)
+          .then(() => {
+            const urlLimpia = window.location.pathname + window.location.search;
+            window.history.replaceState(null, '', urlLimpia);
+          })
+          .catch((err) => {
+            console.error('[visual-factory][auth] signInWithCustomToken falló:', err);
+          });
+      }
+    }
+
 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {

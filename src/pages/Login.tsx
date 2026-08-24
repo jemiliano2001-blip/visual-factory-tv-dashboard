@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { auth, isRealUser } from '../firebase';
-import { signInWithEmailAndPassword, onAuthStateChanged, type User } from 'firebase/auth';
+import { signInWithCustomToken, signInWithEmailAndPassword, onAuthStateChanged, type User } from 'firebase/auth';
 import { useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { Tv } from 'lucide-react';
 
@@ -22,6 +22,33 @@ export default function Login() {
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    const hash = typeof window !== 'undefined' && window.location.hash.startsWith('#')
+      ? window.location.hash.slice(1)
+      : '';
+    if (hash) {
+      const params = new URLSearchParams(hash);
+      const ssoToken = params.get('sso_token');
+      if (ssoToken) {
+        setLoading(true);
+        signInWithCustomToken(auth, ssoToken)
+          .then(() => {
+            const urlLimpia = window.location.pathname + window.location.search;
+            window.history.replaceState(null, '', urlLimpia);
+            navigate(from, { replace: true });
+          })
+          .catch((err) => {
+            console.error('[visual-factory][login] SSO falló:', err);
+            setError('No se pudo autenticar con SSO token.');
+          })
+          .finally(() => {
+            setLoading(false);
+          });
+      }
+    }
+  }, [from, navigate]);
+
 
   if (!checked) {
     return (
