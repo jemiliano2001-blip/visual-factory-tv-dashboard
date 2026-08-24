@@ -1,9 +1,10 @@
 import { Clock } from 'lucide-react';
 import type { OdooSaleOrder } from '../services/odoo';
-import { getCustomerLogo } from '../utils/customerLogos';
 import { getCenteredLastRowStart } from '../utils/tvGridLayout';
 import type { SharedCompanySegment, SharedTVPageData } from '../utils/tvPagePacking';
 import OdooOrderCard, { type ScreenTier } from './OdooOrderCard';
+import CompanyBadge from './CompanyBadge';
+import { getSmartCompanyName } from '../utils/customerNames';
 
 interface SharedTVPageProps {
   page: SharedTVPageData;
@@ -56,9 +57,9 @@ export function SharedTVPage({ page, gridCols, gridRows, isWide, isDense, screen
         {page.segments.map((segment) => {
           const cardColumns = getSegmentCardColumns(segment, gridCols, gridRows, isQuadLayout);
           const cardRows = Math.ceil(segment.orders.length / cardColumns);
-          const logoUrl = getCustomerLogo(segment.company);
           const companyNameSize = getCompanyNameSize(segment.company, isQuadLayout);
           const deliveryTimes = segment.orders.find(o => o.delivery_times)?.delivery_times;
+          const smartName = getSmartCompanyName(segment.company, 'card');
 
           return (
             <section
@@ -77,16 +78,13 @@ export function SharedTVPage({ page, gridCols, gridRows, isWide, isDense, screen
               <header className={`flex flex-none items-center gap-2 border-b border-white/10 pb-2 ${
                 isQuadLayout ? 'mb-2 h-12 lg:mb-2.5 lg:h-14' : 'mb-3 h-12 lg:mb-4 lg:h-14 lg:gap-3'
               }`}>
-                {logoUrl && (
-                  <img src={logoUrl} alt="" className={isQuadLayout
-                    ? 'h-6 w-6 rounded-md bg-white object-contain p-0.5 lg:h-7 lg:w-7'
-                    : 'h-8 w-8 rounded-md bg-white object-contain p-0.5 lg:h-9 lg:w-9'}
-                    onError={(event) => { event.currentTarget.classList.add('hidden'); }}
-                  />
-                )}
+                <CompanyBadge
+                  company={segment.company}
+                  size={isQuadLayout ? 'sm' : 'md'}
+                />
                 <div className="min-w-0 flex-1 flex flex-col justify-center">
-                  <h3 className={`line-clamp-1 min-w-0 break-words font-black uppercase leading-tight tracking-tight text-white ${companyNameSize}`}>
-                    {segment.company}
+                  <h3 className={`line-clamp-1 min-w-0 break-words font-black uppercase leading-tight tracking-tight text-white ${companyNameSize}`} title={segment.company}>
+                    {smartName}
                   </h3>
                   {deliveryTimes && (
                     <div className="flex items-center gap-1 text-[10px] lg:text-[11px] text-cyan-300 font-mono-data font-semibold truncate mt-0.5" title={`Horario: ${deliveryTimes}`}>

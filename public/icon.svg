@@ -1,4 +1,56 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#4f46e5"/>
-  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="200" font-weight="bold" fill="white">VF</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0e0e17"/>
+      <stop offset="100%" stop-color="#050508"/>
+    </linearGradient>
+    
+    <!-- Neon Glow Gradient -->
+    <linearGradient id="neonGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="50%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
+    </linearGradient>
+
+    <!-- Accent Emerald Gradient -->
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Base Dark Squircle -->
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bgGrad)" stroke="url(#neonGrad)" stroke-width="8"/>
+
+  <!-- Subtle Ambient Glow Ring -->
+  <rect x="28" y="28" width="456" height="456" rx="100" fill="none" stroke="url(#neonGrad)" stroke-width="2" stroke-opacity="0.3"/>
+
+  <!-- Industrial Gauges / Grid lines -->
+  <g opacity="0.12" stroke="#22d3ee" stroke-width="2">
+    <line x1="80" y1="180" x2="432" y2="180"/>
+    <line x1="80" y1="332" x2="432" y2="332"/>
+    <line x1="180" y1="80" x2="180" y2="432"/>
+    <line x1="332" y1="80" x2="332" y2="432"/>
+  </g>
+
+  <!-- Central Graphic: VF Monogram + Factory Pulse Monolith -->
+  <g filter="url(#glow)">
+    <!-- Stylized "V" -->
+    <path d="M120 160 L220 360 L270 360 L180 160 Z" fill="url(#neonGrad)"/>
+    
+    <!-- Stylized "F" -->
+    <path d="M250 160 H392 C402 160 410 168 410 178 C410 188 402 196 392 196 H300 V236 H370 C380 236 388 244 388 254 C388 264 380 272 370 272 H300 V360 H260 C254 360 250 355 250 348 Z" fill="url(#neonGrad)"/>
+    
+    <!-- Status Indicator Pulse Dots (Cyan / Emerald / Fuchsia per DESIGN.md) -->
+    <circle cx="160" cy="388" r="14" fill="#22d3ee"/>
+    <circle cx="256" cy="388" r="14" fill="#10b981"/>
+    <circle cx="352" cy="388" r="14" fill="#e879f9"/>
+  </g>
 </svg>

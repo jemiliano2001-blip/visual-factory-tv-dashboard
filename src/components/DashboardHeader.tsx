@@ -5,6 +5,8 @@ import { format } from 'date-fns';
 import { OdooConnectionStatus } from '../services/odoo';
 import OdooStatusBadge from './OdooStatusBadge';
 import { ViewMode } from './OdooOrderCard';
+import CompanyBadge from './CompanyBadge';
+import { getSmartCompanyName } from '../utils/customerNames';
 
 // ─── SoundWave ──────────────────────────────────────────────────────────────────
 
@@ -79,7 +81,7 @@ interface DashboardHeaderProps {
 const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   currentTime,
   currentCompany,
-  currentCompanyLogo,
+  currentCompanyLogo: _unusedLogo,
   currentCompanyDeliverySchedule,
   currentPageNum,
   totalPages,
@@ -107,7 +109,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   onNavigateAdmin,
 }) => {
   const isTVMode = viewMode === 'tv';
-  const headerLabel = currentCompany ?? 'FÁBRICA VISUAL';
+  const headerLabel = currentCompany ? getSmartCompanyName(currentCompany, 'header') : 'FÁBRICA VISUAL';
 
   const iconBtn = (onClick: () => void, isActive: boolean, title: string, children: React.ReactNode) => (
     <button
@@ -129,16 +131,11 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       {/* La pantalla TV prioriza el cliente visible; la marca queda para vistas sin empresa. */}
       <div className="flex min-w-0 max-w-[52vw] flex-col lg:max-w-[60vw]">
       <div className="flex min-w-0 items-center gap-2.5 lg:gap-4">
-        {currentCompanyLogo && (
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white p-1.5 shadow-[0_0_18px_rgba(255,255,255,0.08)] lg:h-14 lg:w-14 lg:rounded-xl lg:p-2">
-            <img
-              src={currentCompanyLogo}
-              alt=""
-              className="h-full w-full object-contain"
-              onError={(event) => { event.currentTarget.parentElement?.classList.add('hidden'); }}
-            />
-          </div>
-        )}
+        <CompanyBadge
+          company={currentCompany || 'SMV'}
+          size="lg"
+          className="lg:h-14 lg:w-14 lg:rounded-2xl"
+        />
         <div className="min-w-0 flex flex-col justify-center">
           {onNavigateAdmin ? (
             <button

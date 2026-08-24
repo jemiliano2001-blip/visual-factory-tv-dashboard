@@ -22,6 +22,8 @@ import { Checkbox } from '../ui/checkbox';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { DELIVERY_STATE_LABEL, DELIVERY_STATE_VARIANT } from './deliveryMeta';
 import { STATUS_VARIANT } from './orderStatusMeta';
+import CompanyBadge from '../CompanyBadge';
+import { getSmartCompanyName } from '../../utils/customerNames';
 
 interface OrdersTableProps {
   orders: OdooSaleOrder[];
@@ -118,7 +120,12 @@ export default function OrdersTable({
     columnHelper.accessor('partner_name', {
       id: 'partner_name',
       header: 'Cliente',
-      cell: info => <span className="text-sm text-foreground/90">{info.getValue()}</span>,
+      cell: info => (
+        <div className="flex items-center gap-2">
+          <CompanyBadge company={info.getValue()} size="xs" showGlow={false} />
+          <span className="text-sm font-medium text-foreground/90">{getSmartCompanyName(info.getValue(), 'card')}</span>
+        </div>
+      ),
     }),
     columnHelper.accessor('main_product', {
       id: 'main_product',
@@ -251,7 +258,10 @@ export default function OrdersTable({
                     {showGroupHeader && (
                       <tr className="bg-muted/50">
                         <td colSpan={columns.length} className="px-4 py-2 text-xs font-bold uppercase tracking-wide text-foreground">
-                          {row.original.partner_name}
+                          <div className="flex items-center gap-2">
+                            <CompanyBadge company={row.original.partner_name} size="xs" showGlow={false} />
+                            <span>{getSmartCompanyName(row.original.partner_name, 'header')}</span>
+                          </div>
                         </td>
                       </tr>
                     )}

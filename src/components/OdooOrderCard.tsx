@@ -5,6 +5,7 @@ import { OdooSaleOrder, OdooOrderLine, getDeliveryProgress, getOrderPriority, is
 import { getCardPresentation, isLargeTVCard } from '../services/cardPresentation';
 import SmartText from './SmartText';
 import { Badge } from './ui/badge';
+import { getSmartCompanyName } from '../utils/customerNames';
 
 export type ViewMode = 'tv' | 'desktop';
 export type ScreenTier = 'sm' | 'md' | 'lg' | 'xl';
@@ -145,10 +146,10 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
             {order.name}
           </h3>
           <SmartText
-            text={order.partner_name}
+            text={getSmartCompanyName(order.partner_name, 'card')}
             maxLines={1}
             className={`${isLarge ? 'text-base' : 'text-xs lg:text-sm'} mt-1 font-bold uppercase tracking-[0.12em] text-zinc-300`}
-            defaultLevel={2}
+            defaultLevel={0}
           />
         </div>
         {urgencyBadge && (

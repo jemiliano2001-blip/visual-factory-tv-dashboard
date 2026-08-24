@@ -10,6 +10,8 @@ import { OdooSaleOrder, OdooDelivery, parseOdooDate } from '../../services/odoo'
 import { formatPONumber } from '../../utils/formatters';
 import { Badge } from '../ui/badge';
 import { DELIVERY_STATE_LABEL, DELIVERY_STATE_VARIANT } from './deliveryMeta';
+import CompanyBadge from '../CompanyBadge';
+import { getSmartCompanyName } from '../../utils/customerNames';
 
 interface DeliveriesTabProps {
   orders: OdooSaleOrder[];
@@ -90,7 +92,10 @@ export default function DeliveriesTab({ orders }: DeliveriesTabProps) {
                           {formatPONumber(r.order.name)}
                         </td>
                         <td className="px-4 py-2 text-foreground/90">
-                          <div>{r.order.partner_name}</div>
+                          <div className="flex items-center gap-2">
+                            <CompanyBadge company={r.order.partner_name} size="xs" showGlow={false} />
+                            <span className="font-medium">{getSmartCompanyName(r.order.partner_name, 'header')}</span>
+                          </div>
                           {r.order.delivery_times && (
                             <div className="flex items-center gap-1 text-[11px] font-mono-data text-cyan-400 mt-0.5" title={`Horario de entrega: ${r.order.delivery_times}`}>
                               <Clock className="size-3 shrink-0" aria-hidden="true" />

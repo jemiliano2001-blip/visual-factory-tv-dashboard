@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CompanyConfig } from '../types';
 import { subscribeToCompanyConfigs } from '../services/companyConfigs';
-import { getCustomerLogo } from '../utils/customerLogos';
 import { Clock, RefreshCw, WifiOff, CheckCircle2, Mic } from 'lucide-react';
+import CompanyBadge from '../components/CompanyBadge';
+import { getSmartCompanyName } from '../utils/customerNames';
 import {
   OdooSaleOrder,
   getDeliveryProgress,
@@ -599,9 +600,7 @@ export default function TVDashboard() {
         ? 'CLIENTES COMPARTIDOS'
         : undefined
     : undefined;
-  const currentHeaderCompanyLogo = isTVMode && currentPage?.type === 'company'
-    ? getCustomerLogo(currentPage.company)
-    : null;
+  const currentHeaderCompanyLogo = null;
   const currentCompanyDeliverySchedule = isTVMode && currentPage?.type === 'company'
     ? getEffectiveDeliverySchedule(currentPage.company, currentPage.orders, companyConfigs)
     : null;
@@ -1113,19 +1112,10 @@ export default function TVDashboard() {
                 {/* Company header */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 lg:gap-5">
-                    {getCustomerLogo(pageData.company) && (
-                      <div className="flex-shrink-0 flex items-center justify-center rounded-2xl bg-white/8 border border-white/10 backdrop-blur-sm shadow-[0_0_20px_rgba(255,255,255,0.05)] h-12 px-3 py-1.5">
-                        <img
-                          src={getCustomerLogo(pageData.company)!}
-                          alt={pageData.company}
-                          className="object-contain max-h-9 max-w-[120px]"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                      </div>
-                    )}
+                    <CompanyBadge company={pageData.company} size="lg" />
                     <div>
-                      <h2 className="text-xl md:text-2xl lg:text-3xl font-black text-white tracking-tight uppercase">
-                        {pageData.company}
+                      <h2 className="text-xl md:text-2xl lg:text-3xl font-black text-white tracking-tight uppercase" title={pageData.company}>
+                        {getSmartCompanyName(pageData.company, 'header')}
                       </h2>
                       {getEffectiveDeliverySchedule(pageData.company, pageData.orders, companyConfigs) && (
                         <div className="flex items-center gap-1.5 mt-1 text-cyan-300 font-mono-data text-xs lg:text-sm font-semibold tracking-wide">

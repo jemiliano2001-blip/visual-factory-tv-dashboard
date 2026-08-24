@@ -18,6 +18,8 @@ import {
   DrawerTitle,
   DrawerClose,
 } from './ui/drawer';
+import CompanyBadge from './CompanyBadge';
+import { getSmartCompanyName } from '../utils/customerNames';
 
 interface OrderDetailsModalProps {
   order: OdooSaleOrder | null;
@@ -47,19 +49,22 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
   const customerReference = order.customer_reference?.trim() || null;
 
   const headerContent = (
-    <>
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-        <span className="text-xl sm:text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-zinc-400 font-mono-data tracking-tight">
-          {order.name}
-        </span>
-        <span className={`inline-flex items-center px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-bold uppercase tracking-widest border transition-colors duration-200 ${PRIORITY_COLORS[priority]}`}>
-          {PRIORITY_LABELS[priority]}
-        </span>
+    <div className="flex items-center gap-3 sm:gap-4">
+      <CompanyBadge company={order.partner_name} size="md" className="shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <span className="text-xl sm:text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-zinc-400 font-mono-data tracking-tight">
+            {order.name}
+          </span>
+          <span className={`inline-flex items-center px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-bold uppercase tracking-widest border transition-colors duration-200 ${PRIORITY_COLORS[priority]}`}>
+            {PRIORITY_LABELS[priority]}
+          </span>
+        </div>
+        <p className="text-sm sm:text-base md:text-lg font-medium text-zinc-300 uppercase tracking-wide mt-0.5 truncate" title={order.partner_name}>
+          {getSmartCompanyName(order.partner_name, 'header')}
+        </p>
       </div>
-      <p className="text-sm sm:text-base md:text-lg font-medium text-zinc-400 uppercase tracking-widest mt-1">
-        {order.partner_name}
-      </p>
-    </>
+    </div>
   );
 
   if (isMobile) {
