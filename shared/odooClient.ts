@@ -65,6 +65,8 @@ export interface NormalizedInvoiceableOrder {
   lines_count: number;
   lines: Array<{ name: string; qty: number; delivered: number }>;
   deliveries: Array<{ name: string; state: string; date_done: string | null }>;
+  delivery_times: string | null;
+  show_in_dashboard: boolean;
 }
 
 export class OdooClient {
@@ -264,6 +266,33 @@ export class OdooClient {
       /* movimientos opcionales */
     }
 
+    const partnerIds = Array.from(new Set(
+      orders
+        .map(o => (Array.isArray(o.partner_id) ? o.partner_id[0] : null))
+        .filter((id): id is number => typeof id === 'number')
+    ));
+
+    interface RawPartner {
+      id: number;
+      name: string;
+      delivery_times?: string | false;
+      show_in_dashboard?: boolean;
+    }
+
+    const partnersMap = new Map<number, RawPartner>();
+    if (partnerIds.length > 0) {
+      try {
+        for (let i = 0; i < partnerIds.length; i += 500) {
+          const batch = await this.odooCall<RawPartner[]>('res.partner', 'read', [partnerIds.slice(i, i + 500)], {
+            fields: ['id', 'name', 'delivery_times', 'show_in_dashboard'],
+          });
+          batch.forEach(p => partnersMap.set(p.id, p));
+        }
+      } catch (err) {
+        console.warn('[Odoo] Error al obtener datos de partner (delivery_times / show_in_dashboard):', err);
+      }
+    }
+
     return orders.map(order => {
       const lines = order.order_line
         .map(id => linesMap.get(id))
@@ -271,6 +300,13 @@ export class OdooClient {
       const totalQty = lines.reduce((sum, line) => sum + line.product_uom_qty, 0);
       const deliveredQty = lines.reduce((sum, line) =>
         sum + (fetchedMoves ? (movesBySaleLine.get(line.id) ?? 0) : line.qty_delivered), 0);
+
+      const partnerId = Array.isArray(order.partner_id) ? order.partner_id[0] : null;
+      const partnerInfo = partnerId ? partnersMap.get(partnerId) : undefined;
+      const deliveryTimes = typeof partnerInfo?.delivery_times === 'string' && partnerInfo.delivery_times.trim()
+        ? partnerInfo.delivery_times.trim()
+        : null;
+      const showInDashboard = Boolean(partnerInfo?.show_in_dashboard);
 
       return {
         id: order.id,
@@ -298,6 +334,8 @@ export class OdooClient {
           state: picking.state,
           date_done: typeof picking.date_done === 'string' ? picking.date_done : null,
         })),
+        delivery_times: deliveryTimes,
+        show_in_dashboard: showInDashboard,
       };
     });
   }

@@ -11,6 +11,7 @@ import {
   isOrderOverdue,
   isOrderFullyDelivered,
   getOrderPriority,
+  getEffectiveDeliverySchedule,
 } from '../services/odoo';
 import { formatPONumber } from '../utils/formatters';
 import { useOdooOrders } from '../hooks/useOdooOrders';
@@ -601,6 +602,9 @@ export default function TVDashboard() {
   const currentHeaderCompanyLogo = isTVMode && currentPage?.type === 'company'
     ? getCustomerLogo(currentPage.company)
     : null;
+  const currentCompanyDeliverySchedule = isTVMode && currentPage?.type === 'company'
+    ? getEffectiveDeliverySchedule(currentPage.company, currentPage.orders, companyConfigs)
+    : null;
   const currentPageOrders = currentPage?.type === 'company'
     ? currentPage.orders
     : currentPage?.type === 'shared'
@@ -954,6 +958,7 @@ export default function TVDashboard() {
         currentTime={currentTime}
         currentCompany={currentHeaderCompany}
         currentCompanyLogo={currentHeaderCompanyLogo}
+        currentCompanyDeliverySchedule={currentCompanyDeliverySchedule}
         currentPageNum={currentPage?.type === 'company' ? currentPage.current : undefined}
         totalPages={currentPage?.type === 'company' ? currentPage.total : undefined}
         screenOrderCount={currentPageOrders.length}
@@ -1122,11 +1127,11 @@ export default function TVDashboard() {
                       <h2 className="text-xl md:text-2xl lg:text-3xl font-black text-white tracking-tight uppercase">
                         {pageData.company}
                       </h2>
-                      {companyConfigs.find(c => c.company_name === pageData.company) && (
-                        <div className="flex items-center gap-2 mt-1 text-zinc-400">
-                          <Clock className="w-4 h-4" />
-                          <span className="text-xs lg:text-sm font-bold uppercase tracking-widest">
-                            Horario: {companyConfigs.find(c => c.company_name === pageData.company)?.delivery_schedule}
+                      {getEffectiveDeliverySchedule(pageData.company, pageData.orders, companyConfigs) && (
+                        <div className="flex items-center gap-1.5 mt-1 text-cyan-300 font-mono-data text-xs lg:text-sm font-semibold tracking-wide">
+                          <Clock className="w-3.5 h-3.5 text-cyan-400 shrink-0" aria-hidden="true" />
+                          <span>
+                            Horario: {getEffectiveDeliverySchedule(pageData.company, pageData.orders, companyConfigs)}
                           </span>
                         </div>
                       )}

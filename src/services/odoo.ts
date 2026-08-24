@@ -10,7 +10,7 @@ import { getIdTokenOrThrow } from '../firebase';
 // reenvía /api al proxy (vite.config.ts), por lo que funciona también desde
 // otros dispositivos de la red (la TV). VITE_ODOO_PROXY_URL permite apuntar a
 // un proxy desplegado en otro host (sin barra final).
-const PROXY_BASE = import.meta.env.VITE_ODOO_PROXY_URL || '';
+const PROXY_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ODOO_PROXY_URL) || '';
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const token = await getIdTokenOrThrow();
@@ -65,6 +65,10 @@ export interface OdooSaleOrder {
   deliveries: OdooDelivery[];
   /** Nota / términos de la orden (contiene tiempo de entrega) */
   note: string | null;
+  /** Horarios de entrega configurados en el cliente en Odoo (res.partner) */
+  delivery_times?: string | null;
+  /** Indicador de visualización en tablero en Odoo (res.partner) */
+  show_in_dashboard?: boolean;
 }
 
 export interface OdooDelivery {
@@ -426,4 +430,25 @@ export function getOrderStatus(order: OdooSaleOrder): OrderStatus {
     return { level: 'on-time', label: 'En tiempo' };
   }
   return { level: 'none', label: 'Sin fecha' };
+}
+
+/**
+ * Resuelve el horario de entrega para una empresa:
+ * 1. Prioriza el horario de Odoo (`delivery_times` en las órdenes de la empresa).
+ * 2. Fallback a la configuración manual de Firestore (`delivery_schedule`).
+ */
+export function getEffectiveDeliverySchedule(
+  partnerName: string,
+  orders?: OdooSaleOrder[],
+  configs?: Array<{ company_name: string; delivery_schedule: string }>,
+): string | null {
+  if (orders && orders.length > 0) {
+    const odooOrder = orders.find(o => o.partner_name === partnerName && o.delivery_times);
+    if (odooOrder?.delivery_times) return odooOrder.delivery_times;
+  }
+  if (configs && configs.length > 0) {
+    const config = configs.find(c => c.company_name === partnerName);
+    if (config?.delivery_schedule) return config.delivery_schedule;
+  }
+  return null;
 }

@@ -11,7 +11,7 @@ import {
 } from '@tanstack/react-table';
 import { format } from 'date-fns';
 import DOMPurify from 'dompurify';
-import { ChevronDown, ChevronRight, Sparkles, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sparkles, Loader2, Clock } from 'lucide-react';
 import {
   OdooSaleOrder, parseOdooDate, getOrderStatus, getDeliveryProgress,
 } from '../../services/odoo';
@@ -283,6 +283,12 @@ export default function OrdersTable({
 function ExpandedRow({ order }: { order: OdooSaleOrder }) {
   return (
     <div className="space-y-4">
+      {order.delivery_times && (
+        <div className="flex items-center gap-2 rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-cyan-300 font-mono-data text-xs">
+          <Clock className="size-4 text-cyan-400 shrink-0" aria-hidden="true" />
+          <span><strong>Horario de entrega del cliente:</strong> {order.delivery_times}</span>
+        </div>
+      )}
       <div>
         <h4 className="mb-2 font-mono-data text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
           Líneas de producto ({order.lines_count})

@@ -98,7 +98,9 @@ export default function ConfigTab({ companyNames }: ConfigTabProps) {
           <h3 className="flex items-center gap-2 font-display text-lg font-bold text-foreground">
             <Clock className="size-5 text-primary" /> Horarios de Entrega
           </h3>
-          <p className="text-sm text-muted-foreground">Configuración operativa por empresa.</p>
+          <p className="text-sm text-muted-foreground">
+            Los horarios en Odoo (contacto &gt; Dashboard) se sincronizan automáticamente. Aquí puedes gestionar excepciones o configuraciones manuales.
+          </p>
         </div>
         <Button onClick={() => { setError(null); setEditing(null); setFormData({}); setIsModalOpen(true); }}>
           <Plus /> Nuevo horario

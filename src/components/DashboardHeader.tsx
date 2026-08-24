@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Monitor, Maximize, Minimize, Palette, Volume2, ChevronRight } from 'lucide-react';
+import { Monitor, Maximize, Minimize, Palette, Volume2, ChevronRight, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { OdooConnectionStatus } from '../services/odoo';
 import OdooStatusBadge from './OdooStatusBadge';
@@ -42,6 +42,7 @@ interface DashboardHeaderProps {
   currentTime: Date;
   currentCompany?: string;
   currentCompanyLogo?: string | null;
+  currentCompanyDeliverySchedule?: string | null;
   currentPageNum?: number;
   totalPages?: number;
   screenOrderCount: number;
@@ -79,6 +80,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   currentTime,
   currentCompany,
   currentCompanyLogo,
+  currentCompanyDeliverySchedule,
   currentPageNum,
   totalPages,
   screenOrderCount,
@@ -137,23 +139,32 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             />
           </div>
         )}
-        {onNavigateAdmin ? (
-          <button
-            type="button"
-            onClick={onNavigateAdmin}
-            title="Ir al panel de administración"
-            aria-label="Ir al panel de administración"
-            className="min-w-0 truncate rounded-lg text-left transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            <span className="block truncate font-display text-xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 lg:text-4xl">
+        <div className="min-w-0 flex flex-col justify-center">
+          {onNavigateAdmin ? (
+            <button
+              type="button"
+              onClick={onNavigateAdmin}
+              title="Ir al panel de administración"
+              aria-label="Ir al panel de administración"
+              className="min-w-0 truncate rounded-lg text-left transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <span className="block truncate font-display text-xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 lg:text-4xl">
+                {headerLabel}
+              </span>
+            </button>
+          ) : (
+            <h1 className="truncate font-display text-xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 lg:text-4xl">
               {headerLabel}
-            </span>
-          </button>
-        ) : (
-          <h1 className="truncate font-display text-xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 lg:text-4xl">
-            {headerLabel}
-          </h1>
-        )}
+            </h1>
+          )}
+
+          {currentCompanyDeliverySchedule && (
+            <div className="flex items-center gap-1.5 mt-0.5 text-cyan-300 font-mono-data text-[11px] lg:text-xs font-semibold tracking-wide truncate">
+              <Clock className="w-3.5 h-3.5 text-cyan-400 shrink-0" aria-hidden="true" />
+              <span className="truncate">Horario: {currentCompanyDeliverySchedule}</span>
+            </div>
+          )}
+        </div>
       </div>
       <Breadcrumbs current={currentPageNum} total={totalPages} />
       </div>

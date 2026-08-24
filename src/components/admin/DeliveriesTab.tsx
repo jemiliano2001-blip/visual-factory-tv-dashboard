@@ -5,7 +5,7 @@
  */
 import { useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import { ChevronDown, ChevronRight, Truck } from 'lucide-react';
+import { ChevronDown, ChevronRight, Truck, Clock } from 'lucide-react';
 import { OdooSaleOrder, OdooDelivery, parseOdooDate } from '../../services/odoo';
 import { formatPONumber } from '../../utils/formatters';
 import { Badge } from '../ui/badge';
@@ -89,7 +89,15 @@ export default function DeliveriesTab({ orders }: DeliveriesTabProps) {
                         <td className="whitespace-nowrap px-4 py-2 font-mono-data font-bold text-foreground">
                           {formatPONumber(r.order.name)}
                         </td>
-                        <td className="px-4 py-2 text-foreground/90">{r.order.partner_name}</td>
+                        <td className="px-4 py-2 text-foreground/90">
+                          <div>{r.order.partner_name}</div>
+                          {r.order.delivery_times && (
+                            <div className="flex items-center gap-1 text-[11px] font-mono-data text-cyan-400 mt-0.5" title={`Horario de entrega: ${r.order.delivery_times}`}>
+                              <Clock className="size-3 shrink-0" aria-hidden="true" />
+                              <span className="truncate max-w-[220px]">{r.order.delivery_times}</span>
+                            </div>
+                          )}
+                        </td>
                         <td className="px-4 py-2">
                           <Badge variant={DELIVERY_STATE_VARIANT[r.delivery.state] ?? 'muted'}>
                             {DELIVERY_STATE_LABEL[r.delivery.state] ?? r.delivery.state}

@@ -1,3 +1,4 @@
+import { Clock } from 'lucide-react';
 import type { OdooSaleOrder } from '../services/odoo';
 import { getCustomerLogo } from '../utils/customerLogos';
 import { getCenteredLastRowStart } from '../utils/tvGridLayout';
@@ -57,6 +58,7 @@ export function SharedTVPage({ page, gridCols, gridRows, isWide, isDense, screen
           const cardRows = Math.ceil(segment.orders.length / cardColumns);
           const logoUrl = getCustomerLogo(segment.company);
           const companyNameSize = getCompanyNameSize(segment.company, isQuadLayout);
+          const deliveryTimes = segment.orders.find(o => o.delivery_times)?.delivery_times;
 
           return (
             <section
@@ -82,9 +84,17 @@ export function SharedTVPage({ page, gridCols, gridRows, isWide, isDense, screen
                     onError={(event) => { event.currentTarget.classList.add('hidden'); }}
                   />
                 )}
-                <h3 className={`line-clamp-2 min-w-0 flex-1 break-words font-black uppercase leading-tight tracking-tight text-white ${companyNameSize}`}>
-                  {segment.company}
-                </h3>
+                <div className="min-w-0 flex-1 flex flex-col justify-center">
+                  <h3 className={`line-clamp-1 min-w-0 break-words font-black uppercase leading-tight tracking-tight text-white ${companyNameSize}`}>
+                    {segment.company}
+                  </h3>
+                  {deliveryTimes && (
+                    <div className="flex items-center gap-1 text-[10px] lg:text-[11px] text-cyan-300 font-mono-data font-semibold truncate mt-0.5" title={`Horario: ${deliveryTimes}`}>
+                      <Clock className="w-3 h-3 text-cyan-400 shrink-0" aria-hidden="true" />
+                      <span className="truncate">{deliveryTimes}</span>
+                    </div>
+                  )}
+                </div>
                 <span className="shrink-0 rounded-full border border-white/10 bg-zinc-900 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-zinc-400 lg:text-xs">
                   {segment.orders.length}
                 </span>

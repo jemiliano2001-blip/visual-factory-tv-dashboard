@@ -118,6 +118,15 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                   <span className="truncate max-w-[180px]">{order.salesperson || '-'}</span>
                 </div>
               </div>
+              {order.delivery_times && (
+                <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
+                  <span className="text-[11px] text-zinc-500 uppercase tracking-widest font-bold">Horario cliente</span>
+                  <div className="flex items-center gap-2 text-cyan-300 font-semibold text-sm text-right min-w-0">
+                    <Clock className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                    <span className="truncate max-w-[220px] font-mono-data">{order.delivery_times}</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ── Líneas de la orden — tarjetas verticales (sin scroll horizontal) ── */}
@@ -240,6 +249,15 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                 <span className="truncate max-w-[160px] sm:max-w-full">{order.salesperson || '-'}</span>
               </div>
             </div>
+            {order.delivery_times && (
+              <div className="flex justify-between items-center gap-3 px-4 py-3 min-h-[48px]">
+                <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Horario cliente</span>
+                <div className="flex items-center gap-2 text-cyan-300 font-medium text-sm text-right min-w-0">
+                  <Clock className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                  <span className="truncate max-w-[280px] sm:max-w-full font-mono-data">{order.delivery_times}</span>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="mb-6 md:mb-8">

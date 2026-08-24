@@ -38,3 +38,5 @@ graphify-out/
 .trae/
 .vscode/
 .windsurf/
+.superpowers/
+.migration/
