@@ -384,6 +384,25 @@ export default function TVDashboard() {
     return () => unsub();
   }, []);
 
+  // ── Limpieza general al desmontar (evita fugas en pantallas 24/7) ───────────
+  useEffect(() => {
+    return () => {
+      interruptVoicePlayback();
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {
+          // ignore
+        }
+        recognitionRef.current = null;
+      }
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      if (transcriptTimerRef.current) clearTimeout(transcriptTimerRef.current);
+      if (voiceResponseTimerRef.current) clearTimeout(voiceResponseTimerRef.current);
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, [interruptVoicePlayback]);
+
   // ── Reloj ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);

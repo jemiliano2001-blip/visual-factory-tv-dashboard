@@ -1,20 +1,45 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Visual Factory TV Dashboard
 
-# Run and deploy your AI Studio app
+Tablero de producción en tiempo real para planta manufacturera, integrado con **Odoo ERP** y enriquecido con inteligencia artificial de **Google Gemini** (comandos de voz, análisis de riesgo y reportes operativos).
 
-This contains everything you need to run your app locally.
+## Requisitos Previos
 
-View your app in AI Studio: https://ai.studio/apps/f322c7a4-c13c-4df3-b7bc-a1b5eae94e46
+- **Node.js**: 18+ (recomendado 20+)
+- **Instancia de Odoo**: Credenciales de acceso con permisos de lectura en `sale.order`.
+- **Google Gemini API Key**: Para funciones de procesamiento de lenguaje natural y TTS.
+- **Firebase**: Autenticación anónima y Firestore para configuración de horarios.
 
-## Run Locally
+## Configuración Rápida
 
-**Prerequisites:**  Node.js
+1. Instalar dependencias:
+   ```bash
+   npm install
+   ```
 
+2. Configurar variables de entorno:
+   ```bash
+   cp .env.example .env.local
+   ```
+   Completa los valores en `.env.local` (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`, `GEMINI_API_KEY`, etc.).
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+3. Iniciar entorno de desarrollo completo (Vite + Proxy Odoo):
+   ```bash
+   npm run dev:full
+   ```
+   Abre [http://localhost:3000](http://localhost:3000) en el navegador.
+
+## Comandos Principales
+
+| Comando | Descripción |
+|---|---|
+| `npm run dev:full` | Inicia simultáneamente el frontend Vite y el servidor proxy Express |
+| `npm test` | Ejecuta la suite completa de 48 pruebas unitarias (`tsx --test`) |
+| `npm run lint` | Valida TypeScript en **modo estricto** (`tsc --noEmit`) |
+| `npm run build` | Genera el bundle optimizado para producción con Code-Splitting y PWA |
+| `npm run preview` | Previsualiza el bundle de producción en local |
+
+## Arquitectura
+
+- **Frontend**: React 19 + Vite + TailwindCSS v4 + Base UI / Shadcn.
+- **Proxy Backend**: Servidor Express (`server.ts`) para autenticar llamadas JSON-RPC a Odoo y mediar peticiones a Gemini.
+- **Firebase Cloud Functions**: Endpoint serverless (`functions/src/index.ts`) y alertas programadas a Discord (`functions/src/notifications.ts`).

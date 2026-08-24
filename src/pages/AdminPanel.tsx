@@ -8,7 +8,6 @@ import type { RowSelectionState } from '@tanstack/react-table';
 import { useOdooOrders } from '../hooks/useOdooOrders';
 import { OdooSaleOrder, getOrderStatus } from '../services/odoo';
 import { filterOrdersByNaturalLanguage, summarizePendingWork, explainOrderRequirements, AIError } from '../services/ai';
-import { exportOrdersToExcel } from '../services/exportExcel';
 import type { OrderStatusFilter } from '../components/admin/orderStatusMeta';
 import PendingTab from '../components/admin/PendingTab';
 import OrdersTable from '../components/admin/OrdersTable';
@@ -124,10 +123,11 @@ export default function AdminPanel() {
 
   // ── Export Excel ─────────────────────────────────────────────────────────────
 
-  const handleExport = () => {
+  const handleExport = async () => {
     const selectedIds = selectedCount > 0
       ? new Set(Object.entries(rowSelection).filter(([, v]) => v).map(([id]) => Number(id)))
       : null;
+    const { exportOrdersToExcel } = await import('../services/exportExcel');
     exportOrdersToExcel({ orders: filteredOrders, selectedIds });
   };
 

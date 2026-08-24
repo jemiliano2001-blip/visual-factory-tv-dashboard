@@ -154,7 +154,7 @@ export default function ConfigTab({ companyNames }: ConfigTabProps) {
               <Label id="company-name-label">Empresa</Label>
               <Select
                 value={formData.company_name || undefined}
-                onValueChange={v => setFormData({ ...formData, company_name: v })}
+                onValueChange={v => setFormData({ ...formData, company_name: v ?? '' })}
               >
                 <SelectTrigger aria-labelledby="company-name-label">
                   <SelectValue placeholder="Selecciona una empresa" />

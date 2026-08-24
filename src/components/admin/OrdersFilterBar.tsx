@@ -76,7 +76,7 @@ export default function OrdersFilterBar({
         </div>
         <Select
           value={clientFilter || ALL_CLIENTS}
-          onValueChange={v => onClientFilterChange(v === ALL_CLIENTS ? '' : v)}
+          onValueChange={v => onClientFilterChange(v && v !== ALL_CLIENTS ? v : '')}
         >
           <SelectTrigger aria-label="Filtrar por cliente" className="w-[210px]">
             <SelectValue placeholder="Todos los clientes" />

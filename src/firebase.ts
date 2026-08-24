@@ -10,7 +10,7 @@ export const auth = getAuth(app);
 // Mirrors firestore.rules' isRealUser(): the public TV dashboard signs every
 // visitor in anonymously to satisfy Firestore's auth != null rule. A session
 // only counts as "logged in" if it's a real account, not that anonymous one.
-export function isRealUser(user: User | null): boolean {
+export function isRealUser(user: User | null): user is User {
   return user != null && !user.isAnonymous;
 }
 

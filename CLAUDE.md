@@ -53,14 +53,15 @@ npm run dev:full   # Both of the above concurrently (VITE + ODOO) — use this f
 npm run build      # vite build → dist/
 npm run preview    # Serve the production build (:4173)
 npm run clean      # Remove dist/ build artifacts
-npm run lint       # tsc --noEmit — there is no ESLint
+npm run lint       # tsc --noEmit (strict mode) — there is no ESLint
+npm test           # Run all unit tests (tsx --test "src/**/*.test.ts" "shared/**/*.test.ts")
 npm run test:tv-page-packing   # tsx --test src/utils/tvPagePacking.test.ts
 npm run test:voice-risk        # tsx --test src/services/voiceRisk.test.ts
 npm run test:voice-stream      # tsx --test shared/geminiSpeechStream.test.ts + speech/voice-ack tests
 npm run test:ops-remediation   # tsx --test cardPresentation/companyConfigGuards/rotationPolicy tests
 ```
 
-There is **no ESLint**, but there are real `node:test`-based unit tests (via `tsx --test`) covering page packing, voice risk, voice streaming, and the admin/ops modules below — run the relevant `test:*` script when touching that code, not just `npm run lint`.
+There is **no ESLint**, but there are real `node:test`-based unit tests (via `tsx --test`) covering the entire app — run `npm test` or the relevant `test:*` script when touching code, not just `npm run lint`.
 
 ## Data sources
 

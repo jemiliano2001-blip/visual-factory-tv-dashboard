@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { MotionConfig } from 'framer-motion';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
@@ -7,11 +7,20 @@ import { auth } from './firebase';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import TVDashboard from './pages/TVDashboard';
-import AdminPanel from './pages/AdminPanel';
-import StatsDashboard from './pages/StatsDashboard';
-import Login from './pages/Login';
 import ErrorBoundary from './components/ErrorBoundary';
 import { TooltipProvider } from './components/ui/tooltip';
+
+const AdminPanel = lazy(() => import('./pages/AdminPanel'));
+const StatsDashboard = lazy(() => import('./pages/StatsDashboard'));
+const Login = lazy(() => import('./pages/Login'));
+
+function RouteLoadingFallback() {
+  return (
+    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+      <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
 
 export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -112,28 +121,30 @@ export default function App() {
       <TooltipProvider delayDuration={300}>
         <MotionConfig reducedMotion="user">
           <BrowserRouter>
-            <Routes>
-            <Route path="/login" element={<Login />} />
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <Routes>
+                <Route path="/login" element={<Login />} />
 
-            <Route path="/" element={<Layout />}>
-              {/* TV dashboard: público sin login visible — auth anónima provee el ID token */}
-              <Route index element={<TVDashboard />} />
+                <Route path="/" element={<Layout />}>
+                  {/* TV dashboard: público sin login visible — auth anónima provee el ID token */}
+                  <Route index element={<TVDashboard />} />
 
-              {/* /admin es herramienta de trabajo del equipo de diseño, no un panel
-                  restringido — cualquier cuenta real (no anónima) entra, igual que /stats. */}
-              <Route path="admin" element={
-                <ProtectedRoute>
-                  <AdminPanel />
-                </ProtectedRoute>
-              } />
+                  {/* /admin es herramienta de trabajo del equipo de diseño, no un panel
+                      restringido — cualquier cuenta real (no anónima) entra, igual que /stats. */}
+                  <Route path="admin" element={
+                    <ProtectedRoute>
+                      <AdminPanel />
+                    </ProtectedRoute>
+                  } />
 
-              <Route path="stats" element={
-                <ProtectedRoute>
-                  <StatsDashboard />
-                </ProtectedRoute>
-              } />
-            </Route>
-            </Routes>
+                  <Route path="stats" element={
+                    <ProtectedRoute>
+                      <StatsDashboard />
+                    </ProtectedRoute>
+                  } />
+                </Route>
+              </Routes>
+            </Suspense>
           </BrowserRouter>
         </MotionConfig>
       </TooltipProvider>

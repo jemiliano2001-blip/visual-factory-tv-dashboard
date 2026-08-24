@@ -251,11 +251,8 @@ const odooClient = new OdooClient({
   username: process.env.ODOO_USERNAME || '',
   password: process.env.ODOO_PASSWORD || '',
 });
-const ODOO_URL      = odooClient.getConfiguredUrl();
-const ODOO_DB       = process.env.ODOO_DB        || '';
-const ODOO_USERNAME = process.env.ODOO_USERNAME  || '';
-const ODOO_PASSWORD = process.env.ODOO_PASSWORD  || '';
-const PORT          = parseInt(process.env.ODOO_PROXY_PORT || '3001', 10);
+const ODOO_URL = odooClient.getConfiguredUrl();
+const PORT = parseInt(process.env.ODOO_PROXY_PORT || '3001', 10);
 
 // Validación al arrancar
 if (!odooClient.isConfigured()) {
