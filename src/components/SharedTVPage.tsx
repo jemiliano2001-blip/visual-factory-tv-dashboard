@@ -119,9 +119,10 @@ export function SharedTVPage({ page, gridCols, gridRows, isWide, isDense, screen
                       <OdooOrderCard
                         order={order}
                         isHighlighted={highlightedSO === order.name}
-                        isWide={isWide}
-                        isDense={isDense}
-                        screenTier={screenTier}
+                        isWide={false}
+                        isDense={true}
+                        hidePartner={true}
+                        screenTier={isQuadLayout ? 'sm' : 'md'}
                         viewMode="tv"
                         onClick={() => onOrderClick(order)}
                       />

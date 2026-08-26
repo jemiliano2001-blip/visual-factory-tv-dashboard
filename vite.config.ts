@@ -91,6 +91,9 @@ export default defineConfig(({mode}) => {
               if (id.includes('@tanstack')) return 'vendor-tanstack';
               if (id.includes('lucide-react')) return 'vendor-lucide';
               if (id.includes('date-fns')) return 'vendor-date-fns';
+              if (id.includes('@google/genai')) return 'vendor-genai';
+              if (id.includes('@base-ui')) return 'vendor-base-ui';
+              if (id.includes('recharts')) return 'vendor-recharts';
             }
           },
         },

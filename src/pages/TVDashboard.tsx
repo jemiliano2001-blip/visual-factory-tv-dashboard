@@ -210,6 +210,7 @@ const CompanyTVSection: React.FC<{
               isHighlighted={highlightedSO === order.name}
               isWide={isWide}
               isDense={isDense}
+              hidePartner={isDense}
               screenTier={screenTier}
               viewMode="tv"
               onClick={() => onOrderClick(order)}
@@ -240,7 +241,6 @@ export default function TVDashboard() {
   const navigate = useNavigate();
   const [companyConfigs, setCompanyConfigs] = useState<CompanyConfig[]>([]);
   const [showGradient, setShowGradient]     = useState(true);
-  const [currentTime, setCurrentTime]       = useState(new Date());
   const [highlightedSO, setHighlightedSO]   = useState<string | null>(null);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [selectedOrder, setSelectedOrder]   = useState<OdooSaleOrder | null>(null);
@@ -403,11 +403,40 @@ export default function TVDashboard() {
     };
   }, [interruptVoicePlayback]);
 
-  // ── Reloj ────────────────────────────────────────────────────────────────────
+  // ── Auto-limpieza por inactividad en modo TV ─────────────────────────────────
+  // En una TV de pared desatendida, si un operador aplicó filtros o pausó la
+  // rotación y se alejó, auto-restaurar la rotación general tras 3 minutos sin actividad.
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    if (!isTVMode) return;
+    const hasActiveFilters = Boolean(
+      clientFilter || textFilter || voiceFilter !== 'all' || voiceRiskFocusPOs.length > 0 || rotationPaused
+    );
+    if (!hasActiveFilters) return;
+
+    let inactivityTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      handleClearControls();
+    }, 180000);
+
+    const onActivity = () => {
+      if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+        inactivityTimer = setTimeout(() => {
+          handleClearControls();
+        }, 180000);
+      }
+    };
+
+    window.addEventListener('mousemove', onActivity, { passive: true });
+    window.addEventListener('keydown', onActivity, { passive: true });
+    window.addEventListener('touchstart', onActivity, { passive: true });
+
+    return () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      window.removeEventListener('mousemove', onActivity);
+      window.removeEventListener('keydown', onActivity);
+      window.removeEventListener('touchstart', onActivity);
+    };
+  }, [isTVMode, clientFilter, textFilter, voiceFilter, voiceRiskFocusPOs.length, rotationPaused]);
 
   // ── Fullscreen ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -973,7 +1002,6 @@ export default function TVDashboard() {
 
       {/* ── Header ─────────────────────────────────────────────────────────────── */}
       <DashboardHeader
-        currentTime={currentTime}
         currentCompany={currentHeaderCompany}
         currentCompanyLogo={currentHeaderCompanyLogo}
         currentCompanyDeliverySchedule={currentCompanyDeliverySchedule}

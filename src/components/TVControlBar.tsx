@@ -9,13 +9,14 @@
  */
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Search, Pause, Play, X, SlidersHorizontal } from 'lucide-react';
+import { Search, Pause, Play, X, SlidersHorizontal, ChevronUp } from 'lucide-react';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from './ui/select';
 import { useProximityVisible } from '../hooks/useProximityVisible';
+import { getSmartCompanyName } from '../utils/customerNames';
 import {
   Drawer,
   DrawerContent,
@@ -41,12 +42,12 @@ interface TVControlBarProps {
 const TVControlBar: React.FC<TVControlBarProps> = ({
   isTVMode, isMobile = false, clients, clientFilter, onClient, textFilter, onText, isPaused, onTogglePause, onClear,
 }) => {
-  const [anchorRef, near] = useProximityVisible<HTMLDivElement>(160);
+  const [anchorRef, near] = useProximityVisible<HTMLDivElement>(100, 250, 4000);
   const [focused, setFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
-  const hasFilters = !!clientFilter || !!textFilter || isPaused;
+  const hasFilters = Boolean(clientFilter || textFilter || isPaused);
 
   // ── Móvil: barra de búsqueda compacta siempre visible ─────────────────────────
   if (isMobile) {
@@ -122,7 +123,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                       : 'text-zinc-300 hover:bg-white/5'
                   }`}
                 >
-                  {c ?? 'Todos los clientes'}
+                  {c ? getSmartCompanyName(c, 'header') : 'Todas las empresas'}
                 </button>
               ))}
             </div>
@@ -135,11 +136,16 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
   // ── Escritorio / TV: barra flotante por proximidad ─────────────────────────────
   const visible = isTVMode ? (near || focused || menuOpen) : true;
 
+  const handleDismiss = () => {
+    setFocused(false);
+    setMenuOpen(false);
+  };
+
   return (
     <div
       ref={isTVMode ? anchorRef : undefined}
       className={isTVMode
-        ? "absolute left-1/2 top-0 z-40 -translate-x-1/2"
+        ? "absolute left-1/2 top-1 z-50 -translate-x-1/2"
         : "flex w-full justify-center py-2 mb-4 pointer-events-none"
       }
       onFocusCapture={() => setFocused(true)}
@@ -156,20 +162,26 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
             transition={{ duration: 0.2 }}
             className="pointer-events-auto"
           >
-            <div className="glass-panel flex items-center gap-2 rounded-2xl px-2.5 py-2 shadow-overlay">
-              <SlidersHorizontal className="ml-1 size-4 shrink-0 text-muted-foreground" />
+            <div className="glass-panel flex items-center gap-2 rounded-2xl px-3 py-2 shadow-overlay border border-white/10 bg-[#08080c]/90 backdrop-blur-xl">
+              <SlidersHorizontal className="ml-1 size-4 shrink-0 text-cyan-400" />
 
               <Select
-                value={clientFilter || ALL_CLIENTS}
+                value={clientFilter ?? ALL_CLIENTS}
                 onValueChange={(v) => onClient(v === ALL_CLIENTS ? null : v)}
                 onOpenChange={setMenuOpen}
               >
-                <SelectTrigger aria-label="Filtrar por cliente" className="h-11 w-[200px]">
-                  <SelectValue placeholder="Todos los clientes" />
+                <SelectTrigger aria-label="Filtrar por cliente" className="h-10 w-[210px] text-xs font-semibold border-white/10 bg-black/40">
+                  <SelectValue placeholder="Todas las empresas">
+                    {clientFilter ? getSmartCompanyName(clientFilter, 'header') : 'Todas las empresas'}
+                  </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_CLIENTS}>Todos los clientes</SelectItem>
-                  {clients.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                <SelectContent className="max-h-[50vh] overflow-y-auto">
+                  <SelectItem value={ALL_CLIENTS}>Todas las empresas</SelectItem>
+                  {clients.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {getSmartCompanyName(c, 'header')}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
 
@@ -180,7 +192,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                   value={textFilter}
                   onChange={(e) => onText(e.target.value)}
                   placeholder="Buscar OV o producto…"
-                  className="h-9 w-[220px] pl-9"
+                  className="h-10 w-[220px] pl-9 text-xs border-white/10 bg-black/40"
                 />
               </div>
 
@@ -188,16 +200,37 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                 type="button"
                 variant={isPaused ? 'default' : 'secondary'}
                 size="sm"
+                className="h-10 text-xs font-semibold gap-1.5"
                 onClick={onTogglePause}
                 title={isPaused ? 'Reanudar rotación automática' : 'Pausar rotación automática'}
               >
-                {isPaused ? <Play /> : <Pause />}
+                {isPaused ? <Play className="size-3.5" /> : <Pause className="size-3.5" />}
                 {isPaused ? 'Reanudar' : 'Pausar'}
               </Button>
 
               {hasFilters && (
-                <Button type="button" variant="ghost" size="sm" onClick={onClear} title="Limpiar filtros">
-                  <X /> Limpiar
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-10 text-xs text-red-300 hover:bg-red-500/20 hover:text-red-200"
+                  onClick={onClear}
+                  title="Limpiar filtros"
+                >
+                  <X className="size-3.5 mr-1" /> Limpiar
+                </Button>
+              )}
+
+              {isTVMode && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 rounded-lg text-zinc-400 hover:text-white ml-1"
+                  onClick={handleDismiss}
+                  title="Ocultar barra"
+                >
+                  <ChevronUp className="size-4" />
                 </Button>
               )}
             </div>

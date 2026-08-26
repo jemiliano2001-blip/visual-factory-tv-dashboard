@@ -7,6 +7,7 @@ import OdooStatusBadge from './OdooStatusBadge';
 import { ViewMode } from './OdooOrderCard';
 import CompanyBadge from './CompanyBadge';
 import { getSmartCompanyName } from '../utils/customerNames';
+import DashboardClock from './DashboardClock';
 
 // ─── SoundWave ──────────────────────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ const Breadcrumbs = ({ current, total }: { current?: number; total?: number }) =
 // ─── Props ──────────────────────────────────────────────────────────────────────
 
 interface DashboardHeaderProps {
-  currentTime: Date;
+  currentTime?: Date;
   currentCompany?: string;
   currentCompanyLogo?: string | null;
   currentCompanyDeliverySchedule?: string | null;
@@ -253,10 +254,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           <div className="w-px h-6 ml-1" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
         </div>
 
-        <div className="text-right">
-          <div className="font-mono-data text-base md:text-2xl lg:text-3xl font-bold text-cyan-300">{format(currentTime, 'HH:mm')}</div>
-          <div className="hidden md:block font-mono-data text-zinc-600 uppercase tracking-widest text-[9px] lg:text-[10px] mt-0.5">{format(currentTime, "EEE dd MMM yyyy")}</div>
-        </div>
+        <DashboardClock />
       </div>
     </header>
   );

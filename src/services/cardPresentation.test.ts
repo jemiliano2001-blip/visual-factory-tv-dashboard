@@ -17,8 +17,11 @@ test('la urgencia ya no pinta la superficie: no hay anillo ni glow rojo encima d
   assert.equal('urgencyClass' in vencida, false);
 });
 
-test('aplica la escala grande en TV XL sin depender de una card ancha', () => {
+test('aplica la escala grande en TV XL sin depender de una card ancha salvo si es densa', () => {
   assert.equal(isLargeTVCard('tv', false, 'xl'), true);
+  assert.equal(isLargeTVCard('tv', false, 'xl', true), false);
   assert.equal(isLargeTVCard('tv', true, 'lg'), true);
+  assert.equal(isLargeTVCard('tv', true, 'lg', true), false);
   assert.equal(isLargeTVCard('desktop', true, 'xl'), false);
 });
+

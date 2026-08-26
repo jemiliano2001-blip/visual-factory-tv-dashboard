@@ -66,6 +66,12 @@ export function getCardPresentation(input: {
   };
 }
 
-export function isLargeTVCard(viewMode: CardViewMode, isWide: boolean, screenTier?: CardScreenTier): boolean {
+export function isLargeTVCard(
+  viewMode: CardViewMode,
+  isWide: boolean,
+  screenTier?: CardScreenTier,
+  isDense?: boolean,
+): boolean {
+  if (isDense) return false;
   return viewMode === 'tv' && (isWide || screenTier === 'xl');
 }
