@@ -1,4 +1,5 @@
 import * as admin from 'firebase-admin';
+import { EMPTY_STATE, persistNotificationState, type NotificationState } from './notificationState';
 
 if (!admin.apps.length) admin.initializeApp();
 
@@ -21,22 +22,6 @@ export interface WebhookChannels {
   reportes: string;
 }
 
-interface NotificationState {
-  sentAlerts: Record<string, number>;       // "orderId_14d" → unix timestamp ms
-  knownOrderIds: number[];
-  deliveredOrderIds: number[];
-  deliveryTimestamps: Record<string, { detectedAt: number; ageAtDelivery: number }>;
-  clientAlertDates: Record<string, string>; // "ClientName" → "YYYY-MM-DD"
-  lastMonthlyReportMonth: string;           // "YYYY-MM" del último reporte mensual enviado
-  // v2 fields
-  partialDeliveryAlerts: Record<string, number>;                    // orderId → timestamp when partial alert sent
-  lastDeliveryStates: Record<string, { sig: string; changedAt: number }>; // orderId → {sig, changedAt}
-  stalledAlerts: Record<string, number>;                            // orderId → timestamp when stall alert sent
-  clientMonthlyStats: Record<string, Record<string, string[]>>;    // partnerName → {YYYY-MM → [orderId, ...]}
-  recoveryNotifications: string[];                                  // orderIds that received recovery message
-  weeklyBaselineOverdue: Record<string, number>;                    // YYYY-WW → count of >14d orders on Monday 8am
-}
-
 interface DiscordField {
   name: string;
   value: string;
@@ -55,25 +40,6 @@ interface DiscordEmbed {
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-const EMPTY_STATE: NotificationState = {
-  sentAlerts: {},
-  knownOrderIds: [],
-  deliveredOrderIds: [],
-  deliveryTimestamps: {},
-  clientAlertDates: {},
-  lastMonthlyReportMonth: '',
-  partialDeliveryAlerts: {},
-  lastDeliveryStates: {},
-  stalledAlerts: {},
-  clientMonthlyStats: {},
-  recoveryNotifications: [],
-  weeklyBaselineOverdue: {},
-};
-
-const DELIVERY_HISTORY_RETENTION_MS = 90 * 86_400_000;
-const MAX_DELIVERY_HISTORY_ENTRIES = 1500;
-const MAX_WEEKLY_BASELINE_WEEKS = 12;
-
 export async function loadState(): Promise<NotificationState> {
   try {
     const doc = await admin.firestore().collection('config').doc('notification_state').get();
@@ -84,42 +50,16 @@ export async function loadState(): Promise<NotificationState> {
   return JSON.parse(JSON.stringify(EMPTY_STATE));
 }
 
-export async function saveState(state: NotificationState): Promise<void> {
-  const pruned = pruneDeliveryHistory(state);
+export async function saveState(
+  state: NotificationState,
+  fields: readonly (keyof NotificationState)[],
+): Promise<void> {
   try {
-    await admin.firestore().collection('config').doc('notification_state').set(pruned);
+    const document = admin.firestore().collection('config').doc('notification_state');
+    await persistNotificationState(document, state, fields);
   } catch (e) {
     console.error('[notifications] Error guardando estado en Firestore:', e);
   }
-}
-
-/** Evita que deliveredOrderIds/deliveryTimestamps/weeklyBaselineOverdue crezcan sin límite. */
-function pruneDeliveryHistory(state: NotificationState): NotificationState {
-  const cutoff = Date.now() - DELIVERY_HISTORY_RETENTION_MS;
-  const timestamps = state.deliveryTimestamps ?? {};
-  const prunedEntries = Object.entries(timestamps)
-    .filter(([, value]) => value.detectedAt >= cutoff)
-    .sort((a, b) => b[1].detectedAt - a[1].detectedAt)
-    .slice(0, MAX_DELIVERY_HISTORY_ENTRIES);
-
-  const deliveryTimestamps: NotificationState['deliveryTimestamps'] = {};
-  for (const [key, value] of prunedEntries) {
-    deliveryTimestamps[key] = value;
-  }
-
-  const validIds = new Set(Object.keys(deliveryTimestamps).map(id => Number(id)));
-  const deliveredOrderIds = (state.deliveredOrderIds ?? []).filter(id => validIds.has(id));
-
-  const baseline = state.weeklyBaselineOverdue ?? {};
-  const prunedBaselineEntries = Object.entries(baseline)
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .slice(0, MAX_WEEKLY_BASELINE_WEEKS);
-  const weeklyBaselineOverdue: NotificationState['weeklyBaselineOverdue'] = {};
-  for (const [key, value] of prunedBaselineEntries) {
-    weeklyBaselineOverdue[key] = value;
-  }
-
-  return { ...state, deliveryTimestamps, deliveredOrderIds, weeklyBaselineOverdue };
 }
 
 export function buildWebhookChannels(mainUrl: string): WebhookChannels {
@@ -427,7 +367,7 @@ export async function checkThresholds(
     }
   }
 
-  if (dirty) await saveState(state);
+  if (dirty) await saveState(state, ['sentAlerts', 'clientMonthlyStats']);
 }
 
 // ─── Internal event helpers ───────────────────────────────────────────────────
@@ -600,7 +540,16 @@ export async function checkEvents(orders: NotifOrder[], channels: WebhookChannel
   dirty = (await checkPartialDelivery(orders, channels.eventos, state)) || dirty;
   dirty = (await checkStalledOrders(orders, channels.criticas, state)) || dirty;
 
-  if (dirty) await saveState(state);
+  if (dirty) await saveState(state, [
+    'knownOrderIds',
+    'deliveredOrderIds',
+    'deliveryTimestamps',
+    'clientAlertDates',
+    'partialDeliveryAlerts',
+    'lastDeliveryStates',
+    'stalledAlerts',
+    'recoveryNotifications',
+  ]);
 }
 
 // ─── Scheduled reports ────────────────────────────────────────────────────────
@@ -633,7 +582,7 @@ export async function sendMorningReport(orders: NotifOrder[], mainUrl: string): 
 
   if (now.getDay() === 1) {
     state.weeklyBaselineOverdue[weekKey] = over14.length;
-    await saveState(state);
+    await saveState(state, ['weeklyBaselineOverdue']);
   } else {
     const baseline = state.weeklyBaselineOverdue[weekKey];
     if (baseline !== undefined) {

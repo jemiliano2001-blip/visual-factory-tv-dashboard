@@ -249,10 +249,10 @@ export const scanNotifications = onSchedule({ schedule: 'every 30 minutes', time
     if (state.lastMonthlyReportMonth && state.lastMonthlyReportMonth !== currentMonth && localStr.getHours() >= 8) {
       await sendMonthlyReport(orders, channels.reportes);
       state.lastMonthlyReportMonth = currentMonth;
-      await saveState(state);
+      await saveState(state, ['lastMonthlyReportMonth']);
     } else if (!state.lastMonthlyReportMonth) {
       state.lastMonthlyReportMonth = currentMonth;
-      await saveState(state);
+      await saveState(state, ['lastMonthlyReportMonth']);
     }
   });
 });
