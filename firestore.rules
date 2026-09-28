@@ -1,3 +1,6 @@
+// REFERENCIA — este archivo NO se despliega desde el Dashboard.
+// La base (default) de smv-brain la comparten Dashboard y SMV Vision; las reglas vigentes se despliegan desde
+// apps/smv-vision/firestore.rules, que incluye una copia fiel del bloque company_configs de aquí.
 rules_version = '2';
 
 service cloud.firestore {

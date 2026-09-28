@@ -20,4 +20,5 @@
 - `DEV_AUTH_BYPASS=true` is opt-in localhost-only; default is fail-closed; never rely on `NODE_ENV` alone.
 - PO canonical format is `YYYY/SXXXXX` via `formatPONumber` (dynamic current year).
 - `CLAUDE.md` is the primary project guide for agents in this repo.
-- No test runner beyond `tsc --noEmit` (`npm run lint`).
+- No test runner beyond `tsc --noEmit` (`npm run lint`) y `npm test` (`tsx --test`).
+- Firestore rules for `(default)` are deployed from the SMV Vision repo, not from here (shared DB; a rules deploy replaces the previous set). `firebase.json` must not declare `firestore` — `shared/firestoreRulesOwnership.test.ts` enforces it.

@@ -168,5 +168,5 @@ Sin Cloudflare Access, el tablero sigue protegido por Firebase ID tokens en `/ap
 - [ ] Proveedor **Email/Password** habilitado en Firebase → Authentication → Sign-in method
 - [ ] Cuentas de personal creadas en Firebase → Authentication → Users
 - [ ] `DEV_AUTH_BYPASS` **no** está activo en producción
-- [ ] Reglas de Firestore desplegadas: `firebase deploy --only firestore:rules`
+- [ ] Reglas de Firestore: **no se despliegan desde este repo** (las dueñas son las de `apps/smv-vision`); confirma que Vision las tiene al día
 - [ ] HTTPS verificado (Cloudflare lo da automático)

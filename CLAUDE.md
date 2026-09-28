@@ -31,7 +31,7 @@ Copy `.env.example` to `.env.local` and fill in:
 
 1. Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com)
 2. Initialize Firestore (enable anonymous auth in Auth settings)
-3. Deploy security rules: `firebase deploy --only firestore:rules` (Firebase CLI required)
+3. Security rules: no se despliegan desde este repo (ver "Firestore rules" abajo); las despliega SMV Vision
 4. Firebase config is initialized in `src/firebase.ts` — no additional setup needed in code
 
 ### First Run
@@ -102,7 +102,7 @@ A scheduled Firebase Function (`onSchedule`, wired in `functions/src/index.ts`) 
 
 ## Firestore rules (`firestore.rules`)
 
-Only `company_configs` is writable, and only by an **admin** (`isAdmin()` = verified user + `admin` custom claim, enforced server-side in `firestore.rules` — this is now independent of `/admin` page access, see Auth & routing above); create/update are also validated (exact field set, string lengths, timestamp). A non-admin designer can open the Configuración tab but a create/update/delete will be rejected by these rules; grant the claim via `functions/scripts/set-admin-claim.mjs` if they need to edit delivery schedules. `work_orders` and `work_orders_history` are **closed** (`allow read, write: if false`) — legacy data is preserved in Firestore but unreachable. If you add a field to `CompanyConfig`, update both `src/types.ts` **and** `isValidCompanyConfig()` here, or writes will be rejected. Deploy with `firebase deploy --only firestore:rules`.
+Only `company_configs` is writable, and only by an **admin** (`isAdmin()` = verified user + `admin` custom claim, enforced server-side in `firestore.rules` — this is now independent of `/admin` page access, see Auth & routing above); create/update are also validated (exact field set, string lengths, timestamp). A non-admin designer can open the Configuración tab but a create/update/delete will be rejected by these rules; grant the claim via `functions/scripts/set-admin-claim.mjs` if they need to edit delivery schedules. `work_orders` and `work_orders_history` are **closed** (`allow read, write: if false`) — legacy data is preserved in Firestore but unreachable. If you add a field to `CompanyConfig`, update both `src/types.ts` **and** `isValidCompanyConfig()` here, or writes will be rejected. Las reglas de `(default)` **ya no se despliegan desde este repo**: la base la comparten este Dashboard y SMV Vision, y un deploy de reglas reemplaza las anteriores. Las vigentes viven en `apps/smv-vision/firestore.rules` (incluyen una copia fiel del bloque `company_configs` de abajo) y se despliegan desde ahí. `firestore.rules` de este repo queda como referencia; si cambias `company_configs`, cámbialo en Vision y en esta copia. `shared/firestoreRulesOwnership.test.ts` falla si `firebase.json` vuelve a declarar `firestore`.
 
 ## TV Dashboard — view modes & layout
 
