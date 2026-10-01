@@ -13,7 +13,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx --test \"src/**/*.test.ts\" \"shared/**/*.test.ts\"",
+    "test": "tsx --test \"src/**/*.test.ts\" \"shared/**/*.test.ts\" \"functions/src/**/*.test.ts\"",
     "test:tv-page-packing": "tsx --test src/utils/tvPagePacking.test.ts",
     "test:voice-risk": "tsx --test src/services/voiceRisk.test.ts",
     "test:voice-stream": "tsx --test shared/geminiSpeechStream.test.ts src/services/speechStream.test.ts src/services/voiceAcknowledgement.test.ts",

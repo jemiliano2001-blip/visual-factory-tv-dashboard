@@ -142,6 +142,7 @@ function ClientGroup({
                 <tr key={`${pl.order.id}-${pl.line.name}-${i}`} className="hover:bg-accent/20">
                   <td className="whitespace-nowrap px-4 py-2 font-mono-data font-bold text-foreground">
                     {formatPONumber(pl.order.name)}
+                    {pl.order.customer_reference && <div className="text-xs font-normal text-muted-foreground">PO: {pl.order.customer_reference}</div>}
                   </td>
                   <td className="px-4 py-2 text-foreground/90">{abbreviate(pl.line.name)}</td>
                   <td className="px-4 py-2 text-right font-mono-data font-bold tabular-nums text-primary">

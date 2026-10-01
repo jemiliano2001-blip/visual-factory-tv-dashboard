@@ -56,11 +56,11 @@ test('escrituras concurrentes del lunes conservan el estado de deduplicación', 
   assert.deepEqual(stored.weeklyBaselineOverdue, { '2026-36': 3 });
 });
 
-test('la persistencia aplica un parche con merge', async () => {
-  const writes: Array<{ data: Partial<NotificationState>; merge: boolean }> = [];
+test('la persistencia aplica un parche sobre los campos de la tarea', async () => {
+  const writes: Array<{ data: Partial<NotificationState>; mergeFields: string[] }> = [];
   const document = {
-    async set(data: Partial<NotificationState>, options: { merge: boolean }): Promise<void> {
-      writes.push({ data, merge: options.merge });
+    async set(data: Partial<NotificationState>, options: { mergeFields: string[] }): Promise<void> {
+      writes.push({ data, mergeFields: options.mergeFields });
     },
   };
   const state = initialState();
@@ -70,7 +70,23 @@ test('la persistencia aplica un parche con merge', async () => {
 
   assert.deepEqual(writes, [{
     data: { weeklyBaselineOverdue: { '2026-36': 3 } },
-    merge: true,
+    mergeFields: ['weeklyBaselineOverdue'],
   }]);
+});
+
+test('reemplaza mapas de la tarea para conservar borrados sin sobrescribir tareas vecinas', async () => {
+  let options: unknown;
+  const state = initialState();
+  await persistNotificationState({ async set(_data, nextOptions) { options = nextOptions; } }, state, ['stalledAlerts']);
+  assert.deepEqual(options, { mergeFields: ['stalledAlerts'] });
+});
+
+test('retiene deduplicación de entregadas aún presentes aunque venza el historial de 90 días', () => {
+  const state = initialState();
+  state.deliveredOrderIds = [10];
+  state.deliveryTimestamps['10'] = { detectedAt: Date.now() - 100 * 86_400_000, ageAtDelivery: 12 };
+  const patch = createNotificationStatePatch(state, ['deliveredOrderIds', 'deliveryTimestamps']);
+  assert.deepEqual(patch.deliveredOrderIds, [10]);
+  assert.deepEqual(patch.deliveryTimestamps, {});
 });
 

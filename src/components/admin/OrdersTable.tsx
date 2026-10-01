@@ -115,7 +115,12 @@ export default function OrdersTable({
     columnHelper.accessor('name', {
       id: 'name',
       header: 'SO',
-      cell: info => <span className="font-mono-data text-sm font-bold text-foreground">{info.getValue()}</span>,
+      cell: ({ row }) => (
+        <div className="font-mono-data">
+          <span className="text-sm font-bold text-foreground">{row.original.name}</span>
+          {row.original.customer_reference && <div className="text-xs text-muted-foreground">PO: {row.original.customer_reference}</div>}
+        </div>
+      ),
     }),
     columnHelper.accessor('partner_name', {
       id: 'partner_name',

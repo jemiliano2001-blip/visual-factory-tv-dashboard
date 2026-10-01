@@ -221,7 +221,7 @@ export const explainOrderRequirements = async (order: OdooSaleOrder) => {
 export const filterOrdersByNaturalLanguage = async (query: string, orders: OdooSaleOrder[]): Promise<number[]> => {
   const response = await generateAdminContent({
     model: 'gemini-3.7-flash',
-    contents: `Given the following JSON list of Odoo sale orders and a user query in SPANISH, return a JSON array of the 'id's (numbers) of the orders that match the query. Query: "${query}". Orders: ${JSON.stringify(orders.map(o => ({ id: o.id, ...simplifyOrder(o) })))}`,
+    contents: `Filtra estas órdenes de venta de Odoo según la consulta. Busca SO, referencias del cliente, OT e ingenieros en todas las descripciones y notas. El vendedor es un dato separado: no asumas que es el ingeniero asignado. Devuelve únicamente un arreglo JSON con los id numéricos de las órdenes que coincidan. Consulta: ${JSON.stringify(query)}. Órdenes: ${JSON.stringify(orders.map(o => ({ id: o.id, ...simplifyOrder(o), descripciones: o.lines.map(line => line.name), nota: noteToPlainText(o.note, 4000) })))}`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {

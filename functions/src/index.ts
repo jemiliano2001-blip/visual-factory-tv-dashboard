@@ -234,7 +234,7 @@ async function runNotificationTask(task: (orders: NotifOrder[], channels: Webhoo
 }
 
 // 1. Scan cada 30 minutos (umbrales y eventos)
-export const scanNotifications = onSchedule({ schedule: 'every 30 minutes', timeZone: TIME_ZONE }, async () => {
+export const scanNotifications = onSchedule({ schedule: 'every 30 minutes', timeZone: TIME_ZONE, maxInstances: 1, concurrency: 1 }, async () => {
   await runNotificationTask(async (orders, channels) => {
     await checkThresholds(orders, channels);
     await checkEvents(orders, channels);

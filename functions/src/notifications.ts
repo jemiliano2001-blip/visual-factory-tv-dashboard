@@ -12,8 +12,11 @@ export interface NotifOrder {
   date_order: string; // "YYYY-MM-DD HH:MM:SS" UTC from Odoo
   main_product: string;
   commitment_date: string | null;
+  customer_reference?: string | null;
   lines_count: number;
   deliveries: { state: string; date_done?: string | null }[];
+  qty_total?: number;
+  qty_delivered?: number;
 }
 
 export interface WebhookChannels {
@@ -38,16 +41,26 @@ interface DiscordEmbed {
   image?: { url: string };
 }
 
+export interface NotificationRuntime {
+  loadState: typeof loadState;
+  saveState: typeof saveState;
+  sendWebhook: typeof sendWebhook;
+}
+
+const defaultRuntime: NotificationRuntime = { loadState, saveState, sendWebhook };
+
 // ─── State ────────────────────────────────────────────────────────────────────
 
 export async function loadState(): Promise<NotificationState> {
+  const initial = structuredClone(EMPTY_STATE);
   try {
     const doc = await admin.firestore().collection('config').doc('notification_state').get();
-    if (doc.exists) return { ...EMPTY_STATE, ...doc.data() } as NotificationState;
+    if (doc.exists) return { ...initial, ...doc.data() } as NotificationState;
   } catch (e) {
     console.error('[notifications] Error cargando estado de Firestore:', e);
+    throw new Error('No se pudo leer la deduplicación; se cancela el envío para evitar avisos repetidos.');
   }
-  return JSON.parse(JSON.stringify(EMPTY_STATE));
+  return initial;
 }
 
 export async function saveState(
@@ -59,6 +72,7 @@ export async function saveState(
     await persistNotificationState(document, state, fields);
   } catch (e) {
     console.error('[notifications] Error guardando estado en Firestore:', e);
+    throw new Error('No se pudo guardar el estado de notificaciones.');
   }
 }
 
@@ -87,17 +101,24 @@ async function postWebhook(url: string, body: string): Promise<Response> {
   const wait = 1500 - (Date.now() - lastSendMs);
   if (wait > 0) await new Promise(r => setTimeout(r, wait));
   lastSendMs = Date.now();
-  return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  const target = new URL(url);
+  target.searchParams.set('wait', 'true');
+  return fetch(target, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(15000) });
 }
 
 interface DiscordWebhookPayload {
   content: string;
   embeds: DiscordEmbed[];
   thread_name?: string;
+  allowed_mentions: { parse: string[]; roles: string[] };
 }
 
 export async function sendWebhook(url: string, content: string, embeds: DiscordEmbed[], threadName?: string): Promise<boolean> {
-  const payload: DiscordWebhookPayload = { content, embeds };
+  const roles = Array.from(content.matchAll(/<@&(\d+)>/g), match => match[1]);
+  const payload: DiscordWebhookPayload = {
+    content, embeds,
+    allowed_mentions: { parse: content.includes('@everyone') ? ['everyone'] : [], roles },
+  };
   if (threadName) payload.thread_name = threadName;
   const body = JSON.stringify(payload);
   try {
@@ -109,12 +130,12 @@ export async function sendWebhook(url: string, content: string, embeds: DiscordE
       res = await postWebhook(url, body);
     }
     if (!res.ok) {
-      console.error(`[notifications] Discord webhook falló: ${res.status} ${await res.text()}`);
+      console.error(`[notifications] Discord webhook falló: HTTP ${res.status}`);
       return false;
     }
     return true;
   } catch (e) {
-    console.error('[notifications] Error enviando webhook a Discord:', e);
+    console.error('[notifications] Error enviando webhook a Discord:', e instanceof Error ? e.name : 'Error');
     return false;
   }
 }
@@ -128,7 +149,7 @@ function getDashboardUrl(): string {
 }
 
 function parseOdooDateUtc(dateStr: string): Date {
-  return new Date(dateStr.replace(' ', 'T') + 'Z');
+  return new Date(dateStr.includes('T') ? dateStr : dateStr.includes(' ') ? dateStr.replace(' ', 'T') + 'Z' : `${dateStr}T00:00:00Z`);
 }
 
 function truncateProduct(product: string, maxLen = 60): string {
@@ -147,17 +168,19 @@ function calendarDaysSince(dateStr: string): number {
 function formatCommitmentLine(commitmentDate: string | null | undefined): string | null {
   if (!commitmentDate) return null;
   const d = parseOdooDateUtc(commitmentDate);
+  if (Number.isNaN(d.getTime())) return null;
   const formatted = d.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
   const days = calendarDaysSince(commitmentDate);
-  if (days > 0) return `📅 Compromiso: ${formatted} (vencido hace ${days} día${days !== 1 ? 's' : ''})`;
+  if (d.getTime() < Date.now()) return `📅 Compromiso: ${formatted} (vencido${days > 0 ? ` hace ${days} día${days !== 1 ? 's' : ''}` : ' hace menos de un día'})`;
   if (days < 0) return `📅 Compromiso: ${formatted} (en ${Math.abs(days)} día${Math.abs(days) !== 1 ? 's' : ''})`;
   return `📅 Compromiso: ${formatted} (hoy)`;
 }
 
 function buildOrderDetailLines(order: NotifOrder): string[] {
   const lines: string[] = [];
+  if (order.customer_reference) lines.push(`**PO del cliente:** ${escapeDiscord(truncateProduct(order.customer_reference, 120))}`);
   const product = order.main_product?.trim();
-  if (product) lines.push(`🔩 ${truncateProduct(product)}`);
+  if (product) lines.push(`🔩 ${escapeDiscord(truncateProduct(product))}`);
   const commitment = formatCommitmentLine(order.commitment_date);
   if (commitment) lines.push(commitment);
   lines.push(`🔗 [Ver en tablero](${getDashboardUrl()})`);
@@ -172,15 +195,16 @@ export function orderAgeEmbed(order: NotifOrder, ageDays: number, color: number,
   const delivered = order.deliveries.filter(d => d.state === 'done').length;
   const pending   = order.deliveries.filter(d => d.state !== 'done' && d.state !== 'cancel').length;
   const lines = [
-    `**${order.name}** · ${escapeDiscord(order.partner_name)}`,
-    `⏱ **${ageDays} días** sin entregar`,
+    `**${escapeDiscord(order.name)}** · ${escapeDiscord(order.partner_name)}`,
+    `⏱ ${ageDays} días hábiles de antigüedad · entrega pendiente`,
     `📦 Entregas: ${pending} pendientes / ${delivered} completadas`,
     ...buildOrderDetailLines(order),
+    '**Acción:** confirmar avance y fecha de entrega con el responsable.',
   ];
   if (trendLine) lines.push('', `📊 ${trendLine}`);
   return {
     title,
-    description: lines.join('\n'),
+    description: lines.join('\n').slice(0, 4096),
     color,
     timestamp: nowISO(),
     footer: { text: 'Visual Factory TV · Odoo' },
@@ -189,8 +213,8 @@ export function orderAgeEmbed(order: NotifOrder, ageDays: number, color: number,
 
 export function reportEmbed(title: string, lines: string | string[], color: number, imageUrl?: string): DiscordEmbed {
   const embed: DiscordEmbed = {
-    title,
-    description: Array.isArray(lines) ? lines.join('\n') : lines,
+    title: title.slice(0, 256),
+    description: (Array.isArray(lines) ? lines.join('\n') : lines).slice(0, 4096),
     color,
     timestamp: nowISO(),
     footer: { text: 'Visual Factory TV · Odoo' },
@@ -204,12 +228,13 @@ export function reportEmbed(title: string, lines: string | string[], color: numb
 export function getOrderAgeDays(dateOrder: string): number {
   const d = parseOdooDateUtc(dateOrder);
   const now = new Date();
-
+  d.setUTCHours(0, 0, 0, 0);
+  now.setUTCHours(0, 0, 0, 0);
   let count = 0;
   const cur = new Date(d);
   while (cur < now) {
-    cur.setDate(cur.getDate() + 1);
-    const day = cur.getDay();
+    cur.setUTCDate(cur.getUTCDate() + 1);
+    const day = cur.getUTCDay();
     // 0 es Domingo, 6 es Sábado
     if (day !== 0 && day !== 6) {
       count++;
@@ -226,7 +251,7 @@ export function isFullyDelivered(order: NotifOrder): boolean {
 export function getClientMention(partnerName: string): string {
   const partnerKey = partnerName.toUpperCase().replace(/[^A-Z0-9]/g, '_');
   const roleId = process.env[`DISCORD_ROLE_${partnerKey}`];
-  return roleId ? `<@&${roleId}>` : '@everyone';
+  return roleId ? `<@&${roleId}>` : getReportMention();
 }
 
 function getReportMention(): string {
@@ -288,20 +313,12 @@ function buildWeeklyChartUrl(state: NotificationState): string {
 
 // Business days elapsed since a given timestamp (weekends excluded)
 function businessDaysSince(timestamp: number): number {
-  const now = new Date();
-  let count = 0;
-  const cur = new Date(timestamp);
-  while (cur < now) {
-    cur.setDate(cur.getDate() + 1);
-    const day = cur.getDay();
-    if (day !== 0 && day !== 6) count++;
-  }
-  return count;
+  return getOrderAgeDays(new Date(timestamp).toISOString());
 }
 
 // Sorted state signature for a delivery list (excludes cancelled)
 function buildDeliverySig(order: NotifOrder): string {
-  return order.deliveries
+  return `${order.qty_delivered ?? ''}|` + order.deliveries
     .filter(d => d.state !== 'cancel')
     .map(d => d.state)
     .sort()
@@ -319,31 +336,70 @@ function updateClientMonthlyStats(partnerName: string, orderId: number, month: s
   }
 }
 
-// Returns trend label based on how many distinct orders this client has had overdue this month
-function getClientTrendLabel(partnerName: string, month: string, state: NotificationState): string | null {
-  const count = (state.clientMonthlyStats ?? {})[partnerName]?.[month]?.length ?? 0;
-  if (count === 0) return null;
-  if (count === 1) return 'Primera orden atrasada este mes';
-  if (count === 2) return '2ª orden atrasada este mes';
-  return `⚠️ Cliente recurrente — ${count}ª orden atrasada este mes`;
-}
-
 const STALL_DAYS = parseInt(process.env.STALL_THRESHOLD_DAYS ?? '3', 10);
 const LARGE_ORDER_LINES = parseInt(process.env.DISCORD_LARGE_ORDER_LINES ?? '5', 10);
+
+interface PendingAlert {
+  url: string;
+  mention: string;
+  embed: DiscordEmbed;
+  onSent: () => void;
+}
+
+function embedLength(embed: DiscordEmbed): number {
+  return embed.title.length + (embed.description?.length ?? 0) + embed.footer.text.length
+    + (embed.fields ?? []).reduce((sum, field) => sum + field.name.length + field.value.length, 0);
+}
+
+/** Un ping por destino/rol; lotes acotados a los límites de Discord. */
+async function sendGroupedAlerts(
+  alerts: PendingAlert[], runtime: NotificationRuntime, checkpoint: () => Promise<void>,
+): Promise<void> {
+  const groups = new Map<string, PendingAlert[]>();
+  for (const alert of alerts) {
+    const key = JSON.stringify([alert.url, alert.mention]);
+    const group = groups.get(key) ?? [];
+    group.push(alert);
+    groups.set(key, group);
+  }
+  for (const group of groups.values()) {
+    let offset = 0;
+    let mentioned = false;
+    while (offset < group.length) {
+      const batch: PendingAlert[] = [];
+      let length = 0;
+      while (offset < group.length && batch.length < 10) {
+        const next = group[offset];
+        const nextLength = embedLength(next.embed);
+        if (batch.length && length + nextLength > 6000) break;
+        batch.push(next);
+        length += nextLength;
+        offset++;
+      }
+      const content = `${mentioned ? '' : group[0].mention} ${batch.length} aviso${batch.length === 1 ? '' : 's'} de Odoo`.trim();
+      if (await runtime.sendWebhook(group[0].url, content, batch.map(alert => alert.embed))) {
+        mentioned = true;
+        for (const alert of batch) alert.onSent();
+        await checkpoint();
+      }
+    }
+  }
+}
 
 // ─── Threshold alerts ─────────────────────────────────────────────────────────
 
 export async function checkThresholds(
   orders: NotifOrder[],
   channels: WebhookChannels,
+  runtime: NotificationRuntime = defaultRuntime,
 ): Promise<void> {
-  const state = await loadState();
-  let dirty = false;
+  const state = await runtime.loadState();
+  const alerts: PendingAlert[] = [];
 
   const thresholds = [
-    { days: 14, key: '14d', color: 0xDC2626, title: '🔴 Orden atrasada — 2 semanas' },
-    { days: 21, key: '21d', color: 0xB91C1C, title: '🚨 Orden atrasada — 3 semanas' },
-    { days: 30, key: '30d', color: 0x7F1D1D, title: '💀 Orden crítica — 1 mes' },
+    { days: 14, key: '14d', color: 0xDC2626, title: '🔴 Entrega pendiente — 14 días hábiles o más' },
+    { days: 21, key: '21d', color: 0xB91C1C, title: '🚨 Entrega pendiente — 21 días hábiles o más' },
+    { days: 30, key: '30d', color: 0x7F1D1D, title: '🚨 Entrega pendiente — 30 días hábiles o más' },
   ] as const;
 
   const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
@@ -352,204 +408,137 @@ export async function checkThresholds(
     if (isFullyDelivered(order)) continue;
     const ageDays = getOrderAgeDays(order.date_order);
 
-    for (const t of thresholds) {
-      if (ageDays < t.days) continue;
-      const alertKey = `${order.id}_${t.key}`;
-      if (state.sentAlerts[alertKey]) continue;
-
-      updateClientMonthlyStats(order.partner_name, order.id, currentMonth, state);
-      const trendLabel = getClientTrendLabel(order.partner_name, currentMonth, state);
-
-      const mention = getClientMention(order.partner_name);
-      await sendWebhook(channels.criticas, mention, [orderAgeEmbed(order, ageDays, t.color, t.title, trendLabel ?? undefined)]);
-      state.sentAlerts[alertKey] = Date.now();
-      dirty = true;
-    }
+    const reached = thresholds.filter(t => ageDays >= t.days);
+    const highest = reached[reached.length - 1];
+    if (!highest || state.sentAlerts[`${order.id}_${highest.key}`]) continue;
+    alerts.push({
+      url: channels.criticas, mention: getClientMention(order.partner_name),
+      embed: orderAgeEmbed(order, ageDays, highest.color, highest.title),
+      onSent: () => {
+        for (const threshold of reached) state.sentAlerts[`${order.id}_${threshold.key}`] = Date.now();
+        updateClientMonthlyStats(order.partner_name, order.id, currentMonth, state);
+      },
+    });
   }
 
-  if (dirty) await saveState(state, ['sentAlerts', 'clientMonthlyStats']);
-}
-
-// ─── Internal event helpers ───────────────────────────────────────────────────
-
-// Fires once per order when at least one delivery completes but others remain
-async function checkPartialDelivery(orders: NotifOrder[], eventosUrl: string, state: NotificationState): Promise<boolean> {
-  let dirty = false;
-  state.partialDeliveryAlerts ??= {};
-
-  for (const order of orders) {
-    if (isFullyDelivered(order)) continue;
-    const active = order.deliveries.filter(d => d.state !== 'cancel');
-    if (active.length === 0) continue;
-    const done = active.filter(d => d.state === 'done');
-    if (done.length === 0) continue; // nothing done yet
-
-    const key = String(order.id);
-    if (state.partialDeliveryAlerts[key]) continue; // already notified
-
-    state.partialDeliveryAlerts[key] = Date.now();
-    await sendWebhook(eventosUrl, '', [reportEmbed(
-      `📦 Entrega parcial — ${order.name}`,
-      orderEventDescription(order, [
-        `**Cliente:** ${escapeDiscord(order.partner_name)}`,
-        `**Remisiones:** ${done.length} de ${active.length} completadas`,
-      ]),
-      0x10B981,
-    )]);
-    dirty = true;
-  }
-  return dirty;
-}
-
-// Fires when no delivery state has changed for STALL_DAYS business days
-// Clears on state change so it can re-fire if the order stalls again
-async function checkStalledOrders(orders: NotifOrder[], criticasUrl: string, state: NotificationState): Promise<boolean> {
-  let dirty = false;
-  state.lastDeliveryStates ??= {};
-  state.stalledAlerts ??= {};
-
-  for (const order of orders) {
-    if (isFullyDelivered(order)) continue;
-    const active = order.deliveries.filter(d => d.state !== 'cancel');
-    if (active.length === 0) continue;
-
-    const key = String(order.id);
-    const sig = buildDeliverySig(order);
-    const prev = state.lastDeliveryStates[key];
-
-    if (!prev || prev.sig !== sig) {
-      // State changed — record new baseline and clear any existing stall alert
-      state.lastDeliveryStates[key] = { sig, changedAt: Date.now() };
-      if (state.stalledAlerts[key]) delete state.stalledAlerts[key];
-      dirty = true;
-      continue;
-    }
-
-    // Same state — check if stalled long enough
-    if (state.stalledAlerts[key]) continue; // already notified about this stall episode
-    if (businessDaysSince(prev.changedAt) < STALL_DAYS) continue;
-
-    state.stalledAlerts[key] = Date.now();
-    await sendWebhook(criticasUrl, '', [reportEmbed(
-      `⏸️ Orden sin movimiento — ${order.name}`,
-      orderEventDescription(order, [
-        `**Cliente:** ${escapeDiscord(order.partner_name)}`,
-        `**Sin cambios en remisiones:** ${STALL_DAYS} días hábiles`,
-      ]),
-      0xF59E0B,
-    )]);
-    dirty = true;
-  }
-  return dirty;
+  await sendGroupedAlerts(alerts, runtime, () => runtime.saveState(state, ['sentAlerts', 'clientMonthlyStats']));
 }
 
 // ─── Event alerts ─────────────────────────────────────────────────────────────
 
-export async function checkEvents(orders: NotifOrder[], channels: WebhookChannels): Promise<void> {
-  const state = await loadState();
-  let dirty = false;
+export async function checkEvents(
+  orders: NotifOrder[], channels: WebhookChannels, runtime: NotificationRuntime = defaultRuntime,
+): Promise<void> {
+  const state = await runtime.loadState();
+  const alerts: PendingAlert[] = [];
   const todayStr = new Date().toISOString().slice(0, 10);
-
-  // --- New large orders ---
-  const isFirstRun = state.knownOrderIds.length === 0;
-
-  for (const order of orders) {
-    if (!state.knownOrderIds.includes(order.id) && order.lines_count >= LARGE_ORDER_LINES) {
-      const ageDays = getOrderAgeDays(order.date_order);
-      // Solo notificar si la orden tiene 2 días o menos para evitar spam de órdenes viejas en reinicios
-      if (!isFirstRun && ageDays <= 2) {
-        await sendWebhook(channels.eventos, '', [reportEmbed(
-          `📦 Nueva orden grande — ${order.name}`,
-          orderEventDescription(order, [
-            `**Cliente:** ${escapeDiscord(order.partner_name)}`,
-            `**Líneas de producto:** ${order.lines_count}`,
-            `**Fecha:** ${order.date_order.slice(0, 10)}`,
-          ]),
-          0x2563EB,
-        )]);
-      }
-    }
-  }
-  state.knownOrderIds = orders.map(o => o.id);
-  dirty = true;
-
-  // --- Delivered orders (state changed to fully delivered) ---
+  const isFirstRun = !state.eventsInitialized && state.knownOrderIds.length === 0;
+  state.eventsInitialized = true;
+  const pendingNewIds = new Set<number>();
+  const clientAlertSignatures = state.clientAlertSignatures ??= {};
+  state.partialDeliveryAlerts ??= {};
+  state.lastDeliveryStates ??= {};
+  state.stalledAlerts ??= {};
   state.recoveryNotifications ??= [];
+
+  const fields = [
+    'knownOrderIds', 'eventsInitialized', 'deliveredOrderIds', 'deliveryTimestamps', 'clientAlertDates',
+    'clientAlertSignatures', 'partialDeliveryAlerts', 'lastDeliveryStates',
+    'stalledAlerts', 'recoveryNotifications',
+  ] as const;
+  const checkpoint = () => runtime.saveState(state, fields);
+  const queue = (url: string, embed: DiscordEmbed, onSent: () => void, mention = '') =>
+    alerts.push({ url, mention, embed, onSent });
+
   for (const order of orders) {
-    if (isFullyDelivered(order) && !state.deliveredOrderIds.includes(order.id)) {
-      const ageAtDelivery = getOrderAgeDays(order.date_order);
-      const orderKey = String(order.id);
-      const hadCriticalAlert = state.sentAlerts[`${order.id}_14d`]
-        || state.sentAlerts[`${order.id}_21d`]
-        || state.sentAlerts[`${order.id}_30d`];
+    const key = String(order.id);
+    const age = getOrderAgeDays(order.date_order);
+    const clientLine = `**Cliente:** ${escapeDiscord(order.partner_name)}`;
+    if (!isFirstRun && !state.knownOrderIds.includes(order.id)
+      && order.lines_count >= LARGE_ORDER_LINES && age <= 2 && !isFullyDelivered(order)) {
+      pendingNewIds.add(order.id);
+      queue(channels.eventos, reportEmbed(`📦 Nueva orden grande — ${order.name}`,
+        orderEventDescription(order, [clientLine, `**Líneas de producto:** ${order.lines_count}`,
+          '**Acción:** revisar requisitos y asignar el trabajo.']), 0x2563EB),
+        () => { state.knownOrderIds.push(order.id); });
+    }
 
-      if (hadCriticalAlert && !state.recoveryNotifications.includes(orderKey)) {
-        await sendWebhook(channels.eventos, '', [reportEmbed(
-          `✅ Orden recuperada — ${order.name}`,
-          orderEventDescription(order, [
-            `**Cliente:** ${escapeDiscord(order.partner_name)}`,
-            `**Entregada con:** ${ageAtDelivery} días hábiles de atraso`,
-          ]),
-          0x059669,
-        )]);
-        state.recoveryNotifications.push(orderKey);
-      } else {
-        await sendWebhook(channels.eventos, '', [reportEmbed(
-          `✅ Orden entregada — ${order.name}`,
-          orderEventDescription(order, [
-            `**Cliente:** ${escapeDiscord(order.partner_name)}`,
-            `**Duración:** ${ageAtDelivery} días`,
-          ]),
-          0x16A34A,
-        )]);
+    if (isFullyDelivered(order)) {
+      if (!state.deliveredOrderIds.includes(order.id)) {
+        const hadCriticalAlert = ['14d', '21d', '30d'].some(level => state.sentAlerts[`${order.id}_${level}`]);
+        const recovered = hadCriticalAlert && !state.recoveryNotifications.includes(key);
+        queue(channels.eventos, reportEmbed(
+          `✅ ${recovered ? 'Orden recuperada' : 'Orden entregada'} — ${order.name}`,
+          orderEventDescription(order, [clientLine, `**Antigüedad al detectar entrega:** ${age} días hábiles`,
+            '**Acción:** confirmar cierre de remisiones y facturación.']), 0x16A34A), () => {
+            if (recovered) state.recoveryNotifications.push(key);
+            state.deliveredOrderIds.push(order.id);
+            state.deliveryTimestamps[key] = { detectedAt: Date.now(), ageAtDelivery: age };
+            delete state.partialDeliveryAlerts[key];
+            delete state.lastDeliveryStates[key];
+            delete state.stalledAlerts[key];
+          });
       }
+      continue;
+    }
 
-      delete (state.partialDeliveryAlerts ?? {})[orderKey];
-      delete (state.lastDeliveryStates ?? {})[orderKey];
-      delete (state.stalledAlerts ?? {})[orderKey];
-
-      state.deliveredOrderIds.push(order.id);
-      state.deliveryTimestamps[orderKey] = { detectedAt: Date.now(), ageAtDelivery };
-      dirty = true;
+    const active = order.deliveries.filter(delivery => delivery.state !== 'cancel');
+    const done = active.filter(delivery => delivery.state === 'done');
+    if (done.length > 0 && !state.partialDeliveryAlerts[key]) {
+      queue(channels.eventos, reportEmbed(`📦 Entrega parcial — ${order.name}`,
+        orderEventDescription(order, [clientLine, `**Remisiones:** ${done.length} de ${active.length} completadas`,
+          '**Acción:** confirmar qué piezas faltan y la próxima entrega.']), 0x10B981),
+        () => { state.partialDeliveryAlerts[key] = Date.now(); });
+    }
+    if (!active.length) continue;
+    const sig = buildDeliverySig(order);
+    const prev = state.lastDeliveryStates[key];
+    if (!prev || prev.sig !== sig) {
+      state.lastDeliveryStates[key] = { sig, changedAt: Date.now() };
+      delete state.stalledAlerts[key];
+    } else if (!state.stalledAlerts[key] && businessDaysSince(prev.changedAt) >= STALL_DAYS) {
+      queue(channels.criticas, reportEmbed(`⏸️ Orden sin movimiento — ${order.name}`,
+        orderEventDescription(order, [clientLine, `**Sin cambios en remisiones:** ${STALL_DAYS} días hábiles o más`,
+          '**Acción:** confirmar avance real y actualizar las remisiones en Odoo.']), 0xF59E0B),
+        () => { state.stalledAlerts[key] = Date.now(); });
     }
   }
+  // Una orden nueva cuyo aviso falló queda fuera de la línea base para reintentar.
+  state.knownOrderIds = orders.filter(order => !pendingNewIds.has(order.id)).map(order => order.id);
 
-  // --- Client with 3+ overdue orders (>14 days), once per client per day ---
-  const overdueByClient: Record<string, NotifOrder[]> = {};
+  const overdueByClient = new Map<string, NotifOrder[]>();
   for (const order of orders) {
     if (!isFullyDelivered(order) && getOrderAgeDays(order.date_order) >= 14) {
-      (overdueByClient[order.partner_name] ??= []).push(order);
+      const group = overdueByClient.get(order.partner_name) ?? [];
+      group.push(order);
+      overdueByClient.set(order.partner_name, group);
     }
   }
-  for (const [client, clientOrders] of Object.entries(overdueByClient)) {
+  for (const client of Object.keys(clientAlertSignatures)) {
+    if ((overdueByClient.get(client)?.length ?? 0) < 3) {
+      delete clientAlertSignatures[client];
+      delete state.clientAlertDates[client];
+    }
+  }
+  for (const [client, clientOrders] of overdueByClient) {
     if (clientOrders.length < 3) continue;
-    if (state.clientAlertDates[client] === todayStr) continue;
-    const bullets = clientOrders
-      .sort((a, b) => getOrderAgeDays(b.date_order) - getOrderAgeDays(a.date_order))
-      .map(o => `  • ${o.name} (${getOrderAgeDays(o.date_order)}d)`);
-    const mention = getClientMention(client);
-    await sendWebhook(channels.criticas, mention, [reportEmbed(
-      `👥 Cliente con múltiples órdenes atrasadas`,
-      [`**${escapeDiscord(client)}** — ${clientOrders.length} órdenes con más de 14 días hábiles:`, ...bullets],
-      0xEA580C,
-    )]);
-    state.clientAlertDates[client] = todayStr;
-    dirty = true;
+    const sig = clientOrders.map(order => `${order.id}:${getOrderAgeDays(order.date_order) >= 30 ? 30 : getOrderAgeDays(order.date_order) >= 21 ? 21 : 14}`).sort().join(',');
+    if (clientAlertSignatures[client] === sig || state.clientAlertDates[client] === todayStr) continue;
+    const sorted = [...clientOrders].sort((a, b) => getOrderAgeDays(b.date_order) - getOrderAgeDays(a.date_order));
+    const bullets = sorted.slice(0, 10).map(order => `• ${escapeDiscord(order.name)} (${getOrderAgeDays(order.date_order)} días hábiles)`);
+    if (sorted.length > 10) bullets.push(`… y ${sorted.length - 10} más; consultar el tablero.`);
+    queue(channels.criticas, reportEmbed('👥 Cliente con varias entregas pendientes', [
+      `**${escapeDiscord(client)}** — ${clientOrders.length} SO con 14 días hábiles de antigüedad o más:`,
+      ...bullets, '**Acción:** acordar prioridades y fechas de entrega.',
+      `🔗 [Ver en tablero](${getDashboardUrl()})`,
+    ], 0xEA580C), () => {
+      state.clientAlertDates[client] = todayStr;
+      clientAlertSignatures[client] = sig;
+    }, getClientMention(client));
   }
 
-  dirty = (await checkPartialDelivery(orders, channels.eventos, state)) || dirty;
-  dirty = (await checkStalledOrders(orders, channels.criticas, state)) || dirty;
-
-  if (dirty) await saveState(state, [
-    'knownOrderIds',
-    'deliveredOrderIds',
-    'deliveryTimestamps',
-    'clientAlertDates',
-    'partialDeliveryAlerts',
-    'lastDeliveryStates',
-    'stalledAlerts',
-    'recoveryNotifications',
-  ]);
+  await sendGroupedAlerts(alerts, runtime, checkpoint);
+  await checkpoint();
 }
 
 // ─── Scheduled reports ────────────────────────────────────────────────────────

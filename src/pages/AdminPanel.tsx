@@ -7,6 +7,7 @@ import React, { useMemo, useState } from 'react';
 import type { RowSelectionState } from '@tanstack/react-table';
 import { useOdooOrders } from '../hooks/useOdooOrders';
 import { OdooSaleOrder, getOrderStatus } from '../services/odoo';
+import { createOrderSearchMatcher } from '../services/orderSearch';
 import { filterOrdersByNaturalLanguage, summarizePendingWork, explainOrderRequirements, AIError } from '../services/ai';
 import type { OrderStatusFilter } from '../components/admin/orderStatusMeta';
 import PendingTab from '../components/admin/PendingTab';
@@ -54,14 +55,7 @@ export default function AdminPanel() {
     if (aiFilterIds) result = result.filter(o => aiFilterIds.includes(o.id));
     if (clientFilter) result = result.filter(o => o.partner_name === clientFilter);
     if (statusFilter !== 'all') result = result.filter(o => getOrderStatus(o).level === statusFilter);
-    const q = search.trim().toLowerCase();
-    if (q) {
-      result = result.filter(o =>
-        o.name.toLowerCase().includes(q) ||
-        o.partner_name.toLowerCase().includes(q) ||
-        o.main_product.toLowerCase().includes(q)
-      );
-    }
+    if (search.trim()) result = result.filter(createOrderSearchMatcher(search));
     return result;
   }, [orders, aiFilterIds, clientFilter, statusFilter, search]);
 

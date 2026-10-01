@@ -59,10 +59,10 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/60" />
               <Input
-                aria-label="Buscar orden, producto o cliente"
+                aria-label="Buscar SO, PO, OT, ingeniero, producto o cliente"
                 value={textFilter}
                 onChange={(e) => onText(e.target.value)}
-                placeholder="Buscar OV, producto o cliente…"
+                placeholder="SO, PO, OT o ingeniero…"
                 className="h-10 pl-9 bg-transparent border-white/8 focus-visible:border-primary/40 focus-visible:ring-0 focus-visible:ring-offset-0"
               />
             </div>
@@ -188,11 +188,11 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  aria-label="Buscar orden, producto o cliente"
+                  aria-label="Buscar SO, PO, OT, ingeniero, producto o cliente"
                   value={textFilter}
                   onChange={(e) => onText(e.target.value)}
-                  placeholder="Buscar OV o producto…"
-                  className="h-10 w-[220px] pl-9 text-xs border-white/10 bg-black/40"
+                  placeholder="SO, PO, OT o ingeniero…"
+                  className="h-10 w-[260px] pl-9 text-xs border-white/10 bg-black/40"
                 />
               </div>
 

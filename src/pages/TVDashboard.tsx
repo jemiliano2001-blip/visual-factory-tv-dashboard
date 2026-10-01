@@ -34,6 +34,7 @@ import { OrderDetailsModal } from '../components/OrderDetailsModal';
 import DashboardHeader from '../components/DashboardHeader';
 import DashboardFooter from '../components/DashboardFooter';
 import TVControlBar from '../components/TVControlBar';
+import { createOrderSearchMatcher } from '../services/orderSearch';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useMobile } from '../hooks/useMobile';
 import { buildTVPages, type TVPage } from '../utils/tvPagePacking';
@@ -536,12 +537,7 @@ export default function TVDashboard() {
     const matchesClient = (order: OdooSaleOrder) =>
       !clientFilter || order.partner_name.toLowerCase().includes(clientFilter.toLowerCase());
 
-    const q = textFilter.trim().toLowerCase();
-    const matchesText = (order: OdooSaleOrder) =>
-      !q ||
-      order.name.toLowerCase().includes(q) ||
-      order.main_product.toLowerCase().includes(q) ||
-      order.partner_name.toLowerCase().includes(q);
+    const matchesText = createOrderSearchMatcher(textFilter);
 
     // Override: el filtro de voz 'entregadas' muestra SOLO las totalmente entregadas.
     if (voiceFilter === 'delivered') {

@@ -1,9 +1,11 @@
 export interface NotificationState {
   sentAlerts: Record<string, number>;
   knownOrderIds: number[];
+  eventsInitialized?: boolean;
   deliveredOrderIds: number[];
   deliveryTimestamps: Record<string, { detectedAt: number; ageAtDelivery: number }>;
   clientAlertDates: Record<string, string>;
+  clientAlertSignatures?: Record<string, string>;
   lastMonthlyReportMonth: string;
   partialDeliveryAlerts: Record<string, number>;
   lastDeliveryStates: Record<string, { sig: string; changedAt: number }>;
@@ -16,9 +18,11 @@ export interface NotificationState {
 export const EMPTY_STATE: NotificationState = {
   sentAlerts: {},
   knownOrderIds: [],
+  eventsInitialized: false,
   deliveredOrderIds: [],
   deliveryTimestamps: {},
   clientAlertDates: {},
+  clientAlertSignatures: {},
   lastMonthlyReportMonth: '',
   partialDeliveryAlerts: {},
   lastDeliveryStates: {},
@@ -43,7 +47,8 @@ function pruneDeliveryHistory(state: NotificationState): NotificationState {
   for (const [key, value] of prunedEntries) deliveryTimestamps[key] = value;
 
   const validIds = new Set(Object.keys(deliveryTimestamps).map(id => Number(id)));
-  const deliveredOrderIds = (state.deliveredOrderIds ?? []).filter(id => validIds.has(id));
+  const knownIds = new Set(state.knownOrderIds);
+  const deliveredOrderIds = (state.deliveredOrderIds ?? []).filter(id => validIds.has(id) || knownIds.has(id));
   const baselineEntries = Object.entries(state.weeklyBaselineOverdue ?? {})
     .sort((a, b) => b[0].localeCompare(a[0]))
     .slice(0, MAX_WEEKLY_BASELINE_WEEKS);
@@ -62,7 +67,7 @@ export function createNotificationStatePatch<K extends keyof NotificationState>(
 }
 
 export interface NotificationStateDocument {
-  set(data: Partial<NotificationState>, options: { merge: boolean }): Promise<unknown>;
+  set(data: Partial<NotificationState>, options: { mergeFields: string[] }): Promise<unknown>;
 }
 
 export async function persistNotificationState(
@@ -71,5 +76,6 @@ export async function persistNotificationState(
   fields: readonly (keyof NotificationState)[],
 ): Promise<void> {
   const patch = createNotificationStatePatch(state, fields);
-  await document.set(patch, { merge: true });
+  // Sustituir cada mapa de esta tarea también persiste claves borradas.
+  await document.set(patch, { mergeFields: [...fields] });
 }

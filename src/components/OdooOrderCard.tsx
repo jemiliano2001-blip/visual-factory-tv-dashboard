@@ -124,7 +124,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
           : 4;
   const visibleLines = order.lines.slice(0, maxVisibleLines);
   const hiddenLineCount = Math.max(0, order.lines.length - visibleLines.length);
-  const cardLabel = `${order.name}, ${order.partner_name}, ${progress}% ${statusLabel}${isOverdue ? ', vencida' : ''}`;
+  const cardLabel = `${order.name}${order.customer_reference ? `, PO ${order.customer_reference}` : ''}, ${order.partner_name}, ${progress}% ${statusLabel}${isOverdue ? ', vencida' : ''}`;
 
   return (
     <motion.button
@@ -147,6 +147,11 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
           <h3 className={`${headingSize} truncate font-mono-data font-black tracking-tight text-white`}>
             {order.name}
           </h3>
+          {order.customer_reference && (
+            <p title={`PO del cliente: ${order.customer_reference}`} className={`mt-0.5 truncate font-mono-data text-zinc-400 ${isDense ? 'text-[10px]' : isLarge ? 'text-sm' : 'text-xs'}`}>
+              PO: {order.customer_reference}
+            </p>
+          )}
           {!hidePartner && (
             <SmartText
               text={getSmartCompanyName(order.partner_name, 'card')}
