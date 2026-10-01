@@ -73,7 +73,7 @@ export default function DeliveriesTab({ orders }: DeliveriesTabProps) {
             </button>
             {!isCollapsed && (
               <table className="w-full text-sm">
-                <thead className="font-mono-data text-[11px] uppercase tracking-wider text-muted-foreground">
+                <thead className="font-mono-data text-xs uppercase tracking-wider text-muted-foreground">
                   <tr>
                     <th className="px-4 py-2 text-left font-bold">Remisión</th>
                     <th className="px-4 py-2 text-left font-bold">SO</th>
@@ -98,7 +98,7 @@ export default function DeliveriesTab({ orders }: DeliveriesTabProps) {
                             <span className="font-medium">{getSmartCompanyName(r.order.partner_name, 'header')}</span>
                           </div>
                           {r.order.delivery_times && (
-                            <div className="flex items-center gap-1 text-[11px] font-mono-data text-cyan-400 mt-0.5" title={`Horario de entrega: ${r.order.delivery_times}`}>
+                            <div className="flex items-center gap-1 text-xs font-mono-data text-cyan-400 mt-0.5" title={`Horario de entrega: ${r.order.delivery_times}`}>
                               <Clock className="size-3 shrink-0" aria-hidden="true" />
                               <span className="truncate max-w-[220px]">{r.order.delivery_times}</span>
                             </div>

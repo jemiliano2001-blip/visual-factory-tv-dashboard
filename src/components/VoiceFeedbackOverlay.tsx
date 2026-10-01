@@ -66,9 +66,9 @@ export const VoiceFeedbackOverlay: React.FC<VoiceFeedbackOverlayProps> = ({
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
         className="fixed top-20 left-1/2 -translate-x-1/2 z-[70] w-[92%] max-w-4xl"
       >
-        <div className="relative overflow-hidden rounded-2xl bg-zinc-950/95 border border-indigo-500/30 backdrop-blur-xl p-5 md:p-6 shadow-[0_20px_60px_-15px_rgba(99,102,241,0.25)]">
+        <div className="relative overflow-hidden rounded-2xl bg-background/95 border border-indigo-500/30 backdrop-blur-xl p-5 md:p-6 shadow-[0_20px_60px_-15px_rgba(99,102,241,0.25)]">
           {/* Header de estado de la voz */}
-          <div className="flex items-center justify-between pb-3 mb-3 border-b border-zinc-800/80">
+          <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
             <div className="flex items-center gap-3">
               <div
                 className={`p-2.5 rounded-xl ${
@@ -91,7 +91,7 @@ export const VoiceFeedbackOverlay: React.FC<VoiceFeedbackOverlayProps> = ({
                       : 'Procesando con Gemini 3.5 Flash...'
                     : 'Asistente de Voz Operativo'}
                 </div>
-                <div className="text-sm md:text-base font-medium text-zinc-200 line-clamp-1 italic">
+                <div className="text-sm md:text-base font-medium text-secondary-foreground line-clamp-1 italic">
                   "{transcript || response?.transcript || 'Esperando instrucción...'}"
                 </div>
               </div>
@@ -99,7 +99,7 @@ export const VoiceFeedbackOverlay: React.FC<VoiceFeedbackOverlayProps> = ({
 
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors"
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -110,7 +110,7 @@ export const VoiceFeedbackOverlay: React.FC<VoiceFeedbackOverlayProps> = ({
             <div className="space-y-4">
               {/* Síntesis de lo que pidió el usuario */}
               {response.user_intent_summary && (
-                <div className="flex items-start gap-2 text-xs md:text-sm text-zinc-300 bg-zinc-900/60 rounded-lg p-2.5 border border-zinc-800">
+                <div className="flex items-start gap-2 text-xs md:text-sm text-secondary-foreground bg-card/60 rounded-lg p-2.5 border border-border">
                   <ArrowRight className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
                   <span>
                     <strong className="text-indigo-300">Solicitado:</strong> {response.user_intent_summary}
@@ -124,7 +124,7 @@ export const VoiceFeedbackOverlay: React.FC<VoiceFeedbackOverlayProps> = ({
                   <div className="flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
                     <div>
                       <div className="text-xs font-black uppercase tracking-widest text-red-300">Atención hoy</div>
-                      <div className="mt-1 text-base font-bold text-white">La TV quedó enfocada en estas prioridades.</div>
+                      <div className="mt-1 text-base font-bold text-foreground">La TV quedó enfocada en estas prioridades.</div>
                     </div>
                     <span className="rounded-full border border-red-400/40 bg-red-500/15 px-3 py-1 text-xs font-black tracking-wider text-red-200">
                       {riskOrders.length} {riskOrders.length === 1 ? 'PRIORIDAD' : 'PRIORIDADES'}
@@ -139,25 +139,25 @@ export const VoiceFeedbackOverlay: React.FC<VoiceFeedbackOverlayProps> = ({
                       <div
                         key={order.po_number}
                         className={isPrimary
-                          ? 'rounded-xl border border-red-500/50 bg-gradient-to-br from-red-950/70 to-zinc-900 p-4 shadow-[0_0_24px_rgba(239,68,68,0.18)]'
-                          : 'rounded-xl border border-zinc-700 bg-zinc-900/90 p-3'}
+                          ? 'rounded-xl border border-red-500/50 bg-destructive/10 p-4 shadow-[0_0_24px_rgba(239,68,68,0.18)]'
+                          : 'rounded-xl border border-border bg-card/90 p-3'}
                       >
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
-                            <div className="text-xs font-black uppercase tracking-widest text-zinc-400">
+                            <div className="text-xs font-black uppercase tracking-widest text-muted-foreground">
                               Prioridad {order.rank}
                             </div>
-                            <div className={`${isPrimary ? 'text-2xl lg:text-3xl' : 'text-lg'} mt-1 font-mono font-black tracking-wider text-white`}>
+                            <div className={`${isPrimary ? 'text-2xl lg:text-3xl' : 'text-lg'} mt-1 font-mono font-black tracking-wider text-foreground`}>
                               {order.po_number}
                             </div>
-                            <div className="mt-1 text-sm font-bold text-zinc-100">{order.client} · {order.product}</div>
+                            <div className="mt-1 text-sm font-bold text-foreground">{order.client} · {order.product}</div>
                           </div>
                           <div className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wider ${badge.bg}`}>
                             <IconComp className="h-3.5 w-3.5" />
                             {badge.label}
                           </div>
                         </div>
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-700/80 pt-3 text-xs md:text-sm">
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs md:text-sm">
                           <span className="font-mono font-bold text-emerald-300">Avance: {order.delivery_progress}</span>
                           <span className="text-indigo-200">⚡ {order.reason}</span>
                         </div>
@@ -166,13 +166,13 @@ export const VoiceFeedbackOverlay: React.FC<VoiceFeedbackOverlayProps> = ({
                   })}
                 </div>
               ) : expectedOrder ? (
-                <div className="rounded-xl bg-zinc-900/90 border border-zinc-800 p-4 space-y-3">
+                <div className="rounded-xl bg-card/90 border border-border p-4 space-y-3">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-3">
-                      <span className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
                         Orden Identificada / Esperada:
                       </span>
-                      <span className="font-mono font-black text-xl lg:text-2xl text-white tracking-wider bg-zinc-800 px-3 py-0.5 rounded-lg border border-zinc-700">
+                      <span className="font-mono font-black text-xl lg:text-2xl text-foreground tracking-wider bg-secondary px-3 py-0.5 rounded-lg border border-border">
                         {expectedOrder.po_number}
                       </span>
                     </div>
@@ -191,21 +191,21 @@ export const VoiceFeedbackOverlay: React.FC<VoiceFeedbackOverlayProps> = ({
                   </div>
 
                   {/* Datos del Cliente y Producto */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-zinc-300">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-secondary-foreground">
                     <div>
-                      <span className="text-zinc-500 text-xs block">Cliente:</span>
-                      <span className="font-bold text-white text-base">{expectedOrder.client}</span>
+                      <span className="text-muted-foreground text-xs block">Cliente:</span>
+                      <span className="font-bold text-foreground text-base">{expectedOrder.client}</span>
                     </div>
                     <div>
-                      <span className="text-zinc-500 text-xs block">Producto:</span>
-                      <span className="font-semibold text-zinc-200">{expectedOrder.product}</span>
+                      <span className="text-muted-foreground text-xs block">Producto:</span>
+                      <span className="font-semibold text-secondary-foreground">{expectedOrder.product}</span>
                     </div>
                   </div>
 
                   {/* Avance + Razón de selección por la IA */}
-                  <div className="flex flex-wrap items-center justify-between pt-2 border-t border-zinc-800/80 gap-2 text-xs md:text-sm">
-                    <div className="text-zinc-400">
-                      <span className="text-zinc-500">Avance de piezas: </span>
+                  <div className="flex flex-wrap items-center justify-between pt-2 border-t border-border gap-2 text-xs md:text-sm">
+                    <div className="text-muted-foreground">
+                      <span className="text-muted-foreground">Avance de piezas: </span>
                       <strong className="text-emerald-400 font-mono font-bold">
                         {expectedOrder.delivery_progress}
                       </strong>

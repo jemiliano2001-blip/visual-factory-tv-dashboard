@@ -76,7 +76,7 @@ export default function OrderReportTab({ orders }: OrderReportTabProps) {
             </div>
             <table className="order-report-table w-full text-sm">
               <thead>
-                <tr className="border-b-2 border-border font-mono-data text-[11px] uppercase tracking-wider text-muted-foreground">
+                <tr className="border-b-2 border-border font-mono-data text-xs uppercase tracking-wider text-muted-foreground">
                   <th className="px-2 py-1.5 text-left">Referencia</th>
                   <th className="px-2 py-1.5 text-left">Creado el</th>
                   <th className="px-2 py-1.5 text-right">Cant.</th>
@@ -110,7 +110,7 @@ function ClientGroup({ client, orders }: { client: string; orders: OdooSaleOrder
           <td className="whitespace-nowrap px-2 py-1.5 font-mono-data">
             {order.name}
             {order.customer_reference && (
-              <div className="text-[11px] text-muted-foreground">PO: {order.customer_reference}</div>
+              <div className="text-xs text-muted-foreground">PO: {order.customer_reference}</div>
             )}
           </td>
           <td className="whitespace-nowrap px-2 py-1.5 font-mono-data">{formatDate(order.date_order)}</td>

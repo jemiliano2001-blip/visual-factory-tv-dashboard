@@ -1061,7 +1061,7 @@ export default function TVDashboard() {
         {isLoadingOdoo ? (
           <div className="flex flex-col h-full">
             <div className="mb-6 flex items-center justify-between">
-              <div className="h-10 w-64 bg-zinc-800/50 rounded-lg animate-pulse" />
+              <div className="h-10 w-64 bg-secondary/50 rounded-lg animate-pulse" />
             </div>
             <div
               className="grid gap-6 flex-1"
@@ -1082,12 +1082,12 @@ export default function TVDashboard() {
               <WifiOff className="w-10 h-10 text-red-400" />
             </div>
             <div className="text-center space-y-2">
-              <h2 className="text-2xl font-black text-white uppercase tracking-tight">Sin conexión a Odoo</h2>
-              <p className="text-zinc-500 max-w-md">{odooError}</p>
+              <h2 className="text-2xl font-black text-foreground uppercase tracking-tight">Sin conexión a Odoo</h2>
+              <p className="text-muted-foreground max-w-md">{odooError}</p>
               {window.location.hostname === 'localhost' && (
-                <p className="text-zinc-600 text-sm">
+                <p className="text-muted-foreground/70 text-sm">
                   Asegúrate de que el servidor Express proxy esté corriendo:<br />
-                  <code className="text-indigo-400 bg-zinc-900 px-2 py-0.5 rounded text-xs">npm run server</code>
+                  <code className="text-indigo-400 bg-card px-2 py-0.5 rounded text-xs">npm run server</code>
                 </p>
               )}
             </div>
@@ -1106,15 +1106,15 @@ export default function TVDashboard() {
               <CheckCircle2 className="w-10 h-10 text-emerald-400" />
             </div>
             <div className="text-center">
-              <h2 className="text-2xl font-black text-white uppercase tracking-tight">Todo facturado</h2>
-              <p className="text-zinc-500 mt-2">No hay órdenes de venta pendientes de facturar en Odoo.</p>
+              <h2 className="text-2xl font-black text-foreground uppercase tracking-tight">Todo facturado</h2>
+              <p className="text-muted-foreground mt-2">No hay órdenes de venta pendientes de facturar en Odoo.</p>
             </div>
           </div>
         ) : isTVMode && currentPage ? (
           /* ── Modo TV: paginación con cards que caben en viewport ──── */
           <div className="flex flex-col h-full min-h-0 relative">
             {currentPage.type === 'company' && currentPage.total && currentPage.total > 1 && (
-              <div className="absolute top-0 right-0 z-10 text-zinc-500 font-bold uppercase tracking-widest text-xs lg:text-sm bg-background/50 px-2 py-1 rounded backdrop-blur-sm">
+              <div className="md:hidden absolute top-0 right-0 z-10 text-muted-foreground font-bold uppercase tracking-widest text-xs lg:text-sm bg-background/50 px-2 py-1 rounded backdrop-blur-sm">
                 Página {currentPage.current} de {currentPage.total}
               </div>
             )}
@@ -1157,7 +1157,7 @@ export default function TVDashboard() {
                   <div className="flex items-center gap-3 lg:gap-5">
                     <CompanyBadge company={pageData.company} size="lg" />
                     <div>
-                      <h2 className="text-xl md:text-2xl lg:text-3xl font-black text-white tracking-tight uppercase" title={pageData.company}>
+                      <h2 className="text-xl md:text-2xl lg:text-3xl font-black text-foreground tracking-tight uppercase" title={pageData.company}>
                         {getSmartCompanyName(pageData.company, 'header')}
                       </h2>
                       {getEffectiveDeliverySchedule(pageData.company, pageData.orders, companyConfigs) && (
@@ -1170,7 +1170,7 @@ export default function TVDashboard() {
                       )}
                     </div>
                   </div>
-                  <span className="text-sm text-zinc-500 font-bold uppercase tracking-widest">
+                  <span className="text-sm text-muted-foreground font-bold uppercase tracking-widest">
                     {pageData.orders.length} {pageData.orders.length === 1 ? 'orden' : 'órdenes'}
                   </span>
                 </div>

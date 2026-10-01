@@ -79,7 +79,7 @@ export default function App() {
 
   if (!isAuthReady) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
@@ -87,16 +87,16 @@ export default function App() {
 
   if (authError) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-6 text-center">
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
         <div className="max-w-lg space-y-6">
-          <h1 className="text-2xl font-black text-white uppercase tracking-tight">
+          <h1 className="text-2xl font-black text-foreground uppercase tracking-tight">
             Error de autenticación
           </h1>
-          <p className="text-zinc-400 text-sm leading-relaxed">{authError}</p>
+          <p className="text-muted-foreground text-sm leading-relaxed">{authError}</p>
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="px-6 py-3 bg-indigo-500 hover:bg-indigo-400 text-white font-bold rounded-xl transition-colors"
+            className="px-6 py-3 bg-primary hover:bg-primary/90 text-foreground font-bold rounded-xl transition-colors"
           >
             Reintentar
           </button>
@@ -107,14 +107,14 @@ export default function App() {
 
   if (!hasApiKey) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-6 text-center">
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
         <div className="max-w-md space-y-8">
           <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center mx-auto">
             <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
           </div>
           <div className="space-y-4">
-            <h1 className="text-3xl font-black text-white uppercase tracking-tight">Configuración de IA Requerida</h1>
-            <p className="text-zinc-400">Para habilitar la generación de imágenes y funciones avanzadas, por favor selecciona tu clave de API de Google Cloud.</p>
+            <h1 className="text-3xl font-black text-foreground uppercase tracking-tight">Configuración de IA Requerida</h1>
+            <p className="text-muted-foreground">Para habilitar la generación de imágenes y funciones avanzadas, por favor selecciona tu clave de API de Google Cloud.</p>
           </div>
           <button
             onClick={async () => {
@@ -123,11 +123,11 @@ export default function App() {
                 setHasApiKey(true);
               }
             }}
-            className="w-full py-4 bg-indigo-500 hover:bg-indigo-400 text-white font-black uppercase tracking-widest rounded-2xl transition-all shadow-xl shadow-indigo-500/20"
+            className="w-full py-4 bg-primary hover:bg-primary/90 text-foreground font-black uppercase tracking-widest rounded-2xl transition-all shadow-xl shadow-primary/20"
           >
             Seleccionar Clave de API
           </button>
-          <p className="text-xs text-zinc-600">
+          <p className="text-xs text-muted-foreground/70">
             Requiere una clave de un proyecto de Google Cloud con facturación habilitada.
             <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline ml-1">Más info</a>
           </p>

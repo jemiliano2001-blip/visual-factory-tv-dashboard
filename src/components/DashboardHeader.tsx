@@ -31,10 +31,10 @@ const SoundWave = () => (
 const Breadcrumbs = ({ current, total }: { current?: number; total?: number }) => {
   if (!total || total <= 1) return null;
   return (
-    <div className="hidden md:flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 mt-2">
-      <span className="text-zinc-600">Dashboard</span>
-      <ChevronRight className="w-3 h-3 text-zinc-700" />
-      <span className="text-zinc-400">Pág. {current}/{total}</span>
+    <div className="hidden md:flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground mt-2">
+      <span className="text-muted-foreground/70">Dashboard</span>
+      <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
+      <span className="text-muted-foreground">Pág. {current}/{total}</span>
     </div>
   );
 };
@@ -118,7 +118,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       onClick={onClick}
       title={title}
       aria-label={title}
-      className={`flex h-11 w-11 items-center justify-center rounded-lg border transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isActive ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300' : 'border-white/8 text-zinc-500 hover:text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
+      className={`flex h-11 w-11 items-center justify-center rounded-lg border transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isActive ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300' : 'border-border text-muted-foreground hover:text-secondary-foreground hover:border-white/20 hover:bg-white/5'}`}
     >
       {children}
     </button>
@@ -187,7 +187,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       {/* Right: controls + clock */}
       <div className="flex items-center gap-2 lg:gap-3">
         <div className="hidden md:flex items-center gap-1.5 font-mono-data text-[10px] font-bold uppercase tracking-wider">
-          <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-zinc-400">
+          <span className="rounded-md border border-input bg-white/[0.03] px-2 py-1 text-muted-foreground">
             {screenOrderCount}<span className="hidden lg:inline"> órdenes</span>
           </span>
           <button
@@ -195,14 +195,14 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             onClick={onShowOverdue}
             disabled={screenOverdueCount === 0}
             title={screenOverdueCount > 0 ? 'Mostrar órdenes vencidas' : 'No hay órdenes vencidas en esta pantalla'}
-            className="min-h-11 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-red-300 transition-colors hover:bg-red-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:border-white/10 disabled:bg-white/[0.03] disabled:text-zinc-600"
+            className="min-h-11 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-red-300 transition-colors hover:bg-red-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:border-input disabled:bg-white/[0.03] disabled:text-muted-foreground/70"
           >
             {screenOverdueCount}<span className="hidden lg:inline"> vencidas</span><span className="lg:hidden"> venc.</span>
           </button>
           <span className={`rounded-md border px-2 py-1 ${
             screenCriticalCount > 0
               ? 'border-orange-500/30 bg-orange-500/10 text-orange-300'
-              : 'border-white/10 bg-white/[0.03] text-zinc-600'
+              : 'border-input bg-white/[0.03] text-muted-foreground/70'
           }`}>
             {screenCriticalCount}<span className="hidden lg:inline"> críticas</span><span className="lg:hidden"> crít.</span>
           </span>
@@ -239,7 +239,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         {isRotationPaused && (
           <div role="status" className="hidden items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-500/15 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-amber-200 lg:flex">
             <span>Rotación pausada</span>
-            <button type="button" onClick={onResumeRotation} className="min-h-9 rounded-md bg-amber-300 px-2 text-[10px] font-black text-zinc-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
+            <button type="button" onClick={onResumeRotation} className="min-h-9 rounded-md bg-amber-300 px-2 text-[10px] font-black text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
               Reanudar
             </button>
           </div>

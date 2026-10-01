@@ -144,7 +144,7 @@ export default function OrdersTable({
         const pct = getDeliveryProgress(row.original);
         return (
           <div className="min-w-[110px]">
-            <div className="mb-1 flex justify-between font-mono-data text-[11px] tabular-nums text-muted-foreground">
+            <div className="mb-1 flex justify-between font-mono-data text-xs tabular-nums text-muted-foreground">
               <span>{row.original.qty_delivered}/{row.original.qty_total}</span>
               <span>{pct}%</span>
             </div>
@@ -225,7 +225,7 @@ export default function OrdersTable({
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
       <div className="overflow-x-auto">
         <table className="w-full text-left">
-          <thead className="border-b border-border bg-muted/40 font-mono-data text-[11px] uppercase tracking-wider text-muted-foreground">
+          <thead className="border-b border-border bg-muted/40 font-mono-data text-xs uppercase tracking-wider text-muted-foreground">
             {table.getHeaderGroups().map(hg => (
               <tr key={hg.id}>
                 {hg.headers.map(header => (
@@ -305,14 +305,14 @@ function ExpandedRow({ order }: { order: OdooSaleOrder }) {
         </div>
       )}
       <div>
-        <h4 className="mb-2 font-mono-data text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+        <h4 className="mb-2 font-mono-data text-xs font-bold uppercase tracking-wider text-muted-foreground">
           Líneas de producto ({order.lines_count})
         </h4>
         {!order.lines || order.lines.length === 0 ? (
           <p className="text-sm text-muted-foreground">Sin detalle de líneas</p>
         ) : (
           <table className="w-full text-sm">
-            <thead className="font-mono-data text-[11px] uppercase tracking-wider text-muted-foreground">
+            <thead className="font-mono-data text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="py-1 pr-4 text-left font-bold">Producto</th>
                 <th className="px-4 py-1 text-right font-bold">Cant.</th>
@@ -334,7 +334,7 @@ function ExpandedRow({ order }: { order: OdooSaleOrder }) {
 
       {order.deliveries && order.deliveries.length > 0 && (
         <div>
-          <h4 className="mb-2 font-mono-data text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+          <h4 className="mb-2 font-mono-data text-xs font-bold uppercase tracking-wider text-muted-foreground">
             Remisiones ({order.deliveries.length})
           </h4>
           <div className="flex flex-wrap gap-2">
@@ -345,7 +345,7 @@ function ExpandedRow({ order }: { order: OdooSaleOrder }) {
                   {DELIVERY_STATE_LABEL[d.state] ?? d.state}
                 </Badge>
                 {d.date_done && (
-                  <span className="font-mono-data text-[9px] tabular-nums text-muted-foreground">{d.date_done.split(' ')[0]}</span>
+                  <span className="font-mono-data text-xs tabular-nums text-muted-foreground">{d.date_done.split(' ')[0]}</span>
                 )}
               </div>
             ))}
@@ -355,7 +355,7 @@ function ExpandedRow({ order }: { order: OdooSaleOrder }) {
 
       {order.note && (
         <div>
-          <h4 className="mb-2 font-mono-data text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+          <h4 className="mb-2 font-mono-data text-xs font-bold uppercase tracking-wider text-muted-foreground">
             Nota / términos
           </h4>
           <div

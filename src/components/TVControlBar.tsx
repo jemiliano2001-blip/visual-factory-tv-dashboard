@@ -63,7 +63,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                 value={textFilter}
                 onChange={(e) => onText(e.target.value)}
                 placeholder="SO, PO, OT o ingeniero…"
-                className="h-10 pl-9 bg-transparent border-white/8 focus-visible:border-primary/40 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="h-10 pl-9 bg-transparent border-border focus-visible:border-primary/40 focus-visible:ring-0 focus-visible:ring-offset-0"
               />
             </div>
 
@@ -76,7 +76,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
               className={`relative h-11 w-11 shrink-0 flex items-center justify-center rounded-xl border transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                 clientFilter
                   ? 'bg-primary/20 border-primary/50 text-primary'
-                  : 'border-white/10 text-muted-foreground/60 hover:border-white/20 hover:text-muted-foreground'
+                  : 'border-input text-muted-foreground/60 hover:border-white/20 hover:text-muted-foreground'
               }`}
             >
               <SlidersHorizontal className="size-4" />
@@ -92,7 +92,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                 onClick={onClear}
                 title="Limpiar filtros"
                 aria-label="Limpiar filtros"
-                className="h-11 w-11 shrink-0 flex items-center justify-center rounded-xl border border-white/10 text-muted-foreground/60 transition-colors hover:border-red-500/40 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="h-11 w-11 shrink-0 flex items-center justify-center rounded-xl border border-input text-muted-foreground/60 transition-colors hover:border-red-500/40 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <X className="size-4" />
               </button>
@@ -102,9 +102,9 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
 
         {/* Client filter Drawer */}
         <Drawer open={filterDrawerOpen} onOpenChange={setFilterDrawerOpen}>
-          <DrawerContent className="bg-[#050505]/98 border-white/5">
+          <DrawerContent className="bg-popover/95 border-border">
             <DrawerHeader className="pb-2">
-              <DrawerTitle className="text-sm font-bold uppercase tracking-widest text-zinc-300">
+              <DrawerTitle className="text-sm font-bold uppercase tracking-widest text-secondary-foreground">
                 Filtrar por cliente
               </DrawerTitle>
             </DrawerHeader>
@@ -120,7 +120,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                   className={`w-full min-h-[44px] px-4 py-3 rounded-xl text-left text-sm font-medium transition-colors ${
                     (clientFilter ?? null) === c
                       ? 'bg-primary/15 text-primary border border-primary/30'
-                      : 'text-zinc-300 hover:bg-white/5'
+                      : 'text-secondary-foreground hover:bg-white/5'
                   }`}
                 >
                   {c ? getSmartCompanyName(c, 'header') : 'Todas las empresas'}
@@ -162,7 +162,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
             transition={{ duration: 0.2 }}
             className="pointer-events-auto"
           >
-            <div className="glass-panel flex items-center gap-2 rounded-2xl px-3 py-2 shadow-overlay border border-white/10 bg-[#08080c]/90 backdrop-blur-xl">
+            <div className="glass-panel flex items-center gap-2 rounded-2xl px-3 py-2 shadow-overlay border border-input bg-popover/90 backdrop-blur-xl">
               <SlidersHorizontal className="ml-1 size-4 shrink-0 text-cyan-400" />
 
               <Select
@@ -170,7 +170,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                 onValueChange={(v) => onClient(v === ALL_CLIENTS ? null : v)}
                 onOpenChange={setMenuOpen}
               >
-                <SelectTrigger aria-label="Filtrar por cliente" className="h-10 w-[210px] text-xs font-semibold border-white/10 bg-black/40">
+                <SelectTrigger aria-label="Filtrar por cliente" className="h-10 w-[210px] text-xs font-semibold border-input bg-black/40">
                   <SelectValue placeholder="Todas las empresas">
                     {clientFilter ? getSmartCompanyName(clientFilter, 'header') : 'Todas las empresas'}
                   </SelectValue>
@@ -192,7 +192,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                   value={textFilter}
                   onChange={(e) => onText(e.target.value)}
                   placeholder="SO, PO, OT o ingeniero…"
-                  className="h-10 w-[260px] pl-9 text-xs border-white/10 bg-black/40"
+                  className="h-10 w-[260px] pl-9 text-xs border-input bg-black/40"
                 />
               </div>
 
@@ -226,7 +226,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="size-8 rounded-lg text-zinc-400 hover:text-white ml-1"
+                  className="size-8 rounded-lg text-muted-foreground hover:text-foreground ml-1"
                   onClick={handleDismiss}
                   title="Ocultar barra"
                 >

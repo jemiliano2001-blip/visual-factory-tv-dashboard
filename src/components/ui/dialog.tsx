@@ -44,7 +44,7 @@ const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
         {showCloseButton && (
           <BaseDialog.Close
             aria-label="Cerrar"
-            className="absolute right-4 top-4 z-50 rounded-full bg-zinc-900/80 backdrop-blur-md p-2 text-zinc-400 border border-white/10 opacity-100 hover:text-white hover:bg-zinc-800 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none cursor-pointer shadow-xl"
+            className="absolute right-4 top-4 z-50 rounded-full bg-card/80 backdrop-blur-md p-2 text-muted-foreground border border-input opacity-100 hover:text-foreground hover:bg-secondary transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none cursor-pointer shadow-xl"
           >
             <X className="size-4 sm:size-5" />
             <span className="sr-only">Cerrar</span>

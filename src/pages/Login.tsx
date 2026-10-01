@@ -52,7 +52,7 @@ export default function Login() {
 
   if (!checked) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -77,17 +77,17 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden">
+    <div className="min-h-screen bg-background flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden">
       {/* Background accent — indigo only, no fuchsia */}
       <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-600/8 rounded-full blur-[120px] pointer-events-none" />
 
-      <div className="w-full max-w-md bg-zinc-900/60 backdrop-blur-2xl rounded-3xl p-10 shadow-2xl border border-white/10 relative z-10">
+      <div className="w-full max-w-md bg-card/60 backdrop-blur-2xl rounded-3xl p-10 shadow-2xl border border-input relative z-10">
         <div className="flex flex-col items-center mb-10">
           <div className="w-20 h-20 bg-indigo-500/10 rounded-2xl flex items-center justify-center mb-6 border border-indigo-500/20">
             <Tv className="w-9 h-9 text-indigo-400" />
           </div>
-          <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-zinc-400 tracking-tight">Fábrica Visual</h1>
-          <p className="text-zinc-400 mt-3 text-center font-medium text-pretty">Acceso exclusivo para personal SMV.</p>
+          <h1 className="text-3xl font-black text-foreground tracking-tight">Fábrica Visual</h1>
+          <p className="text-muted-foreground mt-3 text-center font-medium text-pretty">Acceso exclusivo para personal SMV.</p>
         </div>
 
         {error && (
@@ -98,7 +98,7 @@ export default function Login() {
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-2">
+            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2">
               Correo electrónico
             </label>
             <input
@@ -107,12 +107,12 @@ export default function Login() {
               autoComplete="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              className="w-full bg-zinc-800/60 border border-white/10 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 placeholder-zinc-600"
+              className="w-full bg-secondary/60 border border-input text-foreground rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground/60"
               placeholder="usuario@empresa.com"
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-2">
+            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2">
               Contraseña
             </label>
             <input
@@ -121,14 +121,14 @@ export default function Login() {
               autoComplete="current-password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full bg-zinc-800/60 border border-white/10 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 placeholder-zinc-600"
+              className="w-full bg-secondary/60 border border-input text-foreground rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground/60"
               placeholder="••••••••"
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all disabled:opacity-50 shadow-xl shadow-indigo-500/20 mt-2"
+            className="w-full py-4 bg-primary hover:bg-primary/90 text-foreground font-bold rounded-2xl transition-all disabled:opacity-50 shadow-xl shadow-primary/20 mt-2"
           >
             {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
           </button>

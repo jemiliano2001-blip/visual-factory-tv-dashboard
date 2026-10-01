@@ -42,12 +42,12 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="timGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#FBBF24" />
-            <stop offset="100%" stop-color="#F59E0B" />
+            <stop offset="0%" stopColor="#FBBF24" />
+            <stop offset="100%" stopColor="#F59E0B" />
           </linearGradient>
           <linearGradient id="timCyan" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#38BDF8" />
-            <stop offset="100%" stop-color="#0284C7" />
+            <stop offset="0%" stopColor="#38BDF8" />
+            <stop offset="100%" stopColor="#0284C7" />
           </linearGradient>
         </defs>
         {/* Capas escalonadas de termoformado al vacío */}
@@ -67,8 +67,8 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="kohlerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#FB7185" />
-            <stop offset="100%" stop-color="#E11D48" />
+            <stop offset="0%" stopColor="#FB7185" />
+            <stop offset="100%" stopColor="#E11D48" />
           </linearGradient>
         </defs>
         {/* Monograma 'K' geométrico industrial de Kohler */}
@@ -87,12 +87,12 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="suprajitRed" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#F87171" />
-            <stop offset="100%" stop-color="#EF4444" />
+            <stop offset="0%" stopColor="#F87171" />
+            <stop offset="100%" stopColor="#EF4444" />
           </linearGradient>
           <linearGradient id="suprajitBlue" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#60A5FA" />
-            <stop offset="100%" stop-color="#2563EB" />
+            <stop offset="0%" stopColor="#60A5FA" />
+            <stop offset="100%" stopColor="#2563EB" />
           </linearGradient>
         </defs>
         {/* Alas gemelas dinámicas automotrices / 'S' de Suprajit */}
@@ -111,8 +111,8 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="mecaluxOrange" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#FB923C" />
-            <stop offset="100%" stop-color="#EA580C" />
+            <stop offset="0%" stopColor="#FB923C" />
+            <stop offset="100%" stopColor="#EA580C" />
           </linearGradient>
         </defs>
         {/* Chevron estructural / 'M' de almacenamiento de Mecalux */}
@@ -130,8 +130,8 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="magnaRed" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#EF4444" />
-            <stop offset="100%" stop-color="#B91C1C" />
+            <stop offset="0%" stopColor="#EF4444" />
+            <stop offset="100%" stopColor="#B91C1C" />
           </linearGradient>
         </defs>
         {/* Polígono 'M' dinámico de Magna */}
@@ -149,8 +149,8 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="fisherGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#22D3EE" />
-            <stop offset="100%" stop-color="#0284C7" />
+            <stop offset="0%" stopColor="#22D3EE" />
+            <stop offset="100%" stopColor="#0284C7" />
           </linearGradient>
         </defs>
         {/* 'F' aerodinámica y onda cinética de Fisher */}
@@ -168,12 +168,12 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="sensataGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#F43F5E" />
-            <stop offset="100%" stop-color="#BE123C" />
+            <stop offset="0%" stopColor="#F43F5E" />
+            <stop offset="100%" stopColor="#BE123C" />
           </linearGradient>
         </defs>
         {/* Pulso sensor concéntrico de Sensata */}
-        <circle cx="20" cy="20" r="12" stroke="url(#sensataGrad)" stroke-width="3" stroke-dasharray="8 4" />
+        <circle cx="20" cy="20" r="12" stroke="url(#sensataGrad)" strokeWidth="3" strokeDasharray="8 4" />
         <circle cx="20" cy="20" r="5" fill="url(#sensataGrad)" />
       </svg>
     ),
@@ -188,8 +188,8 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="siltechGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#34D399" />
-            <stop offset="100%" stop-color="#059669" />
+            <stop offset="0%" stopColor="#34D399" />
+            <stop offset="100%" stopColor="#059669" />
           </linearGradient>
         </defs>
         {/* Circuito prismático / 'S' tecnológica de Siltech */}
@@ -207,8 +207,8 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="afxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#A78BFA" />
-            <stop offset="100%" stop-color="#7C3AED" />
+            <stop offset="0%" stopColor="#A78BFA" />
+            <stop offset="100%" stopColor="#7C3AED" />
           </linearGradient>
         </defs>
         {/* Triángulo delta aeroespacial estilizado */}
@@ -226,15 +226,15 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="cypressGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#A3E635" />
-            <stop offset="100%" stop-color="#65A30D" />
+            <stop offset="0%" stopColor="#A3E635" />
+            <stop offset="100%" stopColor="#65A30D" />
           </linearGradient>
         </defs>
         {/* Nodo semiconductor / matriz de circuitos */}
         <circle cx="14" cy="14" r="4" fill="url(#cypressGrad)" />
         <circle cx="26" cy="14" r="4" fill="url(#cypressGrad)" />
         <circle cx="20" cy="26" r="5" fill="url(#cypressGrad)" />
-        <path d="M14 14 L20 26 L26 14" stroke="url(#cypressGrad)" stroke-width="2.5" />
+        <path d="M14 14 L20 26 L26 14" stroke="url(#cypressGrad)" strokeWidth="2.5" />
       </svg>
     ),
   },
@@ -248,8 +248,8 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="robertGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#F59E0B" />
-            <stop offset="100%" stop-color="#DC2626" />
+            <stop offset="0%" stopColor="#F59E0B" />
+            <stop offset="100%" stopColor="#DC2626" />
           </linearGradient>
         </defs>
         {/* Llama de control térmico & 'R' */}
@@ -268,8 +268,8 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="genieGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#38BDF8" />
-            <stop offset="100%" stop-color="#0284C7" />
+            <stop offset="0%" stopColor="#38BDF8" />
+            <stop offset="100%" stopColor="#0284C7" />
           </linearGradient>
         </defs>
         {/* Elevador industrial geométrico 'G' */}
@@ -287,8 +287,8 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="ohdGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#818CF8" />
-            <stop offset="100%" stop-color="#4F46E5" />
+            <stop offset="0%" stopColor="#818CF8" />
+            <stop offset="100%" stopColor="#4F46E5" />
           </linearGradient>
         </defs>
         {/* Puerta seccional overhead / 'OHD' */}
@@ -309,15 +309,15 @@ const BRAND_DEFINITIONS: BrandDefinition[] = [
       <svg viewBox="0 0 40 40" fill="none" className="w-full h-full p-1.5" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="smvGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#818CF8" />
-            <stop offset="50%" stop-color="#6366F1" />
-            <stop offset="100%" stop-color="#22D3EE" />
+            <stop offset="0%" stopColor="#818CF8" />
+            <stop offset="50%" stopColor="#6366F1" />
+            <stop offset="100%" stopColor="#22D3EE" />
           </linearGradient>
         </defs>
         {/* Retícula de precisión y metrología */}
-        <circle cx="20" cy="20" r="11" stroke="url(#smvGrad)" stroke-width="2.5" />
-        <line x1="20" y1="5" x2="20" y2="35" stroke="url(#smvGrad)" stroke-width="2" />
-        <line x1="5" y1="20" x2="35" y2="20" stroke="url(#smvGrad)" stroke-width="2" />
+        <circle cx="20" cy="20" r="11" stroke="url(#smvGrad)" strokeWidth="2.5" />
+        <line x1="20" y1="5" x2="20" y2="35" stroke="url(#smvGrad)" strokeWidth="2" />
+        <line x1="5" y1="20" x2="35" y2="20" stroke="url(#smvGrad)" strokeWidth="2" />
       </svg>
     ),
   },

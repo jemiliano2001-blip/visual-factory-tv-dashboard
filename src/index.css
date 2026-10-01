@@ -21,7 +21,6 @@
   --color-card-foreground: #f4f4f5;
   --color-popover: #16161d;
   --color-popover-foreground: #f4f4f5;
-  --color-factory-bg: #0a0a0f;
 
   /* Marca / acción (un solo primario: índigo) */
   --color-primary: #6366f1;
@@ -49,10 +48,8 @@
   --color-info-foreground: #ffffff;
   --color-data: #22d3ee;
 
-  /* Estado de urgencia — sistema de color ÚNICO del Dashboard (color = urgencia).
-     Colores sólidos y vivos para legibilidad a distancia en TV de planta. */
-  /* Jerarquía de alarma (DESIGN.md): base tranquila, excepción ruidosa.
-     Solo "Atrasada" (rojo) es ruidosa; "En tiempo" se atenúa para que ceda. */
+  /* status-*: solo para Admin/Stats (badges de estado). La tarjeta de TV NO los
+     usa: su color codifica progreso (cyan/emerald/fuchsia). Ver DESIGN.md. */
   --color-status-overdue: #ef4444;   /* rojo        — Atrasada (ÚNICO estado ruidoso) */
   --color-status-warning: #f59e0b;   /* ámbar       — Por vencer (señal media) */
   --color-status-ontime:  #3f6b54;   /* verde tenue — En tiempo (atenuado, debe ceder) */
@@ -91,18 +88,6 @@
     -webkit-backdrop-filter: blur(24px);
     border: 1px solid rgba(255, 255, 255, 0.08);
   }
-  .glass-card {
-    background-color: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-  }
-  .neon-text-indigo {
-    text-shadow: 0 0 20px rgba(99, 102, 241, 0.6);
-  }
-  .neon-text-cyan {
-    text-shadow: 0 0 20px rgba(6, 182, 212, 0.6);
-  }
   .custom-scrollbar::-webkit-scrollbar {
     width: 8px;
   }
@@ -116,10 +101,6 @@
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.2);
-  }
-
-  .animate-border-pulse {
-    animation: borderPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 
   /* ── TV Viewport: Sin scroll, contenido forzado a caber ───────────────── */
@@ -155,17 +136,6 @@
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
-  }
-}
-
-@keyframes borderPulse {
-  0%, 100% {
-    border-color: rgba(99, 102, 241, 0.4);
-    box-shadow: 0 0 30px rgba(99, 102, 241, 0.3);
-  }
-  50% {
-    border-color: rgba(129, 140, 248, 1);
-    box-shadow: 0 0 80px rgba(99, 102, 241, 0.8);
   }
 }
 

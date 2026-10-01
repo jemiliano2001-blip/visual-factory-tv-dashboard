@@ -69,7 +69,7 @@ export default function Layout() {
             <h1 className="font-display text-base font-extrabold leading-none tracking-tight text-foreground">
               Fábrica Visual
             </h1>
-            <p className="mt-1 font-mono-data text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            <p className="mt-1 font-mono-data text-xs uppercase tracking-[0.18em] text-muted-foreground">
               Control Room v2
             </p>
           </div>
@@ -81,7 +81,7 @@ export default function Layout() {
           {navItem('/stats', <BarChart3 className="size-[18px]" />, 'Estadísticas')}
 
           <div className="mt-4 border-t border-border pt-4">
-            <p className="mb-2 px-3 font-mono-data text-[9px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70">
+            <p className="mb-2 px-3 font-mono-data text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground/70">
               Vistas en vivo
             </p>
             <Link
@@ -91,7 +91,7 @@ export default function Layout() {
             >
               <Tv className="size-[18px] text-success" />
               <span>TV Dashboard</span>
-              <span className="ml-auto flex items-center gap-1.5 font-mono-data text-[9px] font-bold uppercase tracking-wider text-success">
+              <span className="ml-auto flex items-center gap-1.5 font-mono-data text-xs font-bold uppercase tracking-wider text-success">
                 <span className="size-1.5 animate-pulse rounded-full bg-success" />
                 Live
               </span>
@@ -108,7 +108,7 @@ export default function Layout() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-bold text-foreground">{user.displayName || 'Admin'}</p>
-                <p className="truncate font-mono-data text-[10px] text-muted-foreground">{user.email}</p>
+                <p className="truncate font-mono-data text-xs text-muted-foreground">{user.email}</p>
               </div>
               <button
                 onClick={handleLogout}
@@ -157,7 +157,7 @@ export default function Layout() {
                 />
               )}
               <span className={`transition-colors ${isActive ? 'text-primary' : 'text-muted-foreground/60'}`}>{icon}</span>
-              <span className="font-mono-data text-[9px] font-bold uppercase tracking-[0.15em]">{label}</span>
+              <span className="font-mono-data text-[11px] font-bold uppercase tracking-[0.15em]">{label}</span>
             </Link>
           );
         })}
@@ -167,7 +167,7 @@ export default function Layout() {
           className="relative flex flex-1 flex-col items-center justify-center gap-1 py-2.5 min-h-[58px] text-success/80 transition-colors hover:text-success"
         >
           <Tv className="size-[22px]" />
-          <span className="font-mono-data text-[9px] font-bold uppercase tracking-[0.15em]">TV Live</span>
+          <span className="font-mono-data text-[11px] font-bold uppercase tracking-[0.15em]">TV Live</span>
         </Link>
       </nav>
     </div>

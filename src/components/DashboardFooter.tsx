@@ -33,20 +33,20 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
   onToggleRecording,
 }) => {
   return (
-    <footer className="mt-auto grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 bg-background py-2 text-[9px] uppercase tracking-widest text-zinc-600 sticky bottom-0 z-[60] flex-shrink-0 lg:py-3 lg:text-[10px]" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+    <footer className="mt-auto grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 bg-background py-2 text-[9px] uppercase tracking-widest text-muted-foreground/70 sticky bottom-0 z-[60] flex-shrink-0 lg:py-3 lg:text-[10px]" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
       <div className="flex min-w-0 items-center gap-3 lg:gap-4">
         <div className="whitespace-nowrap font-mono-data">
-          <span className="hidden sm:inline text-zinc-600">Total:</span>{' '}
+          <span className="hidden sm:inline text-muted-foreground/70">Total:</span>{' '}
           <span className="font-bold text-indigo-300">{totalOrders}</span>{' '}
-          <span className="text-zinc-500">visibles</span>
+          <span className="text-muted-foreground">visibles</span>
         </div>
 
         {pages.length > 1 && (
           <div className="flex min-w-0 items-center gap-2">
-            <span className="hidden lg:inline whitespace-nowrap font-mono-data text-zinc-500">
-              Pantalla <span className="font-bold text-zinc-300">{currentPageIndex + 1}</span> de {pages.length}
+            <span className="hidden lg:inline whitespace-nowrap font-mono-data text-muted-foreground">
+              Pantalla <span className="font-bold text-secondary-foreground">{currentPageIndex + 1}</span> de {pages.length}
             </span>
-            <div className="flex items-center gap-1.5" aria-label={`Pantalla ${currentPageIndex + 1} de ${pages.length}`}>
+            <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto no-scrollbar" aria-label={`Pantalla ${currentPageIndex + 1} de ${pages.length}`}>
             {pages.map((_, idx) => (
               <button
                 key={idx}
@@ -60,7 +60,7 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
                   className={`h-1.5 rounded-full transition-all duration-300 ${
                     idx === currentPageIndex
                       ? 'w-7 bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.6)]'
-                      : 'w-2 bg-zinc-700 hover:bg-zinc-500'
+                      : 'w-2 bg-foreground/20 hover:bg-foreground/40'
                   }`}
                 />
               </button>
@@ -118,22 +118,22 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
         )}
       </button>
 
-      <div className="flex min-w-0 items-center justify-end gap-3 font-mono-data max-md:hidden lg:gap-4">
+      <div className="flex min-w-0 items-center justify-end gap-3 font-mono-data max-lg:hidden lg:gap-4">
         <span className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-sm bg-cyan-400" />
-          <span className="text-zinc-500">Pendiente</span>
+          <span className="text-muted-foreground">Pendiente</span>
         </span>
         <span className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-sm bg-emerald-400" />
-          <span className="text-zinc-500">En proceso</span>
+          <span className="text-muted-foreground">En proceso</span>
         </span>
         <span className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-sm bg-fuchsia-400" />
-          <span className="text-zinc-500">Entregado</span>
+          <span className="text-muted-foreground">Entregado</span>
         </span>
         <span className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-sm bg-red-500" />
-          <span className="text-zinc-500">Vencida</span>
+          <span className="text-muted-foreground">Vencida</span>
         </span>
       </div>
     </footer>

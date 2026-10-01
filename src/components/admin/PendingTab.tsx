@@ -125,7 +125,7 @@ function ClientGroup({
       </button>
       {!collapsed && (
         <table className="w-full text-sm">
-          <thead className="font-mono-data text-[11px] uppercase tracking-wider text-muted-foreground">
+          <thead className="font-mono-data text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-4 py-2 text-left font-bold">SO</th>
               <th className="px-4 py-2 text-left font-bold">Producto</th>
