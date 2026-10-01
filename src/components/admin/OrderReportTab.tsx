@@ -67,7 +67,7 @@ export default function OrderReportTab({ orders }: OrderReportTabProps) {
         <Card className="order-report-printable">
           <CardContent className="pt-5">
             <div className="mb-4 border-b border-border pb-3 text-center">
-              <h2 className="text-lg font-bold uppercase tracking-wide text-foreground">
+              <h2 className="text-lg font-bold text-foreground">
                 Reporte de órdenes al {format(new Date(), 'dd/MM/yyyy')}
               </h2>
               <p className="mt-0.5 text-xs text-muted-foreground">
@@ -101,7 +101,7 @@ function ClientGroup({ client, orders }: { client: string; orders: OdooSaleOrder
   return (
     <>
       <tr className="order-report-group bg-muted/50">
-        <td colSpan={5} className="px-2 py-1.5 font-bold uppercase tracking-wide text-foreground">
+        <td colSpan={5} className="px-2 py-1.5 font-bold text-foreground">
           {client} ({orders.length})
         </td>
       </tr>

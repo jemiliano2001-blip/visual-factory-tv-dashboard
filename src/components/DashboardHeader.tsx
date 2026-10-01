@@ -16,7 +16,7 @@ import DashboardClock from './DashboardClock';
 const Breadcrumbs = ({ current, total }: { current?: number; total?: number }) => {
   if (!total || total <= 1) return null;
   return (
-    <div className="hidden md:flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground mt-2">
+    <div className="hidden md:flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mt-2">
       <span className="text-muted-foreground/70">Dashboard</span>
       <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
       <span className="text-muted-foreground">Pág. {current}/{total}</span>
@@ -45,8 +45,8 @@ interface DashboardHeaderProps {
   // View controls
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  showGradient: boolean;
-  onToggleGradient: () => void;
+  showAmbient: boolean;
+  onToggleAmbient: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   // Filtro de estado
@@ -80,8 +80,8 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   onRefresh,
   viewMode,
   onViewModeChange,
-  showGradient,
-  onToggleGradient,
+  showAmbient,
+  onToggleAmbient,
   isFullscreen,
   onToggleFullscreen,
   statusFilter,
@@ -129,12 +129,12 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
               aria-label="Ir al panel de administración"
               className="min-w-0 truncate rounded-lg text-left transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
-              <span className="block truncate font-display text-xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 lg:text-4xl">
+              <span className="block truncate font-display text-xl font-extrabold tracking-tight text-foreground lg:text-4xl">
                 {headerLabel}
               </span>
             </button>
           ) : (
-            <h1 className="truncate font-display text-xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 lg:text-4xl">
+            <h1 className="truncate font-display text-xl font-extrabold tracking-tight text-foreground lg:text-4xl">
               {headerLabel}
             </h1>
           )}
@@ -178,7 +178,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           <button
             type="button"
             onClick={onClearFilter}
-            className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 rounded-lg font-mono-data font-bold text-[9px] uppercase tracking-widest hover:bg-indigo-500/25 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 rounded-lg font-mono-data font-bold text-[9px] uppercase tracking-wider hover:bg-indigo-500/25 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             title="Quitar filtros"
           >
             <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
@@ -203,9 +203,9 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         />
 
         {isRotationPaused && (
-          <div role="status" className="hidden items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-500/15 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-amber-200 lg:flex">
+          <div role="status" className="hidden items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-500/15 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-200 lg:flex">
             <span>Rotación pausada</span>
-            <button type="button" onClick={onResumeRotation} className="min-h-9 rounded-md bg-amber-300 px-2 text-[10px] font-black text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
+            <button type="button" onClick={onResumeRotation} className="min-h-9 rounded-md bg-amber-300 px-2 text-[10px] font-bold text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
               Reanudar
             </button>
           </div>
@@ -214,7 +214,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         {/* Controles de escritorio — ocultos en móvil */}
         <div className="hidden md:flex items-center gap-2">
           <div className="w-px h-6" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
-          {iconBtn(onToggleGradient, showGradient, 'Alternar gradiente de fondo', <Palette className="w-4 h-4" />)}
+          {iconBtn(onToggleAmbient, showAmbient, 'Alternar luz ambiente', <Palette className="w-4 h-4" />)}
           {iconBtn(onToggleFullscreen, isFullscreen, isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa', isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />)}
           {iconBtn(() => onViewModeChange(isTVMode ? 'desktop' : 'tv'), isTVMode, isTVMode ? 'Modo Escritorio' : 'Modo TV', <Monitor className="w-4 h-4" />)}
           <div className="w-px h-6 ml-1" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />

@@ -198,7 +198,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
                   className={`${isDense ? 'text-xs leading-tight' : isLarge ? 'text-lg' : 'text-sm'} font-semibold leading-tight ${lineComplete ? 'text-zinc-500 line-through' : 'text-zinc-100'}`}
                   defaultLevel={2}
                 />
-                <span className={`shrink-0 font-mono-data font-black ${isDense ? 'text-[11px] lg:text-xs' : isLarge ? 'text-sm' : 'text-xs'} ${lineComplete ? presentation.statusTextClass : 'text-zinc-300'}`}>
+                <span className={`shrink-0 font-mono-data font-bold ${isDense ? 'text-[11px] lg:text-xs' : isLarge ? 'text-sm' : 'text-xs'} ${lineComplete ? presentation.statusTextClass : 'text-zinc-300'}`}>
                   {line.delivered}/{line.qty}
                 </span>
               </div>
@@ -216,7 +216,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
         <div className={`${isDense ? 'mb-1' : 'mb-2'} flex items-end justify-between gap-2`}>
           <div className="flex items-center gap-1">
             <StatusIcon className={`${isDense ? 'h-3.5 w-3.5' : isLarge ? 'h-5 w-5' : 'h-4 w-4'} ${presentation.statusTextClass}`} aria-hidden="true" />
-            <span className={`${isDense ? 'text-[10px]' : isLarge ? 'text-sm' : 'text-[11px]'} font-black uppercase tracking-wider ${presentation.statusTextClass}`}>{statusLabel}</span>
+            <span className={`${isDense ? 'text-[10px]' : isLarge ? 'text-sm' : 'text-[11px]'} font-bold uppercase tracking-wider ${presentation.statusTextClass}`}>{statusLabel}</span>
           </div>
           <div className="flex items-baseline gap-1 font-mono-data">
             <span className={`${percentageSize} font-black leading-none text-white`}>{progress}%</span>
@@ -239,7 +239,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
             {deliveryStates.map(state => (
               <span
                 key={state}
-                className={`rounded border px-1.5 py-0.5 font-black ${isLarge ? 'text-xs' : 'text-[11px]'} ${DELIVERY_STATE_COLOR[state]}`}
+                className={`rounded border px-1.5 py-0.5 font-bold ${isLarge ? 'text-xs' : 'text-[11px]'} ${DELIVERY_STATE_COLOR[state]}`}
               >
                 {deliveryCounts[state]} {DELIVERY_STATE_LABEL[state]}{(deliveryCounts[state] ?? 0) > 1 ? 's' : ''}
               </span>

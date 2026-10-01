@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { CompanyConfig } from '../types';
 import { subscribeToCompanyConfigs } from '../services/companyConfigs';
 import { Clock, RefreshCw, WifiOff, CheckCircle2 } from 'lucide-react';
@@ -100,7 +100,7 @@ export default function TVDashboard() {
   // ── Configs + UI ─────────────────────────────────────────────────────────────
   const navigate = useNavigate();
   const [companyConfigs, setCompanyConfigs] = useState<CompanyConfig[]>([]);
-  const [showGradient, setShowGradient]     = useState(true);
+  const [showAmbient, setShowAmbient]     = useState(true);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [selectedOrder, setSelectedOrder]   = useState<OdooSaleOrder | null>(null);
   const [viewMode, setViewMode]             = usePersistedState<ViewMode>('vftv:tv:viewMode', 'tv');
@@ -353,6 +353,13 @@ export default function TVDashboard() {
       ? currentPage.segments.flatMap(segment => segment.orders)
       : [];
   const currentPageOverdueCount = currentPageOrders.filter(isOrderOverdue).length;
+  const ambientOrders = isTVMode ? currentPageOrders : filteredOdooOrders;
+  const ambientOverdueShare = ambientOrders.length > 0
+    ? (isTVMode ? currentPageOverdueCount : ambientOrders.filter(isOrderOverdue).length) / ambientOrders.length
+    : 0;
+  const ambientTint = ambientOverdueShare > 0
+    ? `rgba(239, 68, 68, ${(0.05 + 0.13 * ambientOverdueShare).toFixed(3)})`
+    : 'rgba(99, 102, 241, 0.07)';
   const currentPageCriticalCount = currentPageOrders.filter(order => {
     const priority = getOrderPriority(order);
     return priority === 'critical' || priority === 'high';
@@ -377,18 +384,16 @@ export default function TVDashboard() {
         isTVMode ? 'tv-viewport' : 'desktop-viewport'
       } ${isFullscreen ? 'w-full h-full' : ''}`}
     >
-      {/* Fondo degradado — decorativo, alternable desde el header. */}
-      <AnimatePresence>
-        {showGradient && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="absolute inset-0 pointer-events-none z-0"
-            aria-hidden="true"
-          >
-            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/8 blur-[130px] rounded-full" />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Luz ambiente: se enrojece según la proporción de órdenes vencidas en pantalla,
+          así la TV comunica urgencia incluso sin leer tarjetas. Alternable desde el header. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[55%] transition-opacity duration-700"
+        style={{
+          opacity: showAmbient ? 1 : 0,
+          background: `radial-gradient(ellipse 70% 100% at 50% 0%, ${ambientTint} 0%, transparent 70%)`,
+        }}
+      />
 
       {/* ── Header ─────────────────────────────────────────────────────────────── */}
       <DashboardHeader
@@ -412,8 +417,8 @@ export default function TVDashboard() {
         onRefresh={loadOdooOrders}
         viewMode={effectiveViewMode}
         onViewModeChange={setViewMode}
-        showGradient={showGradient}
-        onToggleGradient={() => setShowGradient(v => !v)}
+        showAmbient={showAmbient}
+        onToggleAmbient={() => setShowAmbient(v => !v)}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
         statusFilter={statusFilter}
@@ -473,7 +478,7 @@ export default function TVDashboard() {
               <WifiOff className="w-10 h-10 text-red-400" />
             </div>
             <div className="text-center space-y-2">
-              <h2 className="text-2xl font-black text-foreground uppercase tracking-tight">Sin conexión a Odoo</h2>
+              <h2 className="text-2xl font-bold text-foreground tracking-tight">Sin conexión a Odoo</h2>
               <p className="text-muted-foreground max-w-md">{odooError}</p>
               {window.location.hostname === 'localhost' && (
                 <p className="text-muted-foreground/70 text-sm">
@@ -497,7 +502,7 @@ export default function TVDashboard() {
               <CheckCircle2 className="w-10 h-10 text-emerald-400" />
             </div>
             <div className="text-center">
-              <h2 className="text-2xl font-black text-foreground uppercase tracking-tight">Todo facturado</h2>
+              <h2 className="text-2xl font-bold text-foreground tracking-tight">Todo facturado</h2>
               <p className="text-muted-foreground mt-2">No hay órdenes de venta pendientes de facturar en Odoo.</p>
             </div>
           </div>
@@ -505,7 +510,7 @@ export default function TVDashboard() {
           /* ── Modo TV: paginación con cards que caben en viewport ──── */
           <div className="flex flex-col h-full min-h-0 relative">
             {currentPage.type === 'company' && currentPage.total && currentPage.total > 1 && (
-              <div className="md:hidden absolute top-0 right-0 z-10 text-muted-foreground font-bold uppercase tracking-widest text-xs lg:text-sm bg-background/50 px-2 py-1 rounded backdrop-blur-sm">
+              <div className="md:hidden absolute top-0 right-0 z-10 text-muted-foreground font-bold uppercase tracking-wider text-xs lg:text-sm bg-background/50 px-2 py-1 rounded backdrop-blur-sm">
                 Página {currentPage.current} de {currentPage.total}
               </div>
             )}
@@ -546,7 +551,7 @@ export default function TVDashboard() {
                   <div className="flex items-center gap-3 lg:gap-5">
                     <CompanyBadge company={pageData.company} size="lg" />
                     <div>
-                      <h2 className="text-xl md:text-2xl lg:text-3xl font-black text-foreground tracking-tight uppercase" title={pageData.company}>
+                      <h2 className="text-xl md:text-2xl lg:text-3xl font-bold text-foreground tracking-tight" title={pageData.company}>
                         {getSmartCompanyName(pageData.company, 'header')}
                       </h2>
                       {getEffectiveDeliverySchedule(pageData.company, pageData.orders, companyConfigs) && (
@@ -559,7 +564,7 @@ export default function TVDashboard() {
                       )}
                     </div>
                   </div>
-                  <span className="text-sm text-muted-foreground font-bold uppercase tracking-widest">
+                  <span className="text-sm text-muted-foreground font-bold uppercase tracking-wider">
                     {pageData.orders.length} {pageData.orders.length === 1 ? 'orden' : 'órdenes'}
                   </span>
                 </div>

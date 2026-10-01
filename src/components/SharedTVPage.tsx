@@ -82,7 +82,7 @@ export function SharedTVPage({ page, gridCols, gridRows, isWide, isDense, screen
                   size={isQuadLayout ? 'sm' : 'md'}
                 />
                 <div className="min-w-0 flex-1 flex flex-col justify-center">
-                  <h3 className={`line-clamp-1 min-w-0 break-words font-black uppercase leading-tight tracking-tight text-white ${companyNameSize}`} title={segment.company}>
+                  <h3 className={`line-clamp-1 min-w-0 break-words font-bold leading-tight tracking-tight text-white ${companyNameSize}`} title={segment.company}>
                     {smartName}
                   </h3>
                   {deliveryTimes && (
@@ -92,7 +92,7 @@ export function SharedTVPage({ page, gridCols, gridRows, isWide, isDense, screen
                     </div>
                   )}
                 </div>
-                <span className="shrink-0 rounded-full border border-white/10 bg-zinc-900 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-zinc-400 lg:text-xs">
+                <span className="shrink-0 rounded-full border border-white/10 bg-zinc-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-zinc-400 lg:text-xs">
                   {segment.orders.length}
                 </span>
               </header>

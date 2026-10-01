@@ -18,7 +18,7 @@ export const DashboardClock: React.FC<DashboardClockProps> = ({ className = '' }
       <div className="font-mono-data text-base md:text-2xl lg:text-3xl font-bold text-cyan-300">
         {format(time, 'HH:mm')}
       </div>
-      <div className="hidden md:block font-mono-data text-zinc-600 uppercase tracking-widest text-[9px] lg:text-[10px] mt-0.5">
+      <div className="hidden md:block font-mono-data text-zinc-600 uppercase tracking-wider text-[9px] lg:text-[10px] mt-0.5">
         {format(time, 'EEE dd MMM yyyy')}
       </div>
     </div>

@@ -148,12 +148,11 @@ export default function StatsDashboard() {
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="relative min-h-screen overflow-hidden bg-background font-sans text-foreground">
-      <div className="pointer-events-none absolute right-[-10%] top-[-10%] h-[45%] w-[45%] rounded-full bg-primary/5 blur-[140px]" />
 
       <div className="relative z-10 mx-auto max-w-7xl space-y-8 p-6 lg:p-8">
         <div className="border-b border-border pb-6">
           <h1 className="font-display text-3xl font-extrabold tracking-tight text-foreground">Estadísticas de Producción</h1>
-          <p className="mt-1.5 font-mono-data text-xs uppercase tracking-widest text-muted-foreground">Órdenes por facturar en Odoo — datos en vivo</p>
+          <p className="mt-1.5 font-mono-data text-xs uppercase tracking-wider text-muted-foreground">Órdenes por facturar en Odoo — datos en vivo</p>
         </div>
 
         {error && (
@@ -298,8 +297,7 @@ export default function StatsDashboard() {
 function StatCard({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: string; accent: string }) {
   return (
     <Card className="relative overflow-hidden p-5" style={{ borderTop: `2px solid ${accent}55` }}>
-      <div className="pointer-events-none absolute right-0 top-0 size-24 rounded-full blur-[40px]" style={{ backgroundColor: `${accent}14` }} />
-      <div className="relative z-10 flex items-center gap-2 font-mono-data text-xs font-bold uppercase tracking-widest text-muted-foreground">
+      <div className="relative z-10 flex items-center gap-2 font-mono-data text-xs font-bold uppercase tracking-wider text-muted-foreground">
         {icon} {label}
       </div>
       <div className="relative z-10 mt-3 font-display text-4xl font-extrabold tracking-tight tabular-nums text-foreground">{value}</div>

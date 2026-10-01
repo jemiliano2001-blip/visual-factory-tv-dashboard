@@ -29,9 +29,9 @@ interface OrderDetailsModalProps {
 
 const PRIORITY_COLORS: Record<string, string> = {
   low:      'bg-card/80 text-muted-foreground border-border',
-  normal:   'bg-blue-900/30 text-blue-400 border-blue-500/30 shadow-[0_0_10px_rgba(59,130,246,0.1)]',
-  high:     'bg-orange-900/30 text-orange-400 border-orange-500/30 shadow-[0_0_10px_rgba(249,115,22,0.1)]',
-  critical: 'bg-red-900/30 text-red-400 border-red-500/30 shadow-[0_0_10px_rgba(239,68,68,0.1)]',
+  normal:   'bg-blue-900/30 text-blue-400 border-blue-500/30',
+  high:     'bg-orange-900/30 text-orange-400 border-orange-500/30',
+  critical: 'bg-red-900/30 text-red-400 border-red-500/30',
 };
 
 const PRIORITY_LABELS: Record<string, string> = {
@@ -56,11 +56,11 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
           <span className="text-xl sm:text-2xl md:text-3xl font-black text-foreground font-mono-data tracking-tight">
             {order.name}
           </span>
-          <span className={`inline-flex items-center px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-xs sm:text-xs font-bold uppercase tracking-widest border transition-colors duration-200 ${PRIORITY_COLORS[priority]}`}>
+          <span className={`inline-flex items-center px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-xs sm:text-xs font-bold uppercase tracking-wider border transition-colors duration-200 ${PRIORITY_COLORS[priority]}`}>
             {PRIORITY_LABELS[priority]}
           </span>
         </div>
-        <p className="text-sm sm:text-base md:text-lg font-medium text-secondary-foreground uppercase tracking-wide mt-0.5 truncate" title={order.partner_name}>
+        <p className="text-sm sm:text-base md:text-lg font-medium text-secondary-foreground mt-0.5 truncate" title={order.partner_name}>
           {getSmartCompanyName(order.partner_name, 'header')}
         </p>
       </div>
@@ -72,7 +72,6 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
       <Drawer open={isOpen} onOpenChange={(open) => !open && onClose()}>
         <DrawerContent className="z-[70] max-h-[92dvh] flex flex-col bg-popover/95 border-border rounded-t-2xl">
           {/* Top glow line */}
-          <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-blue-500/50 to-transparent" />
 
           {/* Header fijo: PO + cliente + X siempre visibles (no se ocultan al hacer scroll) */}
           <div className="relative flex-shrink-0 px-4 pt-4 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
@@ -94,14 +93,14 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
             {/* ── Campos de cabecera ── */}
             <div className="rounded-xl border border-border bg-card/30 divide-y divide-border mb-5">
               <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
-                <span className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Creación</span>
+                <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Creación</span>
                 <div className="flex items-center gap-2 text-blue-400 font-semibold text-sm">
                   <Calendar className="w-4 h-4 text-blue-500/70 flex-shrink-0" />
                   {orderDate ? format(orderDate, 'dd/MM/yyyy HH:mm') : '-'}
                 </div>
               </div>
               <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
-                <span className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Entrega</span>
+                <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Entrega</span>
                 <div className="flex items-center gap-2 text-blue-400 font-semibold text-sm">
                   <Clock className="w-4 h-4 text-blue-500/70 flex-shrink-0" />
                   {commitmentDate ? format(commitmentDate, 'dd/MM/yyyy') : '-'}
@@ -109,7 +108,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
               </div>
               {customerReference && (
                 <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
-                  <span className="text-xs text-muted-foreground uppercase tracking-widest font-bold">OC cliente</span>
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">OC cliente</span>
                   <div className="flex items-center gap-2 text-blue-400 font-semibold text-sm min-w-0">
                     <FileText className="w-4 h-4 text-blue-500/70 flex-shrink-0" />
                     <span className="truncate max-w-[180px] font-mono-data">{customerReference}</span>
@@ -117,7 +116,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                 </div>
               )}
               <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
-                <span className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Responsable</span>
+                <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Responsable</span>
                 <div className="flex items-center gap-2 text-blue-400 font-semibold text-sm">
                   <User className="w-4 h-4 text-blue-500/70 flex-shrink-0" />
                   <span className="truncate max-w-[180px]">{order.salesperson || '-'}</span>
@@ -125,7 +124,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
               </div>
               {order.delivery_times && (
                 <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
-                  <span className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Horario cliente</span>
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Horario cliente</span>
                   <div className="flex items-center gap-2 text-cyan-300 font-semibold text-sm text-right min-w-0">
                     <Clock className="w-4 h-4 text-cyan-400 flex-shrink-0" />
                     <span className="truncate max-w-[220px] font-mono-data">{order.delivery_times}</span>
@@ -140,7 +139,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                 <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
                   <Package className="w-4 h-4 text-blue-400" />
                 </div>
-                <h4 className="text-xs font-bold text-secondary-foreground uppercase tracking-widest">Líneas de la Orden</h4>
+                <h4 className="text-xs font-bold text-secondary-foreground uppercase tracking-wider">Líneas de la Orden</h4>
               </div>
               <div className="flex flex-col gap-2">
                 {order.lines.map((line, idx) => {
@@ -154,7 +153,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                       <div className="flex items-start gap-2 mb-2.5">
                         {isComplete
                           ? <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
-                          : <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0 mt-1.5 shadow-[0_0_8px_rgba(245,158,11,0.6)] animate-pulse" />
+                          : <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0 mt-1.5" />
                         }
                         <p className={`text-sm font-semibold leading-snug ${isComplete ? 'text-muted-foreground' : 'text-foreground'}`}>
                           {line.name}
@@ -162,14 +161,14 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                       </div>
                       <div className="flex items-center justify-between gap-2 pl-6">
                         <div className="flex flex-col">
-                          <span className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Cantidad</span>
-                          <span className="text-base font-black text-secondary-foreground font-mono-data leading-tight">
+                          <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Cantidad</span>
+                          <span className="text-base font-bold text-secondary-foreground font-mono-data leading-tight">
                             {line.qty.toFixed(2)}
                           </span>
                         </div>
                         <div className="flex flex-col items-end">
-                          <span className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Entregado</span>
-                          <span className={`px-2.5 py-0.5 rounded-md text-sm font-black font-mono-data ${
+                          <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Entregado</span>
+                          <span className={`px-2.5 py-0.5 rounded-md text-sm font-bold font-mono-data ${
                             isComplete ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                             : isPartial ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                             : 'bg-secondary/50 text-muted-foreground border border-border'
@@ -190,7 +189,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                   <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
                     <FileText className="w-4 h-4 text-amber-400" />
                   </div>
-                  <h4 className="text-xs font-bold text-secondary-foreground uppercase tracking-widest">Notas</h4>
+                  <h4 className="text-xs font-bold text-secondary-foreground uppercase tracking-wider">Notas</h4>
                 </div>
                 <div
                   className="p-4 rounded-2xl bg-card/40 border border-border text-secondary-foreground text-sm whitespace-pre-wrap font-medium leading-relaxed max-h-[150px] overflow-y-auto custom-scrollbar no-scrollbar"
@@ -208,7 +207,6 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-4xl w-[95vw] sm:w-full max-h-[90vh] flex flex-col border-border bg-popover/95 backdrop-blur-3xl shadow-2xl p-0 overflow-hidden rounded-2xl">
         {/* Glow effect at the top */}
-        <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-blue-500/50 to-transparent"></div>
 
         {/* ── Header fijo: siempre visible, la X vive aquí ─────────────────── */}
         <div className="flex-shrink-0 px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
@@ -225,14 +223,14 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
           {/* ── Campos de cabecera ─────────────────────────────────────────── */}
           <div className="rounded-xl border border-border bg-card/30 divide-y divide-border mb-5 sm:mb-8">
             <div className="flex justify-between items-center px-4 py-3">
-              <span className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Creación</span>
+              <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Creación</span>
               <div className="flex items-center gap-2 text-blue-400 font-medium text-sm">
                 <Calendar className="w-4 h-4 text-blue-500/70 flex-shrink-0" />
                 {orderDate ? format(orderDate, 'dd/MM/yyyy HH:mm') : '-'}
               </div>
             </div>
             <div className="flex justify-between items-center px-4 py-3">
-              <span className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Entrega</span>
+              <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Entrega</span>
               <div className="flex items-center gap-2 text-blue-400 font-medium text-sm">
                 <Clock className="w-4 h-4 text-blue-500/70 flex-shrink-0" />
                 {commitmentDate ? format(commitmentDate, 'dd/MM/yyyy') : '-'}
@@ -240,7 +238,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
             </div>
             {customerReference && (
               <div className="flex justify-between items-center gap-3 px-4 py-3 min-h-[48px]">
-                <span className="text-xs text-muted-foreground uppercase tracking-widest font-bold">OC cliente</span>
+                <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">OC cliente</span>
                 <div className="flex items-center gap-2 text-blue-400 font-medium text-sm min-w-0">
                   <FileText className="w-4 h-4 text-blue-500/70 flex-shrink-0" />
                   <span className="truncate max-w-[160px] sm:max-w-full font-mono-data">{customerReference}</span>
@@ -248,7 +246,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
               </div>
             )}
             <div className="flex justify-between items-center px-4 py-3">
-              <span className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Responsable</span>
+              <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Responsable</span>
               <div className="flex items-center gap-2 text-blue-400 font-medium text-sm">
                 <User className="w-4 h-4 text-blue-500/70 flex-shrink-0" />
                 <span className="truncate max-w-[160px] sm:max-w-full">{order.salesperson || '-'}</span>
@@ -256,7 +254,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
             </div>
             {order.delivery_times && (
               <div className="flex justify-between items-center gap-3 px-4 py-3 min-h-[48px]">
-                <span className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Horario cliente</span>
+                <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Horario cliente</span>
                 <div className="flex items-center gap-2 text-cyan-300 font-medium text-sm text-right min-w-0">
                   <Clock className="w-4 h-4 text-cyan-400 flex-shrink-0" />
                   <span className="truncate max-w-[280px] sm:max-w-full font-mono-data">{order.delivery_times}</span>
@@ -270,7 +268,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
               <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
                 <Package className="w-4 h-4 text-blue-400" />
               </div>
-              <h4 className="text-xs sm:text-xs font-bold text-secondary-foreground uppercase tracking-widest">Líneas de la Orden</h4>
+              <h4 className="text-xs sm:text-xs font-bold text-secondary-foreground uppercase tracking-wider">Líneas de la Orden</h4>
             </div>
 
             <div className="rounded-2xl border border-border bg-background/50 overflow-hidden shadow-inner">
@@ -278,10 +276,10 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                 <table className="w-full text-left text-xs sm:text-sm whitespace-nowrap sm:whitespace-normal">
                   <thead className="bg-card/80 backdrop-blur-md sticky top-0 z-10 border-b border-border">
                     <tr>
-                      <th className="px-3 py-3 sm:px-5 sm:py-4 font-bold text-muted-foreground uppercase tracking-widest text-xs sm:text-xs">Descripción</th>
-                      <th className="px-3 py-3 sm:px-5 sm:py-4 font-bold text-muted-foreground uppercase tracking-widest text-xs sm:text-xs w-20 sm:w-28 text-right">Cant.</th>
-                      <th className="px-3 py-3 sm:px-5 sm:py-4 font-bold text-muted-foreground uppercase tracking-widest text-xs sm:text-xs w-20 sm:w-28 text-right">Entregado</th>
-                      <th className="px-3 py-3 sm:px-5 sm:py-4 font-bold text-muted-foreground uppercase tracking-widest text-xs sm:text-xs w-14 sm:w-16 text-center">Status</th>
+                      <th className="px-3 py-3 sm:px-5 sm:py-4 font-bold text-muted-foreground uppercase tracking-wider text-xs sm:text-xs">Descripción</th>
+                      <th className="px-3 py-3 sm:px-5 sm:py-4 font-bold text-muted-foreground uppercase tracking-wider text-xs sm:text-xs w-20 sm:w-28 text-right">Cant.</th>
+                      <th className="px-3 py-3 sm:px-5 sm:py-4 font-bold text-muted-foreground uppercase tracking-wider text-xs sm:text-xs w-20 sm:w-28 text-right">Entregado</th>
+                      <th className="px-3 py-3 sm:px-5 sm:py-4 font-bold text-muted-foreground uppercase tracking-wider text-xs sm:text-xs w-14 sm:w-16 text-center">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -313,7 +311,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                             {isComplete ? (
                               <CheckCircle2 className="w-4 h-4 text-emerald-500 mx-auto" />
                             ) : (
-                              <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mx-auto shadow-[0_0_8px_rgba(245,158,11,0.6)] animate-pulse"></div>
+                              <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mx-auto animate-pulse"></div>
                             )}
                           </td>
                         </tr>
@@ -331,7 +329,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                 <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
                   <FileText className="w-4 h-4 text-amber-400" />
                 </div>
-                <h4 className="text-xs font-bold text-secondary-foreground uppercase tracking-widest">Notas</h4>
+                <h4 className="text-xs font-bold text-secondary-foreground uppercase tracking-wider">Notas</h4>
               </div>
               <div
                 className="p-4 sm:p-5 rounded-2xl bg-card/40 border border-border text-secondary-foreground text-xs sm:text-sm whitespace-pre-wrap font-medium leading-relaxed max-h-[150px] overflow-y-auto custom-scrollbar no-scrollbar hover:border-amber-500/20 transition-colors duration-300"

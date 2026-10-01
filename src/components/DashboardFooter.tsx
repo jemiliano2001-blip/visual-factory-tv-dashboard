@@ -23,7 +23,7 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
   toast,
 }) => {
   return (
-    <footer className="mt-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 bg-background py-2 text-[9px] uppercase tracking-widest text-muted-foreground/70 sticky bottom-0 z-[60] flex-shrink-0 lg:py-3 lg:text-[10px]" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+    <footer className="mt-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 bg-background py-2 text-[9px] uppercase tracking-wider text-muted-foreground/70 sticky bottom-0 z-[60] flex-shrink-0 lg:py-3 lg:text-[10px]" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
       <div className="flex min-w-0 items-center gap-3 lg:gap-4">
         <div className="whitespace-nowrap font-mono-data">
           <span className="hidden sm:inline text-muted-foreground/70">Total:</span>{' '}
@@ -49,7 +49,7 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
                 <div
                   className={`h-1.5 rounded-full transition-all duration-300 ${
                     idx === currentPageIndex
-                      ? 'w-7 bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.6)]'
+                      ? 'w-7 bg-indigo-400'
                       : 'w-2 bg-foreground/20 hover:bg-foreground/40'
                   }`}
                 />
@@ -66,10 +66,10 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
               exit={{ opacity: 0, y: 10 }}
               className={`px-3 py-1.5 rounded-lg font-bold shadow-lg border ${
                 toast.type === 'error'
-                  ? 'bg-red-500/20 text-red-300 border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]'
+                  ? 'bg-red-500/20 text-red-300 border-red-500/30'
                   : toast.type === 'success'
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
-                  : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.2)]'
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                  : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
               }`}
             >
               {toast.message}

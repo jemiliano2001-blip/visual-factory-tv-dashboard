@@ -78,15 +78,12 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden">
-      {/* Background accent — indigo only, no fuchsia */}
-      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-600/8 rounded-full blur-[120px] pointer-events-none" />
-
-      <div className="w-full max-w-md bg-card/60 backdrop-blur-2xl rounded-3xl p-10 shadow-2xl border border-input relative z-10">
+      <div className="w-full max-w-md bg-card rounded-2xl p-10 shadow-card border border-border relative z-10">
         <div className="flex flex-col items-center mb-10">
           <div className="w-20 h-20 bg-indigo-500/10 rounded-2xl flex items-center justify-center mb-6 border border-indigo-500/20">
             <Tv className="w-9 h-9 text-indigo-400" />
           </div>
-          <h1 className="text-3xl font-black text-foreground tracking-tight">Fábrica Visual</h1>
+          <h1 className="text-3xl font-bold text-foreground tracking-tight">Fábrica Visual</h1>
           <p className="text-muted-foreground mt-3 text-center font-medium text-pretty">Acceso exclusivo para personal SMV.</p>
         </div>
 
@@ -98,7 +95,7 @@ export default function Login() {
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2">
+            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
               Correo electrónico
             </label>
             <input
@@ -112,7 +109,7 @@ export default function Login() {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2">
+            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
               Contraseña
             </label>
             <input

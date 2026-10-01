@@ -116,12 +116,12 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
         <Drawer open={filterDrawerOpen} onOpenChange={setFilterDrawerOpen}>
           <DrawerContent className="bg-popover/95 border-border">
             <DrawerHeader className="pb-2">
-              <DrawerTitle className="text-sm font-bold uppercase tracking-widest text-secondary-foreground">
+              <DrawerTitle className="text-sm font-bold uppercase tracking-wider text-secondary-foreground">
                 Filtros
               </DrawerTitle>
             </DrawerHeader>
             <div className="px-4 pb-8 space-y-1 overflow-y-auto no-scrollbar max-h-[60dvh]">
-              <p className="px-1 pt-1 text-xs font-bold uppercase tracking-widest text-muted-foreground">Estado</p>
+              <p className="px-1 pt-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">Estado</p>
               <div className="flex flex-wrap gap-2 pb-3">
                 {STATUS_OPTIONS.map(({ value, label }) => (
                   <button
@@ -138,7 +138,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                   </button>
                 ))}
               </div>
-              <p className="px-1 text-xs font-bold uppercase tracking-widest text-muted-foreground">Cliente</p>
+              <p className="px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">Cliente</p>
               {[null, ...clients].map((c) => (
                 <button
                   key={c ?? '__all__'}

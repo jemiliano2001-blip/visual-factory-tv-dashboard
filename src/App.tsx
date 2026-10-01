@@ -89,7 +89,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
         <div className="max-w-lg space-y-6">
-          <h1 className="text-2xl font-black text-foreground uppercase tracking-tight">
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">
             Error de autenticación
           </h1>
           <p className="text-muted-foreground text-sm leading-relaxed">{authError}</p>
@@ -113,7 +113,7 @@ export default function App() {
             <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
           </div>
           <div className="space-y-4">
-            <h1 className="text-3xl font-black text-foreground uppercase tracking-tight">Configuración de IA Requerida</h1>
+            <h1 className="text-3xl font-bold text-foreground tracking-tight">Configuración de IA Requerida</h1>
             <p className="text-muted-foreground">Para habilitar la generación de imágenes y funciones avanzadas, por favor selecciona tu clave de API de Google Cloud.</p>
           </div>
           <button
@@ -123,7 +123,7 @@ export default function App() {
                 setHasApiKey(true);
               }
             }}
-            className="w-full py-4 bg-primary hover:bg-primary/90 text-foreground font-black uppercase tracking-widest rounded-2xl transition-all shadow-xl shadow-primary/20"
+            className="w-full py-4 bg-primary hover:bg-primary/90 text-foreground font-semibold rounded-2xl transition-all shadow-xl shadow-primary/20"
           >
             Seleccionar Clave de API
           </button>

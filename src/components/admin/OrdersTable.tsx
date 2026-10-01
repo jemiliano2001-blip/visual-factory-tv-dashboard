@@ -262,7 +262,7 @@ export default function OrdersTable({
                   <React.Fragment key={row.id}>
                     {showGroupHeader && (
                       <tr className="bg-muted/50">
-                        <td colSpan={columns.length} className="px-4 py-2 text-xs font-bold uppercase tracking-wide text-foreground">
+                        <td colSpan={columns.length} className="px-4 py-2 text-xs font-bold text-foreground">
                           <div className="flex items-center gap-2">
                             <CompanyBadge company={row.original.partner_name} size="xs" showGlow={false} />
                             <span>{getSmartCompanyName(row.original.partner_name, 'header')}</span>

@@ -137,7 +137,7 @@ export default function AdminPanel() {
               <h1 className="font-display text-3xl font-extrabold tracking-tight text-foreground">
                 Órdenes
               </h1>
-              <p className="mt-1.5 font-mono-data text-xs uppercase tracking-widest text-muted-foreground">
+              <p className="mt-1.5 font-mono-data text-xs uppercase tracking-wider text-muted-foreground">
                 Órdenes por facturar — solo lectura
                 {lastUpdated && ` · actualizado ${format(new Date(lastUpdated), 'HH:mm:ss')}`}
               </p>
