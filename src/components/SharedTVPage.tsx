@@ -13,7 +13,6 @@ interface SharedTVPageProps {
   isWide: boolean;
   isDense: boolean;
   screenTier: ScreenTier;
-  highlightedSO: string | null;
   onOrderClick: (order: OdooSaleOrder) => void;
 }
 function getSegmentCardColumns(
@@ -45,7 +44,7 @@ function getCompanyNameSize(company: string, isQuadLayout: boolean) {
   return 'text-sm lg:text-base';
 }
 
-export function SharedTVPage({ page, gridCols, gridRows, isWide, isDense, screenTier, highlightedSO, onOrderClick }: SharedTVPageProps) {
+export function SharedTVPage({ page, gridCols, gridRows, isWide, isDense, screenTier, onOrderClick }: SharedTVPageProps) {
   const isQuadLayout = page.layout === 'quad';
 
   return (
@@ -118,7 +117,6 @@ export function SharedTVPage({ page, gridCols, gridRows, isWide, isDense, screen
                     >
                       <OdooOrderCard
                         order={order}
-                        isHighlighted={highlightedSO === order.name}
                         isWide={false}
                         isDense={true}
                         hidePartner={true}

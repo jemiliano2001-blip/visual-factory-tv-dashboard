@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Monitor, Maximize, Minimize, Palette, Volume2, ChevronRight, Clock } from 'lucide-react';
+import { Monitor, Maximize, Minimize, Palette, ChevronRight, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { OdooConnectionStatus } from '../services/odoo';
 import OdooStatusBadge from './OdooStatusBadge';
@@ -8,21 +8,6 @@ import { ViewMode } from './OdooOrderCard';
 import CompanyBadge from './CompanyBadge';
 import { getSmartCompanyName } from '../utils/customerNames';
 import DashboardClock from './DashboardClock';
-
-// ─── SoundWave ──────────────────────────────────────────────────────────────────
-
-const SoundWave = () => (
-  <div className="flex items-center gap-1 h-8">
-    {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-      <motion.div
-        key={i}
-        className="w-1.5 bg-emerald-400 rounded-full"
-        animate={{ height: ['20%', '100%', '20%'] }}
-        transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.1, ease: 'easeInOut' }}
-      />
-    ))}
-  </div>
-);
 
 // ─── Breadcrumbs ────────────────────────────────────────────────────────────────
 
@@ -64,13 +49,12 @@ interface DashboardHeaderProps {
   onToggleGradient: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
-  // Voice filter
-  voiceFilter: string;
+  // Filtro de estado
+  statusFilter: string;
   clientFilter?: string | null;
   textFilter?: string;
   onClearFilter: () => void;
   // Speaking
-  isSpeaking: boolean;
   isRotationPaused: boolean;
   onResumeRotation: () => void;
   // Navegación
@@ -100,11 +84,10 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   onToggleGradient,
   isFullscreen,
   onToggleFullscreen,
-  voiceFilter,
+  statusFilter,
   clientFilter,
   textFilter,
   onClearFilter,
-  isSpeaking,
   isRotationPaused,
   onResumeRotation,
   onNavigateAdmin,
@@ -167,23 +150,6 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       <Breadcrumbs current={currentPageNum} total={totalPages} />
       </div>
 
-      {/* Center: Speaking indicator */}
-      <AnimatePresence>
-        {isSpeaking && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8, y: 6 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8, y: 6 }}
-            className="absolute left-1/2 -translate-x-1/2 top-full mt-2 md:top-3 md:mt-0 flex items-center gap-3 px-5 py-2.5 rounded-full border border-emerald-500/30 shadow-[0_0_25px_rgba(16,185,129,0.2)] z-50"
-            style={{ backgroundColor: 'rgba(10,10,15,0.9)', backdropFilter: 'blur(16px)' }}
-          >
-            <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
-            <SoundWave />
-            <span className="text-emerald-400 font-mono-data font-bold uppercase tracking-widest text-xs">IA Respondiendo</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Right: controls + clock */}
       <div className="flex items-center gap-2 lg:gap-3">
         <div className="hidden md:flex items-center gap-1.5 font-mono-data text-[10px] font-bold uppercase tracking-wider">
@@ -208,7 +174,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           </span>
         </div>
 
-        {(voiceFilter !== 'all' || clientFilter || textFilter) && (
+        {(statusFilter !== 'all' || clientFilter || textFilter) && (
           <button
             type="button"
             onClick={onClearFilter}
@@ -217,10 +183,10 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           >
             <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
             {[
-              voiceFilter === 'overdue' ? 'Vencidas'
-                : voiceFilter === 'delivered' ? 'Entregadas'
-                : voiceFilter === 'pending' ? 'Pendientes'
-                : voiceFilter === 'critical' ? 'Críticas'
+              statusFilter === 'overdue' ? 'Vencidas'
+                : statusFilter === 'delivered' ? 'Entregadas'
+                : statusFilter === 'pending' ? 'Pendientes'
+                : statusFilter === 'critical' ? 'Críticas'
                 : null,
               clientFilter ? `${clientFilter}` : null,
               textFilter ? `"${textFilter}"` : null,

@@ -2,7 +2,7 @@
  * Barra de control flotante para la TV. Aparece solo cuando el mouse se acerca
  * a su zona (arriba-centro) y se oculta apenas se aleja — en la tele de pared,
  * sin mouse, nunca aparece. Deja a los ingenieros filtrar al instante por
- * cliente / texto y pausar la rotación, sin usar voz.
+ * cliente / estado / texto y pausar la rotación.
  *
  * En móvil: siempre visible, layout compacto full-width con búsqueda inline
  * y selector de cliente expandible.
@@ -26,12 +26,24 @@ import {
 
 const ALL_CLIENTS = '__all__';
 
+export type StatusFilter = 'all' | 'overdue' | 'pending' | 'delivered' | 'critical';
+
+const STATUS_OPTIONS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
+  { value: 'all', label: 'Todos los estados' },
+  { value: 'overdue', label: 'Vencidas' },
+  { value: 'critical', label: 'Críticas' },
+  { value: 'pending', label: 'Pendientes' },
+  { value: 'delivered', label: 'Entregadas' },
+];
+
 interface TVControlBarProps {
   isTVMode: boolean;
   isMobile?: boolean;
   clients: string[];
   clientFilter: string | null;
   onClient: (client: string | null) => void;
+  statusFilter: StatusFilter;
+  onStatus: (status: StatusFilter) => void;
   textFilter: string;
   onText: (text: string) => void;
   isPaused: boolean;
@@ -40,14 +52,14 @@ interface TVControlBarProps {
 }
 
 const TVControlBar: React.FC<TVControlBarProps> = ({
-  isTVMode, isMobile = false, clients, clientFilter, onClient, textFilter, onText, isPaused, onTogglePause, onClear,
+  isTVMode, isMobile = false, clients, clientFilter, onClient, statusFilter, onStatus, textFilter, onText, isPaused, onTogglePause, onClear,
 }) => {
   const [anchorRef, near] = useProximityVisible<HTMLDivElement>(100, 250, 4000);
   const [focused, setFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
-  const hasFilters = Boolean(clientFilter || textFilter || isPaused);
+  const hasFilters = Boolean(clientFilter || textFilter || isPaused || statusFilter !== 'all');
 
   // ── Móvil: barra de búsqueda compacta siempre visible ─────────────────────────
   if (isMobile) {
@@ -71,16 +83,16 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
             <button
               type="button"
               onClick={() => setFilterDrawerOpen(true)}
-              title="Filtrar por cliente"
-              aria-label="Filtrar por cliente"
+              title="Filtros"
+              aria-label="Filtros"
               className={`relative h-11 w-11 shrink-0 flex items-center justify-center rounded-xl border transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                clientFilter
+                clientFilter || statusFilter !== 'all'
                   ? 'bg-primary/20 border-primary/50 text-primary'
                   : 'border-input text-muted-foreground/60 hover:border-white/20 hover:text-muted-foreground'
               }`}
             >
               <SlidersHorizontal className="size-4" />
-              {clientFilter && (
+              {(clientFilter || statusFilter !== 'all') && (
                 <span className="absolute -right-1 -top-1 size-2 rounded-full bg-primary ring-2 ring-background" />
               )}
             </button>
@@ -105,10 +117,28 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
           <DrawerContent className="bg-popover/95 border-border">
             <DrawerHeader className="pb-2">
               <DrawerTitle className="text-sm font-bold uppercase tracking-widest text-secondary-foreground">
-                Filtrar por cliente
+                Filtros
               </DrawerTitle>
             </DrawerHeader>
             <div className="px-4 pb-8 space-y-1 overflow-y-auto no-scrollbar max-h-[60dvh]">
+              <p className="px-1 pt-1 text-xs font-bold uppercase tracking-widest text-muted-foreground">Estado</p>
+              <div className="flex flex-wrap gap-2 pb-3">
+                {STATUS_OPTIONS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => onStatus(value)}
+                    className={`min-h-[44px] px-4 rounded-xl text-sm font-medium border transition-colors ${
+                      statusFilter === value
+                        ? 'bg-primary/15 text-primary border-primary/30'
+                        : 'border-input text-secondary-foreground hover:bg-white/5'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="px-1 text-xs font-bold uppercase tracking-widest text-muted-foreground">Cliente</p>
               {[null, ...clients].map((c) => (
                 <button
                   key={c ?? '__all__'}
@@ -181,6 +211,23 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                     <SelectItem key={c} value={c}>
                       {getSmartCompanyName(c, 'header')}
                     </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={statusFilter}
+                onValueChange={(v) => onStatus(v as StatusFilter)}
+                onOpenChange={setMenuOpen}
+              >
+                <SelectTrigger aria-label="Filtrar por estado" className="h-10 w-[170px] text-xs font-semibold border-input bg-black/40">
+                  <SelectValue>
+                    {STATUS_OPTIONS.find(o => o.value === statusFilter)?.label}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map(({ value, label }) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

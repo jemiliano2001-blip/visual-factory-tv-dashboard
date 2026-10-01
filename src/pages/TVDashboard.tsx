@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CompanyConfig } from '../types';
 import { subscribeToCompanyConfigs } from '../services/companyConfigs';
-import { Clock, RefreshCw, WifiOff, CheckCircle2, Mic } from 'lucide-react';
+import { Clock, RefreshCw, WifiOff, CheckCircle2 } from 'lucide-react';
 import CompanyBadge from '../components/CompanyBadge';
 import { getSmartCompanyName } from '../utils/customerNames';
 import {
@@ -14,18 +14,7 @@ import {
   getOrderPriority,
   getEffectiveDeliverySchedule,
 } from '../services/odoo';
-import { formatPONumber } from '../utils/formatters';
 import { useOdooOrders } from '../hooks/useOdooOrders';
-import { processTextVoiceCommand, tryLocalFastVoiceCommand, speakFastLocal, getSpokenAudio, AIError, type VoiceCommandResponse } from '../services/ai';
-import { getVoiceRiskFocusedOrders, isVoiceRiskQuestion, validateVoiceRiskFocus } from '../services/voiceRisk';
-import { playGeminiSpeechStream, type SpeechStreamPlayback } from '../services/speechStream';
-import {
-  RISK_ACKNOWLEDGEMENT_DELAY_MS,
-  RISK_ACKNOWLEDGEMENT_TEXT,
-  resolveVoiceTurn,
-  shouldPlayRiskAcknowledgement,
-} from '../services/voiceAcknowledgement';
-import { VoiceFeedbackOverlay } from '../components/VoiceFeedbackOverlay';
 import OdooOrderCard from '../components/OdooOrderCard';
 import type { ViewMode, ScreenTier } from '../components/OdooOrderCard';
 import { SharedTVPage } from '../components/SharedTVPage';
@@ -33,143 +22,15 @@ import SkeletonCard from '../components/SkeletonCard';
 import { OrderDetailsModal } from '../components/OrderDetailsModal';
 import DashboardHeader from '../components/DashboardHeader';
 import DashboardFooter from '../components/DashboardFooter';
-import TVControlBar from '../components/TVControlBar';
+import TVControlBar, { type StatusFilter } from '../components/TVControlBar';
 import { createOrderSearchMatcher } from '../services/orderSearch';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useMobile } from '../hooks/useMobile';
 import { buildTVPages, type TVPage } from '../utils/tvPagePacking';
 import { getCenteredLastRowStart } from '../utils/tvGridLayout';
 import { INITIAL_ROTATION_PAUSED, shouldAutoRotate } from '../services/rotationPolicy';
-import type {
-  SpeechRecognitionInstance,
-  SpeechRecognitionEvent,
-  SpeechRecognitionErrorEvent,
-  WindowWithSpeech,
-} from '../types/speech';
-
-// ─── Audio helpers ─────────────────────────────────────────────────────────────
-
-let sharedAudioCtx: AudioContext | null = null;
-// Referencia al nodo de audio de Gemini TTS actualmente en reproducción (voz principal de
-// los comandos) para poder cortarlo si el operador vuelve a picarle al micro a la mitad.
-let activeAudioSource: AudioBufferSourceNode | null = null;
-
-interface VoiceAcknowledgementTurn {
-  turnId: number;
-  startedAt: number;
-  audioBase64?: string;
-  audioReady: boolean;
-  riskPending: boolean;
-  resultReady: boolean;
-  cancelled: boolean;
-  played: boolean;
-  timer?: ReturnType<typeof setTimeout>;
-}
-
-const getAudioContext = () => {
-  if (!sharedAudioCtx) {
-    const win = window as WindowWithSpeech;
-    const AudioContextClass = window.AudioContext || win.webkitAudioContext;
-    if (AudioContextClass) sharedAudioCtx = new AudioContextClass({ sampleRate: 24000 });
-  }
-  return sharedAudioCtx;
-};
-
-const ensureAudioRunning = async (audioCtx: AudioContext) => {
-  if (audioCtx.state === 'suspended') {
-    await audioCtx.resume();
-  }
-};
-
-const playPCMBase64 = async (
-  base64: string,
-  onEnded?: () => void,
-  shouldStart?: () => boolean,
-) => {
-  try {
-    const binaryString = window.atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-    const audioCtx = getAudioContext();
-    if (!audioCtx) return onEnded && onEnded();
-
-    await ensureAudioRunning(audioCtx);
-    if (shouldStart && !shouldStart()) return onEnded?.();
-    const numSamples = bytes.length / 2;
-    const audioBuffer = audioCtx.createBuffer(1, numSamples, 24000);
-    const channelData = audioBuffer.getChannelData(0);
-    const dataView = new DataView(bytes.buffer);
-    for (let i = 0; i < numSamples; i++) channelData[i] = dataView.getInt16(i * 2, true) / 32768.0;
-    const source = audioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(audioCtx.destination);
-    source.onended = () => {
-      if (activeAudioSource === source) activeAudioSource = null;
-      onEnded?.();
-    };
-    if (activeAudioSource) {
-      // Quitar su onended antes de detenerlo: si no, su callback (setIsSpeaking(false) de
-      // un turno anterior) se dispara durante el arranque de este nuevo audio y pisa el
-      // indicador de "hablando" del turno actual.
-      activeAudioSource.onended = null;
-      try { activeAudioSource.stop(); } catch { /* ya había terminado */ }
-    }
-    activeAudioSource = source;
-    source.start();
-  } catch {
-    onEnded?.();
-  }
-};
-
-/** Corta cualquier voz en curso (Gemini TTS o el respaldo nativo del navegador). */
-const stopSpokenAudio = () => {
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel();
-  if (activeAudioSource) {
-    try { activeAudioSource.stop(); } catch { /* ya había terminado */ }
-    activeAudioSource = null;
-  }
-};
-
-const playSuccessSound = async () => {
-  try {
-    const audioCtx = getAudioContext();
-    if (!audioCtx) return;
-    await ensureAudioRunning(audioCtx);
-    const playBeep = (freq: number, time: number, duration = 0.15) => {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain); gain.connect(audioCtx.destination);
-      osc.type = 'sine'; osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.1, time);
-      gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
-      osc.start(time); osc.stop(time + duration);
-    };
-    playBeep(880, audioCtx.currentTime, 0.2);
-    playBeep(1760, audioCtx.currentTime + 0.1, 0.3);
-  } catch {}
-};
-
-const playErrorSound = async () => {
-  try {
-    const audioCtx = getAudioContext();
-    if (!audioCtx) return;
-    await ensureAudioRunning(audioCtx);
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain); gain.connect(audioCtx.destination);
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(150, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.2);
-    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
-    osc.start(audioCtx.currentTime); osc.stop(audioCtx.currentTime + 0.2);
-  } catch {}
-};
 
 // ─── TVDashboard principal ─────────────────────────────────────────────────────
-
-const VALID_VOICE_FILTERS = ['all', 'overdue', 'pending', 'delivered', 'critical'] as const;
-type VoiceFilter = typeof VALID_VOICE_FILTERS[number];
 
 const CompanyTVSection: React.FC<{
   company: string;
@@ -179,9 +40,8 @@ const CompanyTVSection: React.FC<{
   screenTier: ScreenTier;
   gridCols: number;
   gridRows: number;
-  highlightedSO: string | null;
   onOrderClick: (order: OdooSaleOrder) => void;
-}> = ({ company, orders, isWide, isDense, screenTier, gridCols, gridRows, highlightedSO, onOrderClick }) => (
+}> = ({ company, orders, isWide, isDense, screenTier, gridCols, gridRows, onOrderClick }) => (
   <div className="h-full min-h-0 w-full">
     <motion.div
       key={`${company}-grid`}
@@ -208,7 +68,6 @@ const CompanyTVSection: React.FC<{
           >
             <OdooOrderCard
               order={order}
-              isHighlighted={highlightedSO === order.name}
               isWide={isWide}
               isDense={isDense}
               hidePartner={isDense}
@@ -242,7 +101,6 @@ export default function TVDashboard() {
   const navigate = useNavigate();
   const [companyConfigs, setCompanyConfigs] = useState<CompanyConfig[]>([]);
   const [showGradient, setShowGradient]     = useState(true);
-  const [highlightedSO, setHighlightedSO]   = useState<string | null>(null);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [selectedOrder, setSelectedOrder]   = useState<OdooSaleOrder | null>(null);
   const [viewMode, setViewMode]             = usePersistedState<ViewMode>('vftv:tv:viewMode', 'tv');
@@ -256,115 +114,12 @@ export default function TVDashboard() {
   const [isDense, setIsDense]               = useState(false);
   const [screenTier, setScreenTier]         = useState<ScreenTier>('lg');
   const [toast, setToast]                   = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const [voiceFilter, setVoiceFilter]       = useState<VoiceFilter>('all');
-  const [voiceRiskFocusPOs, setVoiceRiskFocusPOs] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter]       = useState<StatusFilter>('all');
   const [clientFilter, setClientFilter]     = usePersistedState<string | null>('vftv:tv:client', null);
   const [textFilter, setTextFilter]         = usePersistedState<string>('vftv:tv:text', '');
   const [rotationPaused, setRotationPaused] = useState(INITIAL_ROTATION_PAUSED);
 
-  // ── Voice ────────────────────────────────────────────────────────────────────
-  const [isRecording, setIsRecording]           = useState(false);
-  const [isProcessingVoice, setIsProcessingVoice] = useState(false);
-  const [isRiskVoiceProcessing, setIsRiskVoiceProcessing] = useState(false);
-  const [isSpeaking, setIsSpeaking]             = useState(false);
-  const [voiceTranscript, setVoiceTranscript]   = useState<string | null>(null);
-  const [voiceResponse, setVoiceResponse]       = useState<VoiceCommandResponse | null>(null);
-  const recognitionRef          = useRef<SpeechRecognitionInstance | null>(null);
-  const toastTimerRef           = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const transcriptTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const voiceResponseTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const highlightTimerRef       = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Se incrementa cada vez que se inicia una nueva grabación. El botón de voz vuelve a
-  // habilitarse antes de que termine el TTS del comando anterior (a propósito, para poder
-  // interrumpir), así que el TTS fire-and-forget de un turno viejo debe poder detectar que
-  // ya lo superó un turno más nuevo y no hablar/pisar el indicador "hablando" de este.
-  const voiceTurnRef            = useRef(0);
-  const streamPlaybackRef       = useRef<SpeechStreamPlayback | null>(null);
-  const acknowledgementRef      = useRef<VoiceAcknowledgementTurn | null>(null);
-  // Último turno para dar contexto conversacional a seguimientos ("¿y las de Bosch?")
-  const lastVoiceTurnRef        = useRef<{ transcript: string; message: string } | null>(null);
-  // El handler onresult es async y puede resolver segundos después (viaje a Gemini de por medio);
-  // usar una ref en vez de la variable del closure evita operar sobre catálogo ya obsoleto
-  // si odooOrders cambió (polling) mientras se procesaba el comando.
-  const odooOrdersRef           = useRef<OdooSaleOrder[]>(odooOrders);
-
-  const recheckRiskAcknowledgement = useCallback((turnId: number) => {
-    const acknowledgement = acknowledgementRef.current;
-    if (
-      !acknowledgement
-      || acknowledgement.turnId !== turnId
-      || turnId !== voiceTurnRef.current
-      || acknowledgement.cancelled
-      || acknowledgement.played
-    ) {
-      return;
-    }
-
-    const elapsedMs = performance.now() - acknowledgement.startedAt;
-    if (!shouldPlayRiskAcknowledgement({
-      isRisk: acknowledgement.riskPending,
-      elapsedMs,
-      audioReady: acknowledgement.audioReady,
-      resultReady: acknowledgement.resultReady,
-    })) {
-      return;
-    }
-
-    const audioBase64 = acknowledgement.audioBase64;
-    if (!audioBase64) return;
-    acknowledgement.played = true;
-    void playPCMBase64(audioBase64, undefined, () => {
-      const current = acknowledgementRef.current;
-      return Boolean(
-        current
-        && current.turnId === turnId
-        && turnId === voiceTurnRef.current
-        && !current.cancelled
-        && !current.resultReady,
-      );
-    });
-  }, []);
-
-  const resolveAcknowledgementForTurn = useCallback((turnId: number, finalMessage: string) => {
-    const acknowledgement = acknowledgementRef.current;
-    const acknowledgementPlaying = Boolean(
-      acknowledgement
-      && acknowledgement.turnId === turnId
-      && acknowledgement.played
-      && !acknowledgement.cancelled,
-    );
-
-    if (acknowledgement?.turnId === turnId) {
-      acknowledgement.resultReady = true;
-      acknowledgement.riskPending = false;
-      acknowledgement.cancelled = true;
-      if (acknowledgement.timer) {
-        clearTimeout(acknowledgement.timer);
-        acknowledgement.timer = undefined;
-      }
-    }
-
-    const resolution = resolveVoiceTurn({ acknowledgementPlaying, finalMessage });
-    if (resolution.includes('cancelAcknowledgement')) stopSpokenAudio();
-    return resolution;
-  }, []);
-
-  const interruptVoicePlayback = useCallback(() => {
-    streamPlaybackRef.current?.cancel();
-    streamPlaybackRef.current = null;
-
-    const acknowledgement = acknowledgementRef.current;
-    if (acknowledgement) {
-      acknowledgement.cancelled = true;
-      acknowledgement.riskPending = false;
-      if (acknowledgement.timer) {
-        clearTimeout(acknowledgement.timer);
-        acknowledgement.timer = undefined;
-      }
-    }
-
-    stopSpokenAudio();
-  }, []);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isMobile = useMobile();
   // En móvil siempre modo escritorio: sin paginación ni auto-rotación
@@ -386,23 +141,9 @@ export default function TVDashboard() {
   }, []);
 
   // ── Limpieza general al desmontar (evita fugas en pantallas 24/7) ───────────
-  useEffect(() => {
-    return () => {
-      interruptVoicePlayback();
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch {
-          // ignore
-        }
-        recognitionRef.current = null;
-      }
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      if (transcriptTimerRef.current) clearTimeout(transcriptTimerRef.current);
-      if (voiceResponseTimerRef.current) clearTimeout(voiceResponseTimerRef.current);
-      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-    };
-  }, [interruptVoicePlayback]);
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  }, []);
 
   // ── Auto-limpieza por inactividad en modo TV ─────────────────────────────────
   // En una TV de pared desatendida, si un operador aplicó filtros o pausó la
@@ -410,7 +151,7 @@ export default function TVDashboard() {
   useEffect(() => {
     if (!isTVMode) return;
     const hasActiveFilters = Boolean(
-      clientFilter || textFilter || voiceFilter !== 'all' || voiceRiskFocusPOs.length > 0 || rotationPaused
+      clientFilter || textFilter || statusFilter !== 'all' || rotationPaused
     );
     if (!hasActiveFilters) return;
 
@@ -437,7 +178,7 @@ export default function TVDashboard() {
       window.removeEventListener('keydown', onActivity);
       window.removeEventListener('touchstart', onActivity);
     };
-  }, [isTVMode, clientFilter, textFilter, voiceFilter, voiceRiskFocusPOs.length, rotationPaused]);
+  }, [isTVMode, clientFilter, textFilter, statusFilter, rotationPaused]);
 
   // ── Fullscreen ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -516,14 +257,6 @@ export default function TVDashboard() {
     return () => observer.disconnect();
   }, [isTVMode]);
 
-  // ── Scroll to highlighted SO ─────────────────────────────────────────────────
-  useEffect(() => {
-    if (highlightedSO) {
-      const el = document.getElementById(`so-${highlightedSO.replace(/\//g, '-')}`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [highlightedSO]);
-
   // ── Paginación ───────────────────────────────────────────────────────────────
   const uniqueClients = useMemo(
     () => Array.from(new Set(odooOrders.map(o => o.partner_name))).sort(),
@@ -531,16 +264,13 @@ export default function TVDashboard() {
   );
 
   const filteredOdooOrders = useMemo(() => {
-    if (voiceRiskFocusPOs.length > 0) {
-      return getVoiceRiskFocusedOrders(odooOrders, voiceRiskFocusPOs);
-    }
     const matchesClient = (order: OdooSaleOrder) =>
       !clientFilter || order.partner_name.toLowerCase().includes(clientFilter.toLowerCase());
 
     const matchesText = createOrderSearchMatcher(textFilter);
 
-    // Override: el filtro de voz 'entregadas' muestra SOLO las totalmente entregadas.
-    if (voiceFilter === 'delivered') {
+    // Override: el filtro 'entregadas' muestra SOLO las totalmente entregadas.
+    if (statusFilter === 'delivered') {
       return odooOrders.filter(o => isOrderFullyDelivered(o) && matchesClient(o) && matchesText(o));
     }
 
@@ -549,18 +279,18 @@ export default function TVDashboard() {
       if (isOrderFullyDelivered(order)) return false;
       if (!matchesClient(order)) return false;
       if (!matchesText(order)) return false;
-      if (voiceFilter === 'all') return true;
+      if (statusFilter === 'all') return true;
       const isOverdue = isOrderOverdue(order);
       const progress = getDeliveryProgress(order);
-      if (voiceFilter === 'overdue') return isOverdue;
-      if (voiceFilter === 'pending') return progress < 100 && !isOverdue;
-      if (voiceFilter === 'critical') {
+      if (statusFilter === 'overdue') return isOverdue;
+      if (statusFilter === 'pending') return progress < 100 && !isOverdue;
+      if (statusFilter === 'critical') {
         const priority = getOrderPriority(order);
         return priority === 'critical' || priority === 'high';
       }
       return true;
     });
-  }, [odooOrders, voiceFilter, clientFilter, textFilter, voiceRiskFocusPOs]);
+  }, [odooOrders, statusFilter, clientFilter, textFilter]);
 
   const groupedOrders = useMemo(() =>
     filteredOdooOrders.reduce((acc, order) => {
@@ -583,23 +313,18 @@ export default function TVDashboard() {
     }));
   }, [filteredOdooOrders, groupedOrders, ordersPerPage, gridCols, gridRows, isTVMode]);
 
-  // Mantener la ref de catálogo al día con cada render, para que el handler async de
-  // reconocimiento de voz siempre opere sobre los datos más recientes.
-  useEffect(() => { odooOrdersRef.current = odooOrders; }, [odooOrders]);
-
   // ── Auto-rotate pages (solo en modo TV) ──────────────────────────────────────
   useEffect(() => {
     if (!shouldAutoRotate({
       isTVMode,
       pageCount: pages.length,
-      highlightedOrder: Boolean(highlightedSO),
       paused: rotationPaused,
     })) return;
     const interval = setInterval(() => {
       setCurrentPageIndex(prev => (prev + 1) % pages.length);
     }, 10000);
     return () => clearInterval(interval);
-  }, [pages.length, highlightedSO, isTVMode, rotationPaused]);
+  }, [pages.length, isTVMode, rotationPaused]);
 
   useEffect(() => {
     if (currentPageIndex >= pages.length && pages.length > 0) setCurrentPageIndex(0);
@@ -609,32 +334,6 @@ export default function TVDashboard() {
   useEffect(() => {
     setCurrentPageIndex(0);
   }, [clientFilter, textFilter]);
-
-  // Navegar a la página de la orden resaltada por voz. Se hace en un efecto (no inline
-  // en el handler de voz) porque un comando de voz puede resaltar Y filtrar a la vez:
-  // `pages` todavía no refleja el nuevo filtro en el mismo tick que se llama setHighlightedSO,
-  // así que hay que esperar a que este efecto corra con la paginación ya actualizada.
-  useEffect(() => {
-    if (!highlightedSO) return;
-    const pageIdx = pages.findIndex(page =>
-      page.type === 'company'
-        ? page.orders.some(order => order.name === highlightedSO)
-        : page.segments.some(segment => segment.orders.some(order => order.name === highlightedSO))
-    );
-    if (pageIdx !== -1) setCurrentPageIndex(pageIdx);
-  }, [highlightedSO, pages]);
-
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      if (transcriptTimerRef.current) clearTimeout(transcriptTimerRef.current);
-      if (voiceResponseTimerRef.current) clearTimeout(voiceResponseTimerRef.current);
-      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-      if (recognitionRef.current) recognitionRef.current.abort();
-      voiceTurnRef.current += 1;
-      interruptVoicePlayback();
-    };
-  }, [interruptVoicePlayback]);
 
   const currentPage = pages.length > 0 ? pages[currentPageIndex] : null;
   const currentHeaderCompany = isTVMode
@@ -659,316 +358,11 @@ export default function TVDashboard() {
     return priority === 'critical' || priority === 'high';
   }).length;
 
-  // ── Voice control ────────────────────────────────────────────────────────────
-  const toggleRecording = async () => {
-    if (isRecording) {
-      if (recognitionRef.current) recognitionRef.current.stop();
-      setIsRecording(false);
-      return;
-    }
-
-    const win = window as WindowWithSpeech;
-    const SpeechRecognition = win.SpeechRecognition || win.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      showToast('Tu navegador no soporta la API de reconocimiento de voz. Usa Chrome o Edge.', 'error');
-      return;
-    }
-
-    // Interrumpir cualquier respuesta de voz en curso: si el operador ya vuelve a
-    // picarle al micro, quiere hablar ya, no esperar a que termine el anuncio anterior.
-    interruptVoicePlayback();
-    const audioContext = getAudioContext();
-    if (audioContext) void ensureAudioRunning(audioContext).catch(() => undefined);
-    setIsSpeaking(false);
-    setIsRiskVoiceProcessing(false);
-    if (voiceResponseTimerRef.current) {
-      clearTimeout(voiceResponseTimerRef.current);
-      voiceResponseTimerRef.current = null;
-    }
-    setVoiceResponse(null);
-    // Invalida el TTS pendiente de un turno anterior (ver comentario en voiceTurnRef).
-    const turnId = ++voiceTurnRef.current;
-    acknowledgementRef.current = {
-      turnId,
-      startedAt: performance.now(),
-      audioReady: false,
-      riskPending: false,
-      resultReady: false,
-      cancelled: false,
-      played: false,
-    };
-    void getSpokenAudio(RISK_ACKNOWLEDGEMENT_TEXT)
-      .then(audioBase64 => {
-        const acknowledgement = acknowledgementRef.current;
-        if (
-          !audioBase64
-          || !acknowledgement
-          || acknowledgement.turnId !== turnId
-          || turnId !== voiceTurnRef.current
-          || acknowledgement.cancelled
-        ) {
-          return;
-        }
-        acknowledgement.audioBase64 = audioBase64;
-        acknowledgement.audioReady = true;
-        recheckRiskAcknowledgement(turnId);
-      })
-      .catch(() => undefined);
-
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'es-MX';
-      recognition.interimResults = true;
-      recognition.continuous = false;
-      recognition.maxAlternatives = 3;
-      recognitionRef.current = recognition;
-
-      recognition.onstart = () => setIsRecording(true);
-
-      recognition.onresult = async (event: SpeechRecognitionEvent) => {
-        if (turnId !== voiceTurnRef.current) return;
-        let interimTranscript = '';
-        let finalTranscript = '';
-        const finalAlternatives: string[] = [];
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const result = event.results[i];
-          if (result.isFinal) {
-            finalTranscript += result[0].transcript;
-            for (let a = 0; a < result.length; a++) {
-              const alt = result[a]?.transcript;
-              if (alt) finalAlternatives.push(alt);
-            }
-          } else {
-            interimTranscript += result[0].transcript;
-          }
-        }
-
-        // Mostrar lo que se va entendiendo en tiempo real
-        const currentText = finalTranscript || interimTranscript;
-        if (currentText) {
-          if (transcriptTimerRef.current) clearTimeout(transcriptTimerRef.current);
-          setVoiceTranscript(currentText);
-        }
-
-        if (finalTranscript) {
-          const recognitionEndedAt = performance.now();
-          recognition.stop();
-          setIsRecording(false);
-
-          try {
-            // 1. Intentar patrón local ultra-rápido (< 5ms) probando cada alternativa de
-            // reconocimiento (ayuda sobre todo a acertar números de PO con ruido de piso).
-            // Una alternativa de menor confianza que resuelve a "highlight" (PO exacto) se
-            // prefiere sobre una de mayor confianza que solo resuelve a "filter" — de lo
-            // contrario el orden de las alternativas podría resucitar el secuestro de
-            // intención que motivó este fast path (pedir una orden y recibir un filtro).
-            const riskQuestion = isVoiceRiskQuestion(finalTranscript);
-            let riskHudSetAt: number | undefined;
-            let recognitionEndToHudMs: number | undefined;
-            setIsProcessingVoice(true);
-            setIsRiskVoiceProcessing(riskQuestion);
-
-            const acknowledgement = acknowledgementRef.current;
-            if (acknowledgement?.turnId === turnId) {
-              acknowledgement.startedAt = recognitionEndedAt;
-              acknowledgement.riskPending = riskQuestion;
-              if (riskQuestion) {
-                acknowledgement.timer = setTimeout(() => {
-                  acknowledgement.timer = undefined;
-                  recheckRiskAcknowledgement(turnId);
-                }, RISK_ACKNOWLEDGEMENT_DELAY_MS);
-                recheckRiskAcknowledgement(turnId);
-              }
-            }
-
-            if (riskQuestion) {
-              riskHudSetAt = performance.now();
-              recognitionEndToHudMs = riskHudSetAt - recognitionEndedAt;
-            }
-            const localCandidates = riskQuestion
-              ? []
-              : finalAlternatives
-                .map(alt => tryLocalFastVoiceCommand(alt, odooOrdersRef.current))
-                .filter((r): r is VoiceCommandResponse => r !== null);
-            const localResult = localCandidates.find(r => r.action === 'highlight') ?? localCandidates[0] ?? null;
-            const result = localResult ?? await processTextVoiceCommand(
-              finalTranscript,
-              odooOrdersRef.current,
-              lastVoiceTurnRef.current,
-            );
-            if (turnId !== voiceTurnRef.current) return;
-            const voiceResolution = resolveAcknowledgementForTurn(turnId, result.message);
-            setIsRiskVoiceProcessing(false);
-            const validRiskOrders = result.action === 'focus' && riskQuestion
-              ? validateVoiceRiskFocus(result, odooOrdersRef.current)
-              : null;
-            if (result.action === 'focus' && !validRiskOrders) {
-              throw new AIError('invalid_response');
-            }
-
-            if (transcriptTimerRef.current) clearTimeout(transcriptTimerRef.current);
-            setVoiceTranscript(result.transcript || finalTranscript);
-            transcriptTimerRef.current = setTimeout(() => setVoiceTranscript(null), 10000);
-
-            setVoiceResponse(validRiskOrders ? { ...result, risk_orders: validRiskOrders } : result);
-            if (voiceResponseTimerRef.current) clearTimeout(voiceResponseTimerRef.current);
-            voiceResponseTimerRef.current = setTimeout(() => setVoiceResponse(null), 12000);
-
-            if (result.transcript && result.message) {
-              lastVoiceTurnRef.current = { transcript: result.transcript, message: result.message };
-            }
-
-            if (result.message) {
-              showToast(result.message, result.action === 'answer' ? 'info' : 'success');
-            }
-
-            if (result.message && voiceResolution.includes('startFinalStream')) {
-              setIsSpeaking(true);
-              let fallbackStarted = false;
-              const startFallbackOnce = () => {
-                if (fallbackStarted || turnId !== voiceTurnRef.current) return;
-                fallbackStarted = true;
-                const fallbackDidStart = speakFastLocal(result.message, () => {
-                  if (turnId === voiceTurnRef.current) setIsSpeaking(false);
-                });
-                if (!fallbackDidStart) setIsSpeaking(false);
-              };
-
-              let playback: SpeechStreamPlayback;
-              try {
-                const audioContext = getAudioContext();
-                if (!audioContext) throw new Error('AudioContext no disponible');
-                playback = playGeminiSpeechStream(result.message, {
-                  audioContext,
-                  onFirstAudio: () => {
-                    if (
-                      turnId !== voiceTurnRef.current
-                      || riskHudSetAt === undefined
-                      || recognitionEndToHudMs === undefined
-                    ) {
-                      return;
-                    }
-                    const hudToFirstAudioMs = performance.now() - riskHudSetAt;
-                    if (import.meta.env.DEV) {
-                      console.debug('[voice timing]', { recognitionEndToHudMs, hudToFirstAudioMs });
-                    }
-                  },
-                  onEnded: () => {
-                    if (turnId !== voiceTurnRef.current) return;
-                    if (streamPlaybackRef.current === playback) streamPlaybackRef.current = null;
-                    setIsSpeaking(false);
-                  },
-                });
-                streamPlaybackRef.current = playback;
-                void playback.promise.catch(() => {
-                  if (turnId !== voiceTurnRef.current) return;
-                  if (streamPlaybackRef.current === playback) streamPlaybackRef.current = null;
-                  startFallbackOnce();
-                });
-              } catch {
-                startFallbackOnce();
-              }
-            }
-
-            if (result.action === 'filter') {
-              setVoiceRiskFocusPOs([]);
-              const ft = result.filter_type as string | null;
-              if (ft && (VALID_VOICE_FILTERS as readonly string[]).includes(ft)) {
-                setVoiceFilter(ft as VoiceFilter);
-                if (ft === 'all') setClientFilter(null);
-              }
-              if (result.filter_client) {
-                setClientFilter(result.filter_client);
-              }
-              setCurrentPageIndex(0);
-            }
-
-            if (validRiskOrders) {
-              setVoiceRiskFocusPOs(validRiskOrders.map(order => order.po_number));
-              setCurrentPageIndex(0);
-              setRotationPaused(true);
-            } else if (result.action !== 'focus') {
-              setVoiceRiskFocusPOs([]);
-            }
-
-            // Manejo de orden esperada/encontrada
-            const targetPOString = result.expected_order?.po_number || result.po_number;
-            if (targetPOString) {
-              const target = formatPONumber(targetPOString);
-              const currentOrders = odooOrdersRef.current;
-              const targetDigits = targetPOString.replace(/\D/g, '');
-              // El PO puede venir de Gemini en formato libre, no solo del regex determinista
-              // del fast path — se compara igual por sufijo de dígitos (nunca substring amplio)
-              // para no confundir un año como "2026" con una orden que solo comparte esos dígitos.
-              const found =
-                currentOrders.find(o => formatPONumber(o.name) === target) ??
-                currentOrders.find(o => o.name === targetPOString) ??
-                (targetDigits.length >= 3 ? currentOrders.find(o => o.name.replace(/\D/g, '').endsWith(targetDigits)) : undefined);
-              if (found) {
-                const soId = found.name;
-                // La navegación a la página correcta la resuelve un useEffect([highlightedSO, pages]) —
-                // si este comando también filtró, `pages` todavía no lo refleja en este punto.
-                await playSuccessSound();
-                setHighlightedSO(soId);
-                if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-                highlightTimerRef.current = setTimeout(() => setHighlightedSO(null), 12000);
-              } else if (result.action !== 'filter') {
-                showToast(`No se encontró la orden ${targetPOString}.`, 'error');
-                await playErrorSound();
-              }
-            }
-          } catch (e) {
-            if (turnId !== voiceTurnRef.current) return;
-            resolveAcknowledgementForTurn(turnId, '');
-            setIsRiskVoiceProcessing(false);
-            console.error('Error en el procesamiento de voz');
-            const msg = e instanceof AIError ? e.userMessage : 'Hubo un error al procesar el comando de voz.';
-            showToast(msg, 'error');
-            await playErrorSound();
-          } finally {
-            if (turnId === voiceTurnRef.current) {
-              setIsProcessingVoice(false);
-              setIsRiskVoiceProcessing(false);
-            }
-          }
-        }
-      };
-
-      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-        if (turnId !== voiceTurnRef.current) return;
-        resolveAcknowledgementForTurn(turnId, '');
-        console.error('Error en el reconocimiento de voz');
-        if (event.error === 'not-allowed') {
-          showToast('Permiso de micrófono denegado. Habilítalo en el navegador.', 'error');
-        } else if (event.error !== 'aborted') {
-          showToast(`Error al escuchar: ${event.error}`, 'error');
-        }
-        setIsRecording(false);
-        setIsProcessingVoice(false);
-        setIsRiskVoiceProcessing(false);
-      };
-
-      recognition.onend = () => {
-        if (turnId === voiceTurnRef.current) setIsRecording(false);
-      };
-
-      recognition.start();
-    } catch {
-      resolveAcknowledgementForTurn(turnId, '');
-      console.error('Error al iniciar el reconocimiento de voz');
-      showToast('No se pudo acceder al micrófono para los comandos de voz.', 'error');
-      setIsRecording(false);
-      setIsRiskVoiceProcessing(false);
-    }
-  };
-
   const handleClearControls = () => {
     setClientFilter(null);
     setTextFilter('');
     setRotationPaused(false);
-    setVoiceFilter('all');
-    setVoiceRiskFocusPOs([]);
+    setStatusFilter('all');
     setCurrentPageIndex(0);
   };
 
@@ -1008,7 +402,7 @@ export default function TVDashboard() {
         screenCriticalCount={currentPageCriticalCount}
         onShowOverdue={() => {
           if (currentPageOverdueCount === 0) return;
-          setVoiceFilter('overdue');
+          setStatusFilter('overdue');
           setRotationPaused(true);
           setCurrentPageIndex(0);
         }}
@@ -1022,11 +416,10 @@ export default function TVDashboard() {
         onToggleGradient={() => setShowGradient(v => !v)}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
-        voiceFilter={voiceFilter}
+        statusFilter={statusFilter}
         clientFilter={clientFilter}
         textFilter={textFilter}
         onClearFilter={handleClearControls}
-        isSpeaking={isSpeaking}
         isRotationPaused={rotationPaused}
         onResumeRotation={() => setRotationPaused(false)}
         onNavigateAdmin={() => navigate('/admin')}
@@ -1046,16 +439,14 @@ export default function TVDashboard() {
             clients={uniqueClients}
             clientFilter={clientFilter}
             onClient={setClientFilter}
+            statusFilter={statusFilter}
+            onStatus={setStatusFilter}
             textFilter={textFilter}
             onText={setTextFilter}
             isPaused={rotationPaused}
             onTogglePause={() => setRotationPaused(p => !p)}
             onClear={handleClearControls}
           />
-        )}
-
-        {highlightedSO && (
-          <div className="fixed inset-0 bg-black/70 z-40 backdrop-blur-sm transition-opacity duration-500 pointer-events-none" />
         )}
 
         {isLoadingOdoo ? (
@@ -1128,7 +519,6 @@ export default function TVDashboard() {
                 screenTier={screenTier}
                 gridCols={gridCols}
                 gridRows={gridRows}
-                highlightedSO={highlightedSO}
                 onOrderClick={setSelectedOrder}
               />
             ) : (
@@ -1139,7 +529,6 @@ export default function TVDashboard() {
                 isWide={isWide}
                 isDense={isDense}
                 screenTier={screenTier}
-                highlightedSO={highlightedSO}
                 onOrderClick={setSelectedOrder}
               />
             )}
@@ -1187,7 +576,6 @@ export default function TVDashboard() {
                     <OdooOrderCard
                       key={order.id}
                       order={order}
-                      isHighlighted={highlightedSO === order.name}
                       isWide={false}
                       isDense={false}
                       isMobile={isMobile}
@@ -1203,54 +591,6 @@ export default function TVDashboard() {
         ) : null}
       </div>
 
-      {/* ── Feedback de voz (escucha + transcripción) ───────────────────────────── */}
-      <AnimatePresence>
-        {isRecording && (
-          <motion.div
-            key="voice-listening"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none flex items-center gap-3 px-6 py-3 rounded-full bg-red-500/15 border border-red-500/40 backdrop-blur-md shadow-[0_0_30px_rgba(239,68,68,0.3)]"
-          >
-            <span className="flex items-end gap-1 h-5">
-              {[0, 1, 2, 3, 4].map(i => (
-                <span
-                  key={i}
-                  className="w-1 bg-red-400 rounded-full animate-pulse"
-                  style={{ height: `${6 + ((i % 3) + 1) * 4}px`, animationDelay: `${i * 0.12}s` }}
-                />
-              ))}
-            </span>
-            <span className="text-red-200 font-bold uppercase tracking-widest text-sm">Escuchando…</span>
-          </motion.div>
-        )}
-        {!isRecording && voiceTranscript && (
-          <motion.div
-            key="voice-transcript"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none max-w-[80vw] px-6 py-3 rounded-2xl bg-indigo-500/15 border border-indigo-500/40 backdrop-blur-md shadow-[0_0_30px_rgba(99,102,241,0.3)]"
-          >
-            <span className="flex items-center gap-2 text-indigo-200 font-semibold text-base lg:text-lg">
-              <Mic className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-              «{voiceTranscript}»
-            </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── Overlay HUD de Respuesta por Voz ───────────────────────────── */}
-      <VoiceFeedbackOverlay
-        response={voiceResponse}
-        isProcessing={isProcessingVoice}
-        isRiskProcessing={isRiskVoiceProcessing}
-        isRecording={isRecording}
-        transcript={voiceTranscript}
-        onClose={() => setVoiceResponse(null)}
-      />
-
       {/* ── Modal de Detalles de Orden ───────────────────────────────────────── */}
       <OrderDetailsModal
         order={selectedOrder}
@@ -1265,10 +605,6 @@ export default function TVDashboard() {
         currentPageIndex={currentPageIndex}
         onPageChange={setCurrentPageIndex}
         toast={toast}
-        isRecording={isRecording}
-        isProcessingVoice={isProcessingVoice}
-        isSpeaking={isSpeaking}
-        onToggleRecording={toggleRecording}
       />
     </div>
   );

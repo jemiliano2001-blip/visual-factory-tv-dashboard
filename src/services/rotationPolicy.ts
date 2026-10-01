@@ -1,7 +1,6 @@
 export interface RotationContext {
   isTVMode: boolean;
   pageCount: number;
-  highlightedOrder: boolean;
   paused: boolean;
 }
 
@@ -11,8 +10,7 @@ export const INITIAL_ROTATION_PAUSED = false;
 export function shouldAutoRotate({
   isTVMode,
   pageCount,
-  highlightedOrder,
   paused,
 }: RotationContext): boolean {
-  return isTVMode && pageCount > 1 && !highlightedOrder && !paused;
+  return isTVMode && pageCount > 1 && !paused;
 }

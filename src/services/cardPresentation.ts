@@ -14,7 +14,6 @@ export interface CardPresentation {
 
 export function getCardPresentation(input: {
   progress: number;
-  isHighlighted: boolean;
   isOverdue: boolean;
   isCritical: boolean;
 }): CardPresentation {
@@ -59,10 +58,6 @@ export function getCardPresentation(input: {
   return {
     ...progressVisual,
     tone,
-    ...(input.isHighlighted ? {
-      borderClass: 'bg-primary/10 border-primary/60 shadow-[0_0_45px_rgba(99,102,241,0.35)] z-50',
-      accentClass: progressVisual.accentClass,
-    } : {}),
   };
 }
 

@@ -12,7 +12,6 @@ export type ScreenTier = 'sm' | 'md' | 'lg' | 'xl';
 
 interface OdooOrderCardProps {
   order: OdooSaleOrder;
-  isHighlighted: boolean;
   isWide: boolean;
   isDense?: boolean;
   isMobile?: boolean;
@@ -58,7 +57,6 @@ const DELIVERY_STATE_ORDER = ['done', 'assigned', 'waiting', 'confirmed', 'draft
 
 const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   order,
-  isHighlighted,
   isWide,
   isDense = false,
   isMobile = false,
@@ -71,7 +69,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   const progress = getDeliveryProgress(order);
   const isOverdue = isOrderOverdue(order);
   const isCritical = priority === 'critical';
-  const presentation = getCardPresentation({ progress, isHighlighted, isOverdue, isCritical });
+  const presentation = getCardPresentation({ progress, isOverdue, isCritical });
   const urgencyBadge = getUrgencyBadge(isOverdue, priority);
   const isLarge = isLargeTVCard(viewMode, isWide, screenTier, isDense);
   const { deliveryCounts, deliveryStates } = useMemo(() => {
@@ -130,7 +128,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
     <motion.button
       type="button"
       initial={{ opacity: 0, scale: 0.96 }}
-      animate={{ opacity: 1, scale: isHighlighted ? 1.02 : 1 }}
+      animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.96 }}
       transition={{ duration: 0.25 }}
       id={`so-${order.name.replace(/\//g, '-')}`}

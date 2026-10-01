@@ -1,6 +1,5 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Volume2 } from 'lucide-react';
 
 // ─── Props ──────────────────────────────────────────────────────────────────────
 
@@ -12,11 +11,6 @@ interface DashboardFooterProps {
   onPageChange: (index: number) => void;
   // Toast
   toast: { message: string; type: 'success' | 'error' | 'info' } | null;
-  // Voice
-  isRecording: boolean;
-  isProcessingVoice: boolean;
-  isSpeaking: boolean;
-  onToggleRecording: () => void;
 }
 
 // ─── Componente ─────────────────────────────────────────────────────────────────
@@ -27,13 +21,9 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
   currentPageIndex,
   onPageChange,
   toast,
-  isRecording,
-  isProcessingVoice,
-  isSpeaking,
-  onToggleRecording,
 }) => {
   return (
-    <footer className="mt-auto grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 bg-background py-2 text-[9px] uppercase tracking-widest text-muted-foreground/70 sticky bottom-0 z-[60] flex-shrink-0 lg:py-3 lg:text-[10px]" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+    <footer className="mt-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 bg-background py-2 text-[9px] uppercase tracking-widest text-muted-foreground/70 sticky bottom-0 z-[60] flex-shrink-0 lg:py-3 lg:text-[10px]" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
       <div className="flex min-w-0 items-center gap-3 lg:gap-4">
         <div className="whitespace-nowrap font-mono-data">
           <span className="hidden sm:inline text-muted-foreground/70">Total:</span>{' '}
@@ -87,36 +77,6 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
           )}
         </AnimatePresence>
       </div>
-
-      <button
-        type="button"
-        onClick={() => {
-          if (!isRecording && 'vibrate' in navigator) navigator.vibrate(10);
-          onToggleRecording();
-        }}
-        disabled={isProcessingVoice}
-        title={isRecording ? 'Detener grabación' : isSpeaking ? 'Interrumpir y hablar de nuevo' : 'Comando de Voz'}
-        aria-label={isRecording ? 'Detener grabación' : isSpeaking ? 'Interrumpir y hablar de nuevo' : 'Comando de voz'}
-        className={`w-11 h-11 lg:w-12 lg:h-12 rounded-full flex items-center justify-center transition-all duration-300 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/80 ${
-          isRecording
-            ? 'bg-red-500/15 border-2 border-red-500/60 text-red-400 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
-            : isProcessingVoice
-            ? 'bg-indigo-500/15 border-2 border-indigo-500/40 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.5)]'
-            : isSpeaking
-            ? 'bg-emerald-500/15 border-2 border-emerald-500/40 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse'
-            : 'bg-indigo-500/10 border-2 border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 hover:border-indigo-400/50 hover:shadow-[0_0_20px_rgba(99,102,241,0.3)]'
-        }`}
-      >
-        {isRecording ? (
-          <MicOff className="w-4 h-4 lg:w-5 lg:h-5" />
-        ) : isProcessingVoice ? (
-          <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-        ) : isSpeaking ? (
-          <Volume2 className="w-4 h-4 lg:w-5 lg:h-5" />
-        ) : (
-          <Mic className="w-4 h-4 lg:w-5 lg:h-5" />
-        )}
-      </button>
 
       <div className="flex min-w-0 items-center justify-end gap-3 font-mono-data max-lg:hidden lg:gap-4">
         <span className="flex items-center gap-1.5">

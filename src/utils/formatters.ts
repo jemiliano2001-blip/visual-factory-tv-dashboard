@@ -15,7 +15,7 @@ export const formatPONumber = (po: string): string => {
 
   if (digits.length > 0) {
     // Pad to 5 digits and prefix the current year. A hardcoded year would
-    // silently break voice PO-matching every January when the sequence rolls over.
+    // silently break PO matching every January when the sequence rolls over.
     const padded = digits.padStart(5, '0');
     return `${new Date().getFullYear()}/S${padded}`;
   }
