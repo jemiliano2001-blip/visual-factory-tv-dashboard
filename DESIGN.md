@@ -30,18 +30,24 @@ off against glanceable urgency, urgency wins.
   live, high-energy production board.
 - **Reference sites:** None used (worked from design knowledge — control-room/andon norms).
 
-### Core rule — Progress-based status color (vibrant)
-This is the load-bearing decision. The card's color encodes **delivery progress**, so a
-supervisor reads "where is each order" across the whole wall at a glance.
-- **Pendiente (0%) is cyan.** Cool, neutral start state.
-- **En proceso (>0%) is emerald.** Work is moving.
-- **Entregado (100%) is fuchsia.** Done.
-- This color drives the left accent stripe, the progress bar, and the status icon/text,
-  plus a tint on the card border. Every card carries its progress signal.
-- **Priority is a separate, additive axis** (see Color → Priority): the SO badge glows
-  blue/orange and pulses red for *Vencida*. **Atrasada/crítica** also tints the card
-  red/orange and shows a "Vencida" marker — urgency rides on top of the progress color,
-  it does not replace it.
+### Core rule — Urgency-based card color (2026-10-02)
+This is the load-bearing decision. The card's color encodes **urgency** (days late, or
+days of margin), so a supervisor reads "what needs attention" across the whole wall at a
+glance. Delivery progress is read from the `%`, the quantities and the bar width — it no
+longer picks the color, because on real data 122 of 124 visible orders sit at 0 %
+delivered and a progress color painted the whole wall cyan.
+- **A tiempo (not late):** cyan. Label "Vence en N d" / "Vence hoy".
+- **Atraso 0–7 d:** amber (`amber-400`). Newly late, still recoverable; the only tier
+  whose *Vencida* badge pulses.
+- **Atraso 8–30 d:** orange (`orange-500`).
+- **Atraso > 30 d:** red (`red-500`). Chronic; no pulse (dozens pulsing is noise).
+- **Sin fecha:** neutral zinc.
+- **Entregada (100 %):** fuchsia — only visible with the "Entregadas" filter.
+- The tier, color and label come from one pure function, `getCardPresentation()`
+  (`src/services/cardPresentation.ts`, tested). The footer legend mirrors it.
+- Thresholds (7 and 30 days) were picked from the real distribution (14 / 33 / 33 cards).
+- **No glow, no backdrop blur on cards** — solid `bg-card`. Color appears only in the
+  left accent stripe, border tint, progress bar and the timing label.
 
 ## Typography
 - **Display/Brand:** `Syne` — distinctive, used sparingly (header / brand only). Never
@@ -71,32 +77,24 @@ supervisor reads "where is each order" across the whole wall at a glance.
 - **Primary (brand/action — indigo, the only brand accent):** `#6366f1`,
   foreground `#ffffff`, focus ring `#818cf8`. No second brand color. No gradients.
 - **Borders/inputs:** border `rgba(255,255,255,0.08)`, input `rgba(255,255,255,0.12)`.
-- **Card progress color (primary axis — `color = progreso`, set in the card via literal
-  Tailwind classes, not tokens):**
-  - **Pendiente / 0%** — cyan (`cyan-400`): accent stripe, bar, status icon/text.
-  - **En proceso / >0%** — emerald (`emerald-400`).
-  - **Entregado / 100%** — fuchsia (`fuchsia-400`).
-- **Urgency badge (one per card, no surface tint):** *Alta* = warning badge; *Vencida* =
-  solid destructive badge with pulse. Urgency does **not** tint the card border, ring or
-  glow — the card surface belongs to the progress axis alone. See the 2026-08-20 log entry.
+- **Card urgency color:** see "Core rule" above — set in `getCardPresentation()` via literal
+  Tailwind classes, not tokens.
+- **Urgency badge (one per card):** *Alta* = warning badge; *Vencida* = solid destructive
+  badge (pulses only for the 0–7 d tier). The badge adds to the card color; it does not
+  replace the timing label ("Atraso 12 d") at the bottom-left.
 - **`status-*` tokens still live in `src/index.css`** (`overdue #ef4444`, `warning
-  #f59e0b`, `ontime`, `none`) and may be used by **Admin / Stats** surfaces, but they do
-  **not** drive the TV card anymore — the card is progress-based.
+  #f59e0b`, `ontime`, `none`) and are used by **Admin / Stats** surfaces.
 - **Generic semantic (toasts, form validation, info):** destructive `#ef4444`, success
   `#10b981`, warning `#f59e0b`, info `#3b82f6`, data/highlight `#22d3ee`.
 - **Dark mode:** Dark-only by design (plant screen). `color-scheme: dark`. There is no
   light mode and none is planned.
 
-### Decoration rules (vivid, but legibility first)
-- **Cards use soft glow + blur as part of the language.** The TV/desktop card has a light
-  `backdrop-blur(8px)`, a dim progress-colored glow blob and an accent stripe — all in the
-  *progress* color. Keep them subtle enough that text stays crisp at distance. Never stack
-  a second color (ring, outer glow, border tint) on the card surface for urgency.
-- **Glow scales with importance.** *Vencida* is loudest (red glow + pulse + "Vencida"
-  marker); progress glows are gentle. Never let decoration outshine the SO number / %.
+### Decoration rules (legibility first)
+- **Cards are solid.** No glow blob, no `backdrop-filter`. Chrome (header, control bar,
+  overlays) may still use `glass-panel`. Never let decoration outshine the SO number / %.
 - **Still avoid true slop:** no full-card gradient fills, no gradient CTAs,
-  no centered-everything, no uniform bubble-radius on everything. Cyan/emerald/fuchsia are
-  the *status* palette — don't introduce extra brand colors.
+  no centered-everything, no uniform bubble-radius on everything. The urgency palette
+  (cyan / amber / orange / red / zinc) is the *status* palette — don't add brand colors.
 
 ## Spacing
 - **Base unit:** 4px.
@@ -139,3 +137,4 @@ supervisor reads "where is each order" across the whole wall at a glance.
 | 2026-08-20 | Reoriented `/admin` from supervision console to design-team work tool | The people actually using Admin daily are the design/production team ("what's still missing, what do I print"), not a supervisor. Dropped vendor/priority columns, anomaly analysis and risk prediction; added **Pendientes** (missing pieces by line, sorted by urgency) and **Entregas** (deliveries by state) tabs, row selection + a real multi-sheet Excel export, and reoriented the IA tools (`summarizePendingWork`, `explainOrderRequirements`) to help design read requirements, not to evaluate the business. Admin now uses the unified `getOrderStatus` (same as Stats) instead of the looser `isOrderOverdue`/`getOrderPriority` pair. `status-*` badge tokens (`STATUS_VARIANT` in `src/components/admin/orderStatusMeta.ts`) are now visibly used in Admin's own table/tabs, not just Stats. |
 | 2026-08-20 | **One urgency signal per card: dropped the red ring/glow and merged the two pills** | The card was carrying two competing color systems at once — a progress-colored accent stripe *and* a red ring + outer glow layered over the whole surface — plus **two** badges for one fact. Root cause found in code, not taste: `getOrderPriority` returns `'critical'` exactly when `diffMs < 0`, which is the definition of `isOrderOverdue`, so `isCritical` and `isOverdue` are the same boolean and "Crítica"/"Vencida" were *guaranteed* to render together in two different colors. (Consequently the `isOverdue → orange ring` branch in `cardPresentation.ts` was unreachable dead code and was deleted.) Fix keeps the 06-30 vibrant progress-based direction intact — **the axis was not flipped**: urgency no longer paints the card surface at all, it lives in one `Badge` (shadcn `dangerSolid` + pulse). Worst case was the shared pages, where client-panel border + card ring + stripe stacked three treatments. `Badge` gained a `size` variant so it still scales with `isLarge` on TV. |
 | 2026-10-02 | Removed every AI feature (Gemini) | Not used in practice. Deleted `src/services/ai.ts`, `AIModal`, `shared/geminiProxy.ts`, the AI routes in `server.ts`/`functions`, the `@google/genai` and `react-markdown` deps, the NL search bar, "Plan del día", "Explicar requisitos" and the Stats executive summary. Also removes the public-anonymous Gemini quota exposure. |
+| 2026-10-02 | **Card color = urgency (days late), not progress; cards lose glow/blur; footer legend rewritten** | Live Odoo data: 122/124 visible orders at 0 % delivered (progress color = one flat cyan wall) and 85/124 overdue (one saturated *Vencida* badge). Replaced by a graded ramp by days late (≤7 amber / 8–30 orange / >30 red), a timing label ("Atraso 35 d"), the commitment date in the free card space, and a pulse only for newly late orders. Supersedes the 2026-06-30 progress-color decision at the user's request; progress stays visible in the % and bar. |

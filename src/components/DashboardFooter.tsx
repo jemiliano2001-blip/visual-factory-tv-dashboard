@@ -79,22 +79,18 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
       </div>
 
       <div className="flex min-w-0 items-center justify-end gap-3 font-mono-data max-lg:hidden lg:gap-4">
-        <span className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-cyan-400" />
-          <span className="text-muted-foreground">Pendiente</span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-emerald-400" />
-          <span className="text-muted-foreground">En proceso</span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-fuchsia-400" />
-          <span className="text-muted-foreground">Entregado</span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-red-500" />
-          <span className="text-muted-foreground">Vencida</span>
-        </span>
+        {([
+          ['bg-cyan-400', 'A tiempo'],
+          ['bg-amber-400', 'Atraso 0–7 d'],
+          ['bg-orange-500', '8–30 d'],
+          ['bg-red-500', 'Más de 30 d'],
+          ['bg-zinc-400', 'Sin fecha'],
+        ] as const).map(([color, label]) => (
+          <span key={label} className="flex items-center gap-1.5">
+            <div className={`w-2.5 h-2.5 rounded-sm ${color}`} />
+            <span className="text-muted-foreground">{label}</span>
+          </span>
+        ))}
       </div>
     </footer>
   );

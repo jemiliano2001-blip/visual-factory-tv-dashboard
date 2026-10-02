@@ -1,7 +1,9 @@
 import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { AlertTriangle, Check, CheckCircle2, Clock, Package, PlayCircle } from 'lucide-react';
-import { OdooSaleOrder, OdooOrderLine, getDeliveryProgress, getOrderPriority, isOrderOverdue } from '../services/odoo';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { AlertTriangle, CalendarDays, Check, CheckCircle2, Clock, Package } from 'lucide-react';
+import { OdooSaleOrder, OdooOrderLine, getDeliveryProgress, getOrderPriority, isOrderOverdue, parseOdooDate } from '../services/odoo';
 import { getCardPresentation, isLargeTVCard } from '../services/cardPresentation';
 import SmartText from './SmartText';
 import { Badge } from './ui/badge';
@@ -29,8 +31,8 @@ interface OdooOrderCardProps {
  * que es la definición de `isOrderOverdue` — así que siempre aparecían juntas, en
  * dos colores distintos. Se colapsan en una.
  */
-function getUrgencyBadge(isOverdue: boolean, priority: string) {
-  if (isOverdue) return { label: 'Vencida', variant: 'dangerSolid' as const, pulse: true };
+function getUrgencyBadge(isOverdue: boolean, priority: string, pulse: boolean) {
+  if (isOverdue) return { label: 'Vencida', variant: 'dangerSolid' as const, pulse };
   if (priority === 'high') return { label: 'Alta', variant: 'warning' as const, pulse: false };
   return null;
 }
@@ -68,9 +70,9 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   const priority = getOrderPriority(order);
   const progress = getDeliveryProgress(order);
   const isOverdue = isOrderOverdue(order);
-  const isCritical = priority === 'critical';
-  const presentation = getCardPresentation({ progress, isOverdue, isCritical });
-  const urgencyBadge = getUrgencyBadge(isOverdue, priority);
+  const commitmentDate = useMemo(() => parseOdooDate(order.commitment_date), [order.commitment_date]);
+  const presentation = getCardPresentation({ progress, commitmentDate });
+  const urgencyBadge = getUrgencyBadge(isOverdue, priority, presentation.pulse);
   const isLarge = isLargeTVCard(viewMode, isWide, screenTier, isDense);
   const { deliveryCounts, deliveryStates } = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -82,12 +84,8 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       deliveryStates: DELIVERY_STATE_ORDER.filter(state => (counts[state] ?? 0) > 0),
     };
   }, [order.deliveries]);
-  const statusLabel = progress >= 100 ? 'Entregada' : progress > 0 ? 'En proceso' : 'Pendiente';
-  const StatusIcon = progress >= 100
-    ? CheckCircle2
-    : progress > 0
-      ? PlayCircle
-      : Clock;
+  const statusLabel = presentation.timingLabel;
+  const StatusIcon = presentation.tone === 'delivered' ? CheckCircle2 : Clock;
   const cardSize = isMobile
     ? 'min-h-[88px] p-3 pl-5'
     : isDense
@@ -122,7 +120,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
           : 4;
   const visibleLines = order.lines.slice(0, maxVisibleLines);
   const hiddenLineCount = Math.max(0, order.lines.length - visibleLines.length);
-  const cardLabel = `${order.name}${order.customer_reference ? `, PO ${order.customer_reference}` : ''}, ${order.partner_name}, ${progress}% ${statusLabel}${isOverdue ? ', vencida' : ''}`;
+  const cardLabel = `${order.name}${order.customer_reference ? `, PO ${order.customer_reference}` : ''}, ${order.partner_name}, ${progress}% entregado, ${statusLabel}`;
 
   return (
     <motion.button
@@ -135,10 +133,8 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       onClick={onClick}
       aria-label={cardLabel}
       className={`group flex w-full flex-col rounded-2xl border text-left relative overflow-hidden h-full ${cardSize} ${presentation.borderClass} ${onClick ? 'cursor-pointer active:scale-[0.98]' : 'cursor-default'} focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
-      style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
     >
       <span className={`absolute left-0 top-0 bottom-0 ${isDense ? 'w-1' : 'w-1.5'} ${presentation.accentClass}`} aria-hidden="true" />
-      <span className={`absolute -top-12 -right-12 h-40 w-40 rounded-full blur-[70px] opacity-10 pointer-events-none ${presentation.glowClass}`} aria-hidden="true" />
 
       <div className="relative z-10 flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -212,7 +208,15 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
         </div>
       </div>
 
-      <div className={`relative z-10 mt-auto ${isDense ? 'pt-1.5' : isLarge ? 'pt-7' : 'pt-4'}`}>
+      {/* Fecha compromiso: ocupa el espacio libre de las tarjetas de una sola línea */}
+      {commitmentDate && !isDense && !isMobile && (
+        <p className={`relative z-10 mt-2 flex items-center gap-1.5 font-mono-data text-zinc-400 ${isLarge ? 'text-sm' : 'text-xs'}`}>
+          <CalendarDays className={isLarge ? 'h-4 w-4' : 'h-3.5 w-3.5'} aria-hidden="true" />
+          Compromiso {format(commitmentDate, 'd MMM yyyy', { locale: es })}
+        </p>
+      )}
+
+      <div className={`relative z-10 mt-auto ${isDense ? 'pt-1.5' : isLarge ? 'pt-5' : 'pt-3'}`}>
         <div className={`${isDense ? 'mb-1' : 'mb-2'} flex items-end justify-between gap-2`}>
           <div className="flex items-center gap-1">
             <StatusIcon className={`${isDense ? 'h-3.5 w-3.5' : isLarge ? 'h-5 w-5' : 'h-4 w-4'} ${presentation.statusTextClass}`} aria-hidden="true" />
