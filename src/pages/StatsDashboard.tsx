@@ -126,9 +126,9 @@ export default function StatsDashboard() {
     <div className="relative min-h-screen overflow-hidden bg-background font-sans text-foreground">
 
       <div className="relative z-10 mx-auto max-w-7xl space-y-8 p-6 lg:p-8">
-        <div className="border-b border-border pb-6">
-          <h1 className="font-display text-3xl font-extrabold tracking-tight text-foreground">Estadísticas de Producción</h1>
-          <p className="mt-1.5 font-mono-data text-xs uppercase tracking-wider text-muted-foreground">Órdenes por facturar en Odoo — datos en vivo</p>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Estadísticas de producción</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Órdenes por facturar en Odoo, datos en vivo</p>
         </div>
 
         {error && (

@@ -60,7 +60,7 @@ const SelectLabel = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <BaseSelect.GroupLabel
     ref={ref}
-    className={cn('px-2 py-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground font-mono-data', className)}
+    className={cn('px-2 py-1.5 text-xs font-medium text-muted-foreground', className)}
     {...props}
   />
 ));

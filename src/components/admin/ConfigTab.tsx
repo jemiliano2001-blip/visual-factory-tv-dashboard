@@ -95,7 +95,7 @@ export default function ConfigTab({ companyNames }: ConfigTabProps) {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="flex items-center gap-2 font-display text-lg font-bold text-foreground">
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
             <Clock className="size-5 text-primary" /> Horarios de Entrega
           </h3>
           <p className="text-sm text-muted-foreground">

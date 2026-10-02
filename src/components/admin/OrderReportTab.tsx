@@ -76,7 +76,7 @@ export default function OrderReportTab({ orders }: OrderReportTabProps) {
             </div>
             <table className="order-report-table w-full text-sm">
               <thead>
-                <tr className="border-b-2 border-border font-mono-data text-xs uppercase tracking-wider text-muted-foreground">
+                <tr className="border-b-2 border-border text-xs font-medium text-muted-foreground">
                   <th className="px-2 py-1.5 text-left">Referencia</th>
                   <th className="px-2 py-1.5 text-left">Creado el</th>
                   <th className="px-2 py-1.5 text-right">Cant.</th>

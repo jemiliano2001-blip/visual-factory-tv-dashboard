@@ -7,7 +7,7 @@
  * En móvil: siempre visible, layout compacto full-width con búsqueda inline
  * y selector de cliente expandible.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Search, Pause, Play, X, SlidersHorizontal, ChevronUp } from 'lucide-react';
 import { Input } from './ui/input';
@@ -55,7 +55,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
   isTVMode, isMobile = false, clients, clientFilter, onClient, statusFilter, onStatus, textFilter, onText, isPaused, onTogglePause, onClear,
 }) => {
   const [anchorRef, near] = useProximityVisible<HTMLDivElement>(100, 250, 4000);
-  const [focused, setFocused] = useState(false);
+  const [hovering, setHovering] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
@@ -164,24 +164,33 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
   }
 
   // ── Escritorio / TV: barra flotante por proximidad ─────────────────────────────
-  const visible = isTVMode ? (near || focused || menuOpen) : true;
+  // Visible mientras el cursor esté cerca, encima de la barra o con un menú
+  // abierto. El foco NO la fija: antes, tras usar el buscador o "Pausar" la barra
+  // se quedaba pegada hasta hacer clic en otra parte.
+  const visible = isTVMode ? (near || hovering || menuOpen) : true;
+
+  // Al ocultarse se suelta el foco, para que un campo invisible no capture teclas.
+  useEffect(() => {
+    if (!isTVMode || visible) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && anchorRef.current?.contains(active)) active.blur();
+  }, [isTVMode, visible, anchorRef]);
 
   const handleDismiss = () => {
-    setFocused(false);
+    setHovering(false);
     setMenuOpen(false);
   };
 
   return (
     <div
       ref={isTVMode ? anchorRef : undefined}
+      // En TV el contenedor tiene tamaño FIJO (aunque la barra esté oculta) para que
+      // la zona de aproximación no se encoja ni cambie mientras se anima; no captura
+      // clics (pointer-events-none), solo la barra en sí.
       className={isTVMode
-        ? "absolute left-1/2 top-1 z-50 -translate-x-1/2"
+        ? "pointer-events-none absolute left-1/2 top-1 z-50 flex h-[60px] w-[1100px] max-w-[96vw] -translate-x-1/2 justify-center"
         : "flex w-full justify-center py-2 mb-4 pointer-events-none"
       }
-      onFocusCapture={() => setFocused(true)}
-      onBlurCapture={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node)) setFocused(false);
-      }}
     >
       <AnimatePresence>
         {visible && (
@@ -191,6 +200,8 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
             exit={{ opacity: 0, y: -12 }}
             transition={{ duration: 0.2 }}
             className="pointer-events-auto"
+            onPointerEnter={() => setHovering(true)}
+            onPointerLeave={() => setHovering(false)}
           >
             <div className="glass-panel flex items-center gap-2 rounded-2xl px-3 py-2 shadow-overlay border border-input bg-popover/90 backdrop-blur-xl">
               <SlidersHorizontal className="ml-1 size-4 shrink-0 text-cyan-400" />

@@ -68,16 +68,16 @@ export default function AdminPanel() {
   return (
     <TooltipProvider delayDuration={200}>
       <div className="min-h-screen bg-background font-sans text-foreground">
-        <div className="mx-auto max-w-[1600px] space-y-6 p-6 lg:p-8">
+        <div className="mx-auto max-w-[1600px] space-y-5 p-5 lg:p-8">
           {/* Cabecera */}
-          <div className="order-report-no-print flex flex-wrap items-center justify-between gap-3 border-b border-border pb-6">
+          <div className="order-report-no-print flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h1 className="font-display text-3xl font-extrabold tracking-tight text-foreground">
-                Órdenes
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Órdenes por facturar
               </h1>
-              <p className="mt-1.5 font-mono-data text-xs uppercase tracking-wider text-muted-foreground">
-                Órdenes por facturar — solo lectura
-                {lastUpdated && ` · actualizado ${format(new Date(lastUpdated), 'HH:mm:ss')}`}
+              <p className="mt-1 text-sm text-muted-foreground">
+                Solo lectura, desde Odoo
+                {lastUpdated && <> · actualizado <span className="font-mono-data tabular-nums">{format(new Date(lastUpdated), 'HH:mm')}</span></>}
               </p>
             </div>
             <Button type="button" variant="secondary" onClick={() => refetch()} disabled={isFetching}>
@@ -105,7 +105,7 @@ export default function AdminPanel() {
             </TabsList>
 
             {activeTab !== 'config' && (
-              <div className="order-report-no-print mt-5 space-y-4">
+              <div className="order-report-no-print mt-5 space-y-3">
                 <OrdersFilterBar
                   search={search}
                   onSearchChange={setSearch}
@@ -117,9 +117,9 @@ export default function AdminPanel() {
                 />
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-xs text-muted-foreground">
-                    <span className="font-mono-data font-bold text-foreground">{filteredOrders.length}</span> de{' '}
-                    <span className="font-mono-data">{orders.length}</span> órdenes
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-mono-data font-semibold tabular-nums text-foreground">{filteredOrders.length}</span> de{' '}
+                    <span className="font-mono-data tabular-nums">{orders.length}</span> órdenes
                   </p>
                   <div className="ml-auto flex gap-2">
                     {activeTab === 'orders' && (

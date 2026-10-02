@@ -199,14 +199,14 @@ export default function OrdersTable({
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
       <div className="overflow-x-auto">
         <table className="w-full text-left">
-          <thead className="border-b border-border bg-muted/40 font-mono-data text-xs uppercase tracking-wider text-muted-foreground">
+          <thead className="border-b border-border bg-muted/40 text-xs font-medium text-muted-foreground">
             {table.getHeaderGroups().map(hg => (
               <tr key={hg.id}>
                 {hg.headers.map(header => (
                   <th
                     key={header.id}
                     aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : 'none'}
-                    className={`px-3 py-3 font-bold ${(header.column.columnDef.meta as { className?: string } | undefined)?.className ?? ''}`}
+                    className={`px-3 py-3 font-medium ${(header.column.columnDef.meta as { className?: string } | undefined)?.className ?? ''}`}
                   >
                     {header.column.getCanSort() ? (
                       <button type="button" onClick={header.column.getToggleSortingHandler()} className="inline-flex min-h-11 items-center gap-1 rounded px-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
@@ -279,14 +279,14 @@ function ExpandedRow({ order }: { order: OdooSaleOrder }) {
         </div>
       )}
       <div>
-        <h4 className="mb-2 font-mono-data text-xs font-bold uppercase tracking-wider text-muted-foreground">
+        <h4 className="mb-2 text-xs font-semibold text-muted-foreground">
           Líneas de producto ({order.lines_count})
         </h4>
         {!order.lines || order.lines.length === 0 ? (
           <p className="text-sm text-muted-foreground">Sin detalle de líneas</p>
         ) : (
           <table className="w-full text-sm">
-            <thead className="font-mono-data text-xs uppercase tracking-wider text-muted-foreground">
+            <thead className="text-xs font-medium text-muted-foreground">
               <tr>
                 <th className="py-1 pr-4 text-left font-bold">Producto</th>
                 <th className="px-4 py-1 text-right font-bold">Cant.</th>
@@ -308,7 +308,7 @@ function ExpandedRow({ order }: { order: OdooSaleOrder }) {
 
       {order.deliveries && order.deliveries.length > 0 && (
         <div>
-          <h4 className="mb-2 font-mono-data text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          <h4 className="mb-2 text-xs font-semibold text-muted-foreground">
             Remisiones ({order.deliveries.length})
           </h4>
           <div className="flex flex-wrap gap-2">
@@ -329,7 +329,7 @@ function ExpandedRow({ order }: { order: OdooSaleOrder }) {
 
       {order.note && (
         <div>
-          <h4 className="mb-2 font-mono-data text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          <h4 className="mb-2 text-xs font-semibold text-muted-foreground">
             Nota / términos
           </h4>
           <div

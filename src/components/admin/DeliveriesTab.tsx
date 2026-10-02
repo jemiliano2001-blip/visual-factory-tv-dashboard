@@ -73,13 +73,13 @@ export default function DeliveriesTab({ orders }: DeliveriesTabProps) {
             </button>
             {!isCollapsed && (
               <table className="w-full text-sm">
-                <thead className="font-mono-data text-xs uppercase tracking-wider text-muted-foreground">
+                <thead className="text-xs font-medium text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-2 text-left font-bold">Remisión</th>
-                    <th className="px-4 py-2 text-left font-bold">SO</th>
-                    <th className="px-4 py-2 text-left font-bold">Cliente</th>
-                    <th className="px-4 py-2 text-left font-bold">Estado</th>
-                    <th className="px-4 py-2 text-left font-bold">Fecha</th>
+                    <th className="px-4 py-2 text-left font-medium">Remisión</th>
+                    <th className="px-4 py-2 text-left font-medium">SO</th>
+                    <th className="px-4 py-2 text-left font-medium">Cliente</th>
+                    <th className="px-4 py-2 text-left font-medium">Estado</th>
+                    <th className="px-4 py-2 text-left font-medium">Fecha</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">

@@ -58,7 +58,7 @@ export default function PendingTab({ orders }: PendingTabProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-card p-4 shadow-card">
+      <div className="grid grid-cols-3 divide-x divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-card">
         <Stat label="Piezas pendientes" value={totalMissing} />
         <Stat label="Órdenes afectadas" value={affectedOrders} />
         <Stat label="Órdenes atrasadas" value={overdueOrders} tone={overdueOrders > 0 ? 'text-destructive' : undefined} />
@@ -83,9 +83,9 @@ export default function PendingTab({ orders }: PendingTabProps) {
 
 function Stat({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
-    <div>
-      <p className={`font-mono-data text-2xl font-bold tabular-nums ${tone ?? 'text-foreground'}`}>{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
+    <div className="px-5 py-4">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className={`mt-1 font-mono-data text-3xl font-semibold tabular-nums ${tone ?? 'text-foreground'}`}>{value.toLocaleString('es-MX')}</p>
     </div>
   );
 }
@@ -108,23 +108,23 @@ function ClientGroup({
         className="flex w-full items-center gap-2 border-b border-border bg-muted/40 px-4 py-3 text-left transition-colors hover:bg-accent/40"
       >
         {collapsed ? <ChevronRight className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
-        <span className="font-bold text-foreground">{client}</span>
+        <span className="font-semibold text-foreground">{client}</span>
         <span className="text-xs text-muted-foreground">
           {orderCount} {orderCount === 1 ? 'orden' : 'órdenes'}
         </span>
-        <span className="ml-auto font-mono-data text-sm font-bold tabular-nums text-primary">
-          {missingQty} pza{missingQty === 1 ? '' : 's'} pendientes
+        <span className="ml-auto text-sm text-muted-foreground">
+          <span className="font-mono-data font-semibold tabular-nums text-primary">{missingQty}</span> pza{missingQty === 1 ? '' : 's'} pendientes
         </span>
       </button>
       {!collapsed && (
         <table className="w-full text-sm">
-          <thead className="font-mono-data text-xs uppercase tracking-wider text-muted-foreground">
+          <thead className="text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2 text-left font-bold">SO</th>
-              <th className="px-4 py-2 text-left font-bold">Producto</th>
-              <th className="px-4 py-2 text-right font-bold">Faltan</th>
-              <th className="px-4 py-2 text-left font-bold">Compromiso</th>
-              <th className="px-4 py-2 text-left font-bold">Estado</th>
+              <th className="px-4 py-2 text-left font-medium">SO</th>
+              <th className="px-4 py-2 text-left font-medium">Producto</th>
+              <th className="px-4 py-2 text-right font-medium">Faltan</th>
+              <th className="px-4 py-2 text-left font-medium">Compromiso</th>
+              <th className="px-4 py-2 text-left font-medium">Estado</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
