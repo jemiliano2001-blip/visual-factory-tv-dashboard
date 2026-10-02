@@ -3,13 +3,18 @@
  * diseño sobre las órdenes por facturar de Odoo (mismos datos que la TV).
  * No hay CRUD de órdenes: Odoo es la única fuente de verdad, todo es read-only.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { RowSelectionState } from '@tanstack/react-table';
 import { useOdooOrders } from '../hooks/useOdooOrders';
 import { getOrderStatus } from '../services/odoo';
 import { createOrderSearchMatcher } from '../services/orderSearch';
 import type { OrderStatusFilter } from '../components/admin/orderStatusMeta';
+import {
+  DEFAULT_ADMIN_FILTERS, parseAdminFilters, serializeAdminFilters, type AdminFilters, type AdminTab,
+} from '../services/adminFilters';
 import PendingTab from '../components/admin/PendingTab';
+import AgendaTab from '../components/admin/AgendaTab';
 import OrdersTable from '../components/admin/OrdersTable';
 import OrdersFilterBar from '../components/admin/OrdersFilterBar';
 import DeliveriesTab from '../components/admin/DeliveriesTab';
@@ -20,18 +25,58 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs'
 import { TooltipProvider } from '../components/ui/tooltip';
 import {
   Download, WifiOff, AlertTriangle, Loader2, RefreshCw, Table2, Settings, FileText, ListChecks, Truck, Users2,
+  CalendarDays, Link2, Check, X,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
-type AdminTab = 'pending' | 'orders' | 'deliveries' | 'report' | 'config';
+const SAVED_FILTERS_KEY = 'adminFilters';
+
+/** Último filtro usado (sin pestaña): se restaura al entrar a /admin sin parámetros. */
+function readSavedFilters(): URLSearchParams | null {
+  try {
+    const raw = localStorage.getItem(SAVED_FILTERS_KEY);
+    return raw ? new URLSearchParams(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveFilters(filters: AdminFilters) {
+  try {
+    localStorage.setItem(SAVED_FILTERS_KEY, serializeAdminFilters({ ...filters, tab: DEFAULT_ADMIN_FILTERS.tab }).toString());
+  } catch {
+    // sin almacenamiento disponible: el link sigue funcionando
+  }
+}
 
 export default function AdminPanel() {
   const { orders, error, truncated, isLoading, isFetching, lastUpdated, refetch } = useOdooOrders();
 
-  const [activeTab, setActiveTab] = useState<AdminTab>('pending');
-  const [search, setSearch] = useState('');
-  const [clientFilter, setClientFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState<OrderStatusFilter>('all');
+  // Pestaña y filtros viven en el link (?tab=…&q=…&cliente=…&estado=…): se pueden
+  // compartir, y al entrar sin parámetros se restaura el último filtro usado.
+  const [params, setParams] = useSearchParams();
+  const filters = useMemo(() => parseAdminFilters(params), [params]);
+  const { tab: activeTab, search, client: clientFilter, status: statusFilter } = filters;
+  const updateFilters = (patch: Partial<AdminFilters>) =>
+    setParams(serializeAdminFilters({ ...filters, ...patch }), { replace: true });
+  const setActiveTab = (tab: AdminTab) => updateFilters({ tab });
+  const setSearch = (q: string) => updateFilters({ search: q });
+  const setClientFilter = (client: string) => updateFilters({ client });
+  const setStatusFilter = (status: OrderStatusFilter) => updateFilters({ status });
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (!restoredRef.current) {
+      restoredRef.current = true;
+      const saved = readSavedFilters();
+      if (params.size === 0 && saved && saved.size > 0) {
+        setParams(serializeAdminFilters({ ...parseAdminFilters(saved), tab: filters.tab }), { replace: true });
+        return;
+      }
+    }
+    saveFilters(filters);
+  }, [filters, params, setParams]);
   const [groupByClient, setGroupByClient] = useState(false);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
@@ -52,6 +97,19 @@ export default function AdminPanel() {
     () => Object.values(rowSelection).filter(Boolean).length,
     [rowSelection]
   );
+
+  const hasActiveFilters = Boolean(search || clientFilter || statusFilter !== 'all');
+  const clearFilters = () => updateFilters({ search: '', client: '', status: 'all' });
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      // portapapeles no disponible (p. ej. http sin permisos): la URL ya está en la barra
+    }
+  };
 
   // ── Export Excel ─────────────────────────────────────────────────────────────
 
@@ -98,6 +156,7 @@ export default function AdminPanel() {
           <Tabs value={activeTab} onValueChange={v => setActiveTab(v as AdminTab)}>
             <TabsList>
               <TabsTrigger value="pending"><ListChecks /> Pendientes</TabsTrigger>
+              <TabsTrigger value="agenda"><CalendarDays /> Agenda</TabsTrigger>
               <TabsTrigger value="orders"><Table2 /> Órdenes</TabsTrigger>
               <TabsTrigger value="deliveries"><Truck /> Entregas</TabsTrigger>
               <TabsTrigger value="report"><FileText /> Reporte</TabsTrigger>
@@ -121,7 +180,16 @@ export default function AdminPanel() {
                     <span className="font-mono-data font-semibold tabular-nums text-foreground">{filteredOrders.length}</span> de{' '}
                     <span className="font-mono-data tabular-nums">{orders.length}</span> órdenes
                   </p>
+                  {hasActiveFilters && (
+                    <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
+                      <X /> Limpiar filtros
+                    </Button>
+                  )}
                   <div className="ml-auto flex gap-2">
+                    <Button type="button" variant="ghost" onClick={copyLink} title="Copiar un link a esta vista con sus filtros">
+                      {linkCopied ? <Check className="text-success" /> : <Link2 />}
+                      {linkCopied ? 'Link copiado' : 'Copiar link'}
+                    </Button>
                     {activeTab === 'orders' && (
                       <Button
                         type="button"
@@ -145,6 +213,10 @@ export default function AdminPanel() {
               ) : (
                 <PendingTab orders={filteredOrders} />
               )}
+            </TabsContent>
+
+            <TabsContent value="agenda" className="mt-4">
+              {isLoading ? <LoadingState /> : <AgendaTab orders={filteredOrders} />}
             </TabsContent>
 
             <TabsContent value="orders" className="mt-4">
