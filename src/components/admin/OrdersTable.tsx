@@ -123,7 +123,7 @@ export default function OrdersTable({
       header: 'Cliente',
       cell: info => (
         <div className="flex items-center gap-2">
-          <CompanyBadge company={info.getValue()} size="xs" showGlow={false} />
+          <CompanyBadge company={info.getValue()} size="xs" />
           <span className="text-sm font-medium text-foreground/90">{getSmartCompanyName(info.getValue(), 'card')}</span>
         </div>
       ),
@@ -238,7 +238,7 @@ export default function OrdersTable({
                       <tr className="bg-muted/50">
                         <td colSpan={columns.length} className="px-4 py-2 text-xs font-bold text-foreground">
                           <div className="flex items-center gap-2">
-                            <CompanyBadge company={row.original.partner_name} size="xs" showGlow={false} />
+                            <CompanyBadge company={row.original.partner_name} size="xs" />
                             <span>{getSmartCompanyName(row.original.partner_name, 'header')}</span>
                           </div>
                         </td>

@@ -1,54 +1,47 @@
 /**
  * src/utils/customerLogos.ts
  *
- * Mapa de nombres de clientes → rutas de logos.
- * El matching es parcial y case-insensitive para tolerar variantes del
- * nombre que Odoo pueda enviar (ej. "AFX INDUSTRIES S.A. DE C.V." → /logos/afx.png).
+ * Catálogo de logos OFICIALES de clientes (bajados de los sitios de cada
+ * empresa; ver public/logos). El matching es parcial y sin distinguir
+ * mayúsculas para tolerar variantes del partner_name de Odoo
+ * (ej. "AFX INDUSTRIES S.A. DE C.V." → /logos/afx.png).
+ *
+ * Un cliente sin entrada aquí NO recibe un logo inventado: CompanyBadge
+ * muestra su monograma. Siltech es parte de Sensata y TIM no tiene sitio ni
+ * logo público, por eso no aparecen.
  */
 
-interface CustomerLogoEntry {
-  /** Palabras clave que deben aparecer en el partner_name para hacer match */
+export interface CustomerLogo {
+  /** Ruta del archivo en /public */
+  src: string;
+  /** Fondo de la insignia sobre el que el logo se ve bien: los logos con
+   *  texto blanco (Suprajit, Sensata, Kohler) piden fondo oscuro. */
+  tile: 'dark' | 'light';
+}
+
+interface CustomerLogoEntry extends CustomerLogo {
+  /** Expresiones (sin distinguir mayúsculas) que deben aparecer en el partner_name */
   keywords: string[];
-  /** Ruta del logo en /public */
-  logoPath: string;
 }
 
 const CUSTOMER_LOGO_MAP: CustomerLogoEntry[] = [
-  { keywords: ['afx'],         logoPath: '/logos/afx.png' },
-  { keywords: ['magna'],       logoPath: '/logos/magna.png' },
-  { keywords: ['fisher'],      logoPath: '/logos/fisher.png' },
-  { keywords: ['kohler'],      logoPath: '/logos/kohler.png' },
-  { keywords: ['mecalux'],     logoPath: '/logos/mecalux.png' },
-  { keywords: ['genie'],       logoPath: '/logos/genie.png' },
-  { keywords: ['sensata'],     logoPath: '/logos/sensata.png' },
-  { keywords: ['siltech'],     logoPath: '/logos/siltech.png' },
-  { keywords: ['suprajit'],    logoPath: '/logos/suprajit.png' },
-  { keywords: ['cypress'],     logoPath: '/logos/cypress.png' },
-  { keywords: ['robertshaw'],  logoPath: '/logos/robertshaw.png' },
-  { keywords: ['termoformados', 'tim matamoros', '\\btim\\b'],
-                               logoPath: '/logos/tim.png' },
-  { keywords: ['smv'],         logoPath: '/logos/smv.png' },
+  { keywords: ['afx'],                     src: '/logos/afx.png',       tile: 'light' },
+  { keywords: ['fisher'],                  src: '/logos/fisher.png',    tile: 'light' },
+  { keywords: ['kohler'],                  src: '/logos/kohler.svg',    tile: 'dark' },
+  { keywords: ['sensata'],                 src: '/logos/sensata.png',   tile: 'dark' },
+  { keywords: ['suprajit'],                src: '/logos/suprajit.png',  tile: 'dark' },
+  // OHD = Overhead Door Corporation
+  { keywords: ['\\bohd\\b', 'overhead door'], src: '/logos/ohd.png',      tile: 'light' },
 ];
 
 /**
- * Retorna la URL del logo dado el `partner_name` de Odoo.
- * Hace matching parcial case-insensitive para tolerancia a variantes.
- * @returns URL del logo o `null` si no hay match.
+ * Retorna el logo oficial dado el `partner_name` de Odoo, o `null` si no hay.
  */
-export function getCustomerLogo(partnerName: string): string | null {
+export function getCustomerLogo(partnerName: string): CustomerLogo | null {
   if (!partnerName) return null;
-  const lower = partnerName.toLowerCase();
 
-  for (const entry of CUSTOMER_LOGO_MAP) {
-    const matches = entry.keywords.some(kw => {
-      try {
-        return new RegExp(kw, 'i').test(lower);
-      } catch {
-        return lower.includes(kw.toLowerCase());
-      }
-    });
-    if (matches) return entry.logoPath;
+  for (const { keywords, src, tile } of CUSTOMER_LOGO_MAP) {
+    if (keywords.some(kw => new RegExp(kw, 'i').test(partnerName))) return { src, tile };
   }
-
   return null;
 }

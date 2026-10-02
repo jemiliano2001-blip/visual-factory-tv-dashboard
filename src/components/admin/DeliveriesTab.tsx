@@ -94,7 +94,7 @@ export default function DeliveriesTab({ orders }: DeliveriesTabProps) {
                         </td>
                         <td className="px-4 py-2 text-foreground/90">
                           <div className="flex items-center gap-2">
-                            <CompanyBadge company={r.order.partner_name} size="xs" showGlow={false} />
+                            <CompanyBadge company={r.order.partner_name} size="xs" />
                             <span className="font-medium">{getSmartCompanyName(r.order.partner_name, 'header')}</span>
                           </div>
                           {r.order.delivery_times && (

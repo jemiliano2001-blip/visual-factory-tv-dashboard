@@ -61,6 +61,20 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
 
   const hasFilters = Boolean(clientFilter || textFilter || isPaused || statusFilter !== 'all');
 
+  // Los hooks van antes del return de móvil: su orden no puede cambiar entre renders.
+  // Visible mientras el cursor esté cerca, encima de la barra o con un menú
+  // abierto. El foco NO la fija: antes, tras usar el buscador o "Pausar" la barra
+  // se quedaba pegada hasta hacer clic en otra parte.
+  const visible = isTVMode ? (near || hovering || menuOpen) : true;
+
+  // Al ocultarse se suelta el foco, para que un campo invisible no capture teclas.
+  useEffect(() => {
+    if (!isTVMode || visible) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && anchorRef.current?.contains(active)) active.blur();
+  }, [isTVMode, visible, anchorRef]);
+
+
   // ── Móvil: barra de búsqueda compacta siempre visible ─────────────────────────
   if (isMobile) {
     return (
@@ -164,18 +178,6 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
   }
 
   // ── Escritorio / TV: barra flotante por proximidad ─────────────────────────────
-  // Visible mientras el cursor esté cerca, encima de la barra o con un menú
-  // abierto. El foco NO la fija: antes, tras usar el buscador o "Pausar" la barra
-  // se quedaba pegada hasta hacer clic en otra parte.
-  const visible = isTVMode ? (near || hovering || menuOpen) : true;
-
-  // Al ocultarse se suelta el foco, para que un campo invisible no capture teclas.
-  useEffect(() => {
-    if (!isTVMode || visible) return;
-    const active = document.activeElement;
-    if (active instanceof HTMLElement && anchorRef.current?.contains(active)) active.blur();
-  }, [isTVMode, visible, anchorRef]);
-
   const handleDismiss = () => {
     setHovering(false);
     setMenuOpen(false);
