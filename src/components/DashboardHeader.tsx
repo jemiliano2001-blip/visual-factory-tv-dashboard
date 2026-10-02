@@ -120,7 +120,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         <CompanyBadge
           company={currentCompany || 'SMV'}
           size="lg"
-          className="lg:h-14 lg:rounded-2xl"
+          className="lg:h-14 lg:w-14 lg:rounded-2xl"
         />
         <div className="min-w-0 flex flex-col justify-center">
           {onNavigateAdmin ? (

@@ -7,59 +7,50 @@ export type CompanyBadgeSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 interface CompanyBadgeProps {
   /** Nombre del cliente / empresa (ej. "TERMOFORMADOS INDUSTRIALES", "KOHLER REYNOSA") */
   company: string | null | undefined;
-  /** Tamaño de la insignia (altura fija; el ancho se adapta al logo) */
+  /** Tamaño de la insignia */
   size?: CompanyBadgeSize;
   /** Clases CSS adicionales */
   className?: string;
 }
 
-const SIZE_MAP: Record<CompanyBadgeSize, { box: string; text: string; maxWidth: string }> = {
-  xs: { box: 'h-[22px] rounded-md px-1', text: 'text-[9px]', maxWidth: 'max-w-[88px]' },
-  sm: { box: 'h-7 rounded-lg px-1.5', text: 'text-[10px]', maxWidth: 'max-w-[112px]' },
-  md: { box: 'h-9 rounded-xl px-2', text: 'text-xs', maxWidth: 'max-w-[144px]' },
-  lg: { box: 'h-12 rounded-xl px-2.5', text: 'text-sm', maxWidth: 'max-w-[190px]' },
-  xl: { box: 'h-14 rounded-2xl px-3', text: 'text-base', maxWidth: 'max-w-[224px]' },
+const SIZE_MAP: Record<CompanyBadgeSize, { box: string; padding: string; text: string }> = {
+  xs: { box: 'h-[22px] w-[22px] rounded-md', padding: 'p-0.5', text: 'text-[9px]' },
+  sm: { box: 'h-7 w-7 rounded-lg', padding: 'p-1', text: 'text-[10px]' },
+  md: { box: 'h-9 w-9 rounded-xl', padding: 'p-1', text: 'text-xs' },
+  lg: { box: 'h-12 w-12 rounded-xl', padding: 'p-1.5', text: 'text-sm' },
+  xl: { box: 'h-14 w-14 rounded-2xl', padding: 'p-1.5', text: 'text-base' },
 };
 
-// Los logos oficiales se muestran tal como son, sobre un fondo donde se leen:
-// oscuro para los de texto blanco, claro para los de texto de color.
-const TILE_CLASS = {
-  dark: 'border-border bg-card',
-  light: 'border-zinc-300/70 bg-zinc-100',
-} as const;
-
+/**
+ * Insignia cuadrada del cliente. Todas las marcas comparten el mismo fondo y
+ * estilo plano; un cliente sin marca recibe un monograma neutro.
+ */
 export const CompanyBadge: React.FC<CompanyBadgeProps> = ({ company, size = 'md', className = '' }) => {
   const companyName = company?.trim() || '';
   const config = SIZE_MAP[size];
   const logo = getCustomerLogo(companyName);
 
-  if (logo) {
-    return (
-      <div
-        className={`flex shrink-0 items-center justify-center border py-1 ${TILE_CLASS[logo.tile]} ${config.box} ${config.maxWidth} ${className}`}
-        title={companyName}
-      >
-        <img
-          src={logo.src}
-          alt={`Logo de ${companyName}`}
-          decoding="async"
-          draggable={false}
-          className="h-full w-auto max-w-full object-contain"
-        />
-      </div>
-    );
-  }
-
-  // Sin logo oficial: monograma neutro. No se inventa un logo.
   return (
     <div
-      className={`flex aspect-square shrink-0 items-center justify-center border border-border bg-secondary ${config.box} ${className}`}
+      className={`flex shrink-0 items-center justify-center border border-border bg-card ${config.box} ${className}`}
       title={companyName}
-      aria-label={`Insignia de ${companyName}`}
     >
-      <span className={`font-mono-data font-bold tracking-tight text-foreground ${config.text}`}>
-        {getCompanyAcronym(companyName)}
-      </span>
+      {logo ? (
+        <img
+          src={logo}
+          alt={`Marca de ${companyName}`}
+          decoding="async"
+          draggable={false}
+          className={`h-full w-full object-contain ${config.padding}`}
+        />
+      ) : (
+        <span
+          aria-label={`Insignia de ${companyName}`}
+          className={`font-mono-data font-bold tracking-tight text-foreground ${config.text}`}
+        >
+          {getCompanyAcronym(companyName)}
+        </span>
+      )}
     </div>
   );
 };

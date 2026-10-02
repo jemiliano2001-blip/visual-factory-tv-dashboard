@@ -2,23 +2,31 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { getCustomerLogo } from './customerLogos';
 
-test('los clientes con logo oficial en el catálogo reciben su archivo y el tono de fondo correcto', () => {
-  assert.deepEqual(getCustomerLogo('SUPRAJIT MEXICO'), { src: '/logos/suprajit.png', tile: 'dark' });
-  // "TECHNOLIGIES" (sic) es como llega de Odoo.
-  assert.deepEqual(getCustomerLogo('SENSATA TECHNOLIGIES INC'), { src: '/logos/sensata.png', tile: 'dark' });
-  assert.deepEqual(getCustomerLogo('KOHLER REYNOSA'), { src: '/logos/kohler.svg', tile: 'dark' });
-  assert.deepEqual(getCustomerLogo('AFX INDUSTRIES'), { src: '/logos/afx.png', tile: 'light' });
-  assert.deepEqual(getCustomerLogo('FISHER DYNAMICS MEXICO'), { src: '/logos/fisher.png', tile: 'light' });
-  assert.deepEqual(getCustomerLogo('OHD OPERATORS DE MEXICO'), { src: '/logos/ohd.png', tile: 'light' });
+test('cada cliente actual tiene su marca, con los nombres tal como llegan de Odoo', () => {
+  const casos: Array<[string, string]> = [
+    ['SUPRAJIT MEXICO', '/logos/suprajit.svg'],
+    ['SENSATA TECHNOLIGIES INC', '/logos/sensata.svg'], // "TECHNOLIGIES" (sic) viene así de Odoo
+    ['SILICONE TECHNOLOGIES', '/logos/siltech.svg'],
+    ['AFX INDUSTRIES', '/logos/afx.svg'],
+    ['OHD OPERATORS DE MEXICO', '/logos/ohd.svg'],
+    ['TERMOFORMADOS INDUSTRIALES DE MATAMOROS', '/logos/tim.svg'],
+    ['FISHER DYNAMICS MEXICO', '/logos/fisher.svg'],
+    ['KOHLER REYNOSA', '/logos/kohler.svg'],
+  ];
+  for (const [nombre, logo] of casos) assert.equal(getCustomerLogo(nombre), logo, nombre);
 });
 
-test('sin logo oficial no se inventa uno: Siltech (parte de Sensata) y TIM usan el monograma', () => {
-  assert.equal(getCustomerLogo('SILICONE TECHNOLOGIES'), null);
-  assert.equal(getCustomerLogo('TERMOFORMADOS INDUSTRIALES DE MATAMOROS'), null);
+test('Siltech y Sensata no se confunden aunque Siltech pertenezca a Sensata', () => {
+  assert.equal(getCustomerLogo('SENSATA TECHNOLOGIES'), '/logos/sensata.svg');
+  assert.equal(getCustomerLogo('Siltech'), '/logos/siltech.svg');
+});
+
+test('un cliente desconocido o vacío no recibe marca (se usa el monograma)', () => {
   assert.equal(getCustomerLogo('CLIENTE DESCONOCIDO 123'), null);
   assert.equal(getCustomerLogo(''), null);
 });
 
 test('no confunde nombres que solo contienen letras parecidas', () => {
   assert.equal(getCustomerLogo('JOHDSON CONTROLS'), null);
+  assert.equal(getCustomerLogo('VICTIM SYSTEMS'), null);
 });
