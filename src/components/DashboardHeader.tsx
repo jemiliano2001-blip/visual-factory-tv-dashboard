@@ -40,6 +40,7 @@ interface DashboardHeaderProps {
   // Odoo status
   odooStatus: OdooConnectionStatus | null;
   odooLastUpdated: string | null;
+  odooTruncated: boolean;
   isRefreshing: boolean;
   onRefresh: () => void;
   // View controls
@@ -76,6 +77,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   onShowOverdue,
   odooStatus,
   odooLastUpdated,
+  odooTruncated,
   isRefreshing,
   onRefresh,
   viewMode,
@@ -198,6 +200,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         <OdooStatusBadge
           status={odooStatus}
           lastUpdated={odooLastUpdated}
+          truncated={odooTruncated}
           onRefresh={onRefresh}
           isRefreshing={isRefreshing}
         />

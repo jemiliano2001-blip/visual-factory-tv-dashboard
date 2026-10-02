@@ -5,27 +5,30 @@
  * y UNA caché de React Query.
  */
 import { useQuery } from '@tanstack/react-query';
-import { checkOdooStatus, fetchInvoiceableOrders } from '../services/odoo';
+import { fetchInvoiceableOrders, type OdooConnectionStatus } from '../services/odoo';
 
 export function useOdooOrders() {
   const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ['odooData'],
-    queryFn: async () => {
-      const [statusRes, ordersRes] = await Promise.all([
-        checkOdooStatus(),
-        fetchInvoiceableOrders(),
-      ]);
-      return { statusRes, ordersRes };
-    },
+    queryFn: fetchInvoiceableOrders,
     refetchInterval: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+    retry: 1,
   });
 
+  const errorMessage = error ? (error as Error).message : null;
+  // La conexión se deduce de la propia consulta de órdenes. Si un refresco falla,
+  // `data` conserva las órdenes anteriores (y `lastUpdated` marca su antigüedad).
+  const status: OdooConnectionStatus | null = errorMessage
+    ? { connected: false, message: errorMessage }
+    : data ? { connected: true, message: 'Conectado a Odoo' } : null;
+
   return {
-    status: data?.statusRes ?? null,
-    orders: data?.ordersRes.orders ?? [],
-    lastUpdated: data?.ordersRes.lastUpdated ?? null,
-    error: error ? (error as Error).message : data?.ordersRes.error ?? null,
+    status,
+    orders: data?.orders ?? [],
+    lastUpdated: data?.lastUpdated ?? null,
+    truncated: data?.truncated === true,
+    error: errorMessage,
     isLoading,
     isFetching,
     refetch,

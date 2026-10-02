@@ -13,8 +13,6 @@ import express, { Request, Response, NextFunction } from 'express';
 import * as dotenv from 'dotenv';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'node:path';
-import { GoogleGenAI } from '@google/genai';
-import { runGeminiGenerate } from './shared/geminiProxy.ts';
 import { OdooClient } from './shared/odooClient.ts';
 
 // Carga .env.local primero (alta prioridad, no se sube a git),
@@ -61,38 +59,16 @@ if (!FIREBASE_API_KEY && existsSync('./firebase-applet-config.json')) {
 }
 
 // Caché en memoria de tokens ya verificados (clave → expiración). Evita una
-// llamada a Google por cada poll (cada 30s × usuarios activos).
-interface AuthPrincipal {
-  expiresAt: number;
-  isAdmin: boolean;
-  isVerifiedAdmin: boolean;
-}
-
-interface FirebaseLookupUser {
-  customAttributes?: string;
-  emailVerified?: boolean;
-  providerUserInfo?: Array<{ providerId?: string }>;
-}
-
-const tokenCache = new Map<string, AuthPrincipal>();
+// llamada a Google por cada poll (cada 5 min × pantallas activas).
+const tokenCache = new Map<string, number>();
 setInterval(() => {
   const now = Date.now();
-  for (const [k, principal] of tokenCache) if (now > principal.expiresAt) tokenCache.delete(k);
+  for (const [k, expiresAt] of tokenCache) if (now > expiresAt) tokenCache.delete(k);
 }, 10 * 60 * 1000);
 
-function readAdminClaim(customAttributes: string | undefined): boolean {
-  if (!customAttributes) return false;
-  try {
-    const claims: unknown = JSON.parse(customAttributes);
-    return typeof claims === 'object' && claims !== null && (claims as Record<string, unknown>).admin === true;
-  } catch {
-    return false;
-  }
-}
-
-async function verifyFirebaseToken(token: string): Promise<AuthPrincipal | null> {
-  const cached = tokenCache.get(token);
-  if (cached && Date.now() < cached.expiresAt) return cached;
+async function verifyFirebaseToken(token: string): Promise<boolean> {
+  const expiresAt = tokenCache.get(token);
+  if (expiresAt && Date.now() < expiresAt) return true;
   try {
     const res = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`,
@@ -103,20 +79,13 @@ async function verifyFirebaseToken(token: string): Promise<AuthPrincipal | null>
         signal: AbortSignal.timeout(5000),
       }
     );
-    if (!res.ok) return null;
-    const data = await res.json() as { users?: FirebaseLookupUser[] };
-    const user = data.users?.[0];
-    if (!user) return null;
-    const principal = {
-      expiresAt: Date.now() + 5 * 60 * 1000,
-      isAdmin: readAdminClaim(user.customAttributes),
-      isVerifiedAdmin: user.emailVerified === true
-        && user.providerUserInfo?.some(provider => provider.providerId !== 'anonymous') === true,
-    };
-    tokenCache.set(token, principal); // caché 5 min
-    return principal;
+    if (!res.ok) return false;
+    const data = await res.json() as { users?: unknown[] };
+    if (!data.users?.[0]) return false;
+    tokenCache.set(token, Date.now() + 5 * 60 * 1000); // caché 5 min
+    return true;
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -130,7 +99,6 @@ app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
   if (process.env.DEV_AUTH_BYPASS === 'true') {
     const addr = req.socket.localAddress ?? '';
     if (addr === '127.0.0.1' || addr === '::1') {
-      res.locals.auth = { isAdmin: true, isVerifiedAdmin: true } satisfies Pick<AuthPrincipal, 'isAdmin' | 'isVerifiedAdmin'>;
       return next();
     }
   }
@@ -146,50 +114,14 @@ app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
     return;
   }
 
-  const principal = await verifyFirebaseToken(token).catch(() => null);
-  if (!principal) {
+  const valid = await verifyFirebaseToken(token);
+  if (!valid) {
     res.status(401).json({ error: 'Token inválido o expirado. Vuelve a iniciar sesión.' });
     return;
   }
 
-  res.locals.auth = principal;
   next();
 });
-
-function requireAdmin(_req: Request, res: Response, next: NextFunction) {
-  if (res.locals.auth?.isAdmin === true && res.locals.auth?.isVerifiedAdmin === true) return next();
-  res.status(403).json({ error: 'Se requiere el permiso administrativo.' });
-}
-
-// ─── Gemini AI Proxy ────────────────────────────────────────────────────────
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-async function generateAI(req: Request, res: Response) {
-  if (!process.env.GEMINI_API_KEY) {
-    res.status(503).json({ error: 'GEMINI_API_KEY no configurada en el servidor.' });
-    return;
-  }
-
-  try {
-    const result = await runGeminiGenerate(
-      (model, contents, config) =>
-        ai.models.generateContent({ model, contents, config } as Parameters<typeof ai.models.generateContent>[0])
-          .then(response => ({ text: response.text, candidates: response.candidates })),
-      req.body,
-    );
-    if (result.ok === false) {
-      res.status(result.status).json({ error: result.error });
-      return;
-    }
-    res.json(result.payload);
-  } catch (err) {
-    console.error('[Gemini AI Error]', err);
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-  }
-}
-
-app.post('/api/ai/generate', generateAI);
-app.post('/api/ai/admin-generate', requireAdmin, generateAI);
 
 // ─── Configuración Odoo ────────────────────────────────────────────────────────
 const odooClient = new OdooClient({
@@ -207,10 +139,6 @@ if (!odooClient.isConfigured()) {
     '⚠️  [Odoo Proxy] Faltan variables de entorno ODOO_URL / ODOO_DB / ODOO_USERNAME / ODOO_PASSWORD.\n' +
     '   Copia .env.example a .env y completa los valores.'
   );
-}
-
-export async function fetchInvoiceableOrders() {
-  return odooClient.fetchInvoiceableOrders();
 }
 
 // ─── Chrome DevTools well-known endpoint (silences browser console noise) ────
@@ -249,9 +177,8 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
   }
 
   try {
-    const normalized = await fetchInvoiceableOrders();
-    console.log(`[Odoo] Retornando ${normalized.length} órdenes a facturar`);
-    res.json({ orders: normalized, total: normalized.length, lastUpdated: new Date().toISOString() });
+    const { orders, truncated } = await odooClient.fetchInvoiceableOrdersCached();
+    res.json({ orders, total: orders.length, truncated, lastUpdated: new Date().toISOString() });
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

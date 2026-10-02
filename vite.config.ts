@@ -39,8 +39,7 @@ export default defineConfig(({mode}) => {
     plugins: [
       // Polyfill Node.js built-ins (stream, events, buffer, util, etc.)
       // required by xlsx-js-style which was built for Node environments.
-      // process: false — the process shim would shadow the `define` below,
-      // making process.env.GEMINI_API_KEY resolve to undefined in the browser.
+      // process: false — evita que el shim de process pise variables inyectadas.
       nodePolyfills({ protocolImports: true, globals: { process: false } }),
       chromeDevToolsPlugin(),
       react(), 
@@ -69,13 +68,6 @@ export default defineConfig(({mode}) => {
         }
       })
     ],
-    define: {
-      // ponytail: key stripped from prod bundle to avoid exposure; AI features
-      // require proxying through Cloud Functions to work in production.
-      'process.env.GEMINI_API_KEY': JSON.stringify(
-        mode === 'production' ? '' : env.GEMINI_API_KEY
-      ),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
@@ -91,7 +83,6 @@ export default defineConfig(({mode}) => {
               if (id.includes('@tanstack')) return 'vendor-tanstack';
               if (id.includes('lucide-react')) return 'vendor-lucide';
               if (id.includes('date-fns')) return 'vendor-date-fns';
-              if (id.includes('@google/genai')) return 'vendor-genai';
               if (id.includes('@base-ui')) return 'vendor-base-ui';
               if (id.includes('recharts')) return 'vendor-recharts';
             }

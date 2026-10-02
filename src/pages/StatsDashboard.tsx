@@ -1,17 +1,14 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useOdooOrders } from '../hooks/useOdooOrders';
-import { generateShiftSummary, AIError } from '../services/ai';
 import { getOrderStatus, getOrderAgeDays, parseOdooDate, STALE_AGE_DAYS, type OrderStatusLevel } from '../services/odoo';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell
 } from 'recharts';
 import {
   AlertTriangle, TrendingUp, Clock, Package,
-  Sparkles, MessageCircle, WifiOff, Loader2
+  WifiOff, Loader2
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
 import { Card } from '../components/ui/card';
-import { Button } from '../components/ui/button';
 
 const AGING_COLORS = ['#10b981', '#f59e0b', '#ef4444'];
 const CHART_TOOLTIP_STYLE = { backgroundColor: '#16161d', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 };
@@ -19,27 +16,6 @@ const CHART_CURSOR = { fill: 'rgba(255,255,255,0.04)' };
 
 export default function StatsDashboard() {
   const { orders, error, isLoading } = useOdooOrders();
-  const [aiSummary, setAiSummary] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-
-  const handleGenerateSummary = async () => {
-    setIsGenerating(true);
-    try {
-      const summary = await generateShiftSummary(orders);
-      setAiSummary(summary || 'Sin respuesta del modelo.');
-    } catch (e) {
-      console.error(e);
-      const msg = e instanceof AIError ? e.userMessage : 'Ocurrió un error inesperado al generar el resumen.';
-      setAiSummary(msg);
-    }
-    setIsGenerating(false);
-  };
-
-  const handleShareWhatsApp = () => {
-    const text = encodeURIComponent(`*Resumen de Producción:*\n\n${aiSummary}`);
-    window.open(`https://wa.me/?text=${text}`, '_blank');
-  };
-
   // ── Métricas (sin información monetaria — confidencial) ───────────────────────
   const totalOrders = orders.length;
   // Urgencia unificada: fecha compromiso + tiempo de entrega parseado de la nota
@@ -262,31 +238,6 @@ export default function StatsDashboard() {
                 </ResponsiveContainer>
               </ChartCard>
             </div>
-
-            {/* Resumen IA */}
-            <Card className="space-y-4 p-6" style={{ borderTop: '2px solid rgba(139,92,246,0.45)' }}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h3 className="flex items-center gap-2 font-display text-lg font-bold text-foreground">
-                  <Sparkles className="size-5 text-violet-400" /> Resumen ejecutivo con IA
-                </h3>
-                <div className="flex gap-2">
-                  <Button onClick={handleGenerateSummary} disabled={isGenerating || orders.length === 0}>
-                    {isGenerating ? <Loader2 className="animate-spin" /> : <Sparkles />}
-                    {isGenerating ? 'Generando…' : 'Generar resumen'}
-                  </Button>
-                  {aiSummary && (
-                    <Button variant="secondary" onClick={handleShareWhatsApp}>
-                      <MessageCircle /> WhatsApp
-                    </Button>
-                  )}
-                </div>
-              </div>
-              {aiSummary && (
-                <div className="prose prose-invert prose-sm max-w-none border-t border-border pt-4">
-                  <ReactMarkdown>{aiSummary}</ReactMarkdown>
-                </div>
-              )}
-            </Card>
           </>
         )}
       </div>

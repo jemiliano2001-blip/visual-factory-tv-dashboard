@@ -25,17 +25,8 @@ function RouteLoadingFallback() {
 export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [hasApiKey, setHasApiKey] = useState(true);
 
   useEffect(() => {
-    const checkApiKey = async () => {
-      if (window.aistudio) {
-        const selected = await window.aistudio.hasSelectedApiKey();
-        setHasApiKey(selected);
-      }
-    };
-    checkApiKey();
-
     // Detección de SSO token desde SMV Hub
     const hash = typeof window !== 'undefined' && window.location.hash.startsWith('#')
       ? window.location.hash.slice(1)
@@ -100,37 +91,6 @@ export default function App() {
           >
             Reintentar
           </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!hasApiKey) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
-        <div className="max-w-md space-y-8">
-          <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center mx-auto">
-            <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-          </div>
-          <div className="space-y-4">
-            <h1 className="text-3xl font-bold text-foreground tracking-tight">Configuración de IA Requerida</h1>
-            <p className="text-muted-foreground">Para habilitar la generación de imágenes y funciones avanzadas, por favor selecciona tu clave de API de Google Cloud.</p>
-          </div>
-          <button
-            onClick={async () => {
-              if (window.aistudio) {
-                await window.aistudio.openSelectKey();
-                setHasApiKey(true);
-              }
-            }}
-            className="w-full py-4 bg-primary hover:bg-primary/90 text-foreground font-semibold rounded-2xl transition-all shadow-xl shadow-primary/20"
-          >
-            Seleccionar Clave de API
-          </button>
-          <p className="text-xs text-muted-foreground/70">
-            Requiere una clave de un proyecto de Google Cloud con facturación habilitada.
-            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline ml-1">Más info</a>
-          </p>
         </div>
       </div>
     );

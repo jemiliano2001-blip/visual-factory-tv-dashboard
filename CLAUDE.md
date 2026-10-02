@@ -4,13 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**Visual Factory TV** — a manufacturing shop-floor dashboard, originally scaffolded as a Google AI Studio applet. It displays Odoo sale orders on a live TV view, gives admins a read-only console over the same data, and layers Gemini AI features (risk predictions, client reports, shift summaries, natural-language order search) on top. The UI is **entirely in Spanish**; all AI prompts also instruct the model to respond in Spanish.
+**Visual Factory TV** — a manufacturing shop-floor dashboard, originally scaffolded as a Google AI Studio applet. It displays Odoo sale orders on a live TV view and gives admins a read-only console and stats over the same data. The UI is **entirely in Spanish**. The app has **no AI features**: Gemini was removed on 2026-10-02 — do not reintroduce it without an explicit request.
 
 ## Getting Started
 
 ### Prerequisites
 - Node.js 18+
-- A Google Gemini API key (required for AI features)
 - Odoo instance credentials (required for TV dashboard)
 - Firebase project (required for admin panel & stats)
 
@@ -20,7 +19,6 @@ Copy `.env.example` to `.env.local` and fill in:
 
 | Variable | Source | Purpose |
 |----------|--------|---------|
-| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) | AI features (server-side proxy only — never exposed to the browser) |
 | `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD` | Your Odoo instance | TV dashboard data |
 | `FIREBASE_API_KEY` | `firebase-applet-config.json` or Firebase Console | Server verifies Firebase ID tokens on `/api/*` |
 | `DEV_AUTH_BYPASS` | Set to `true` only for local dev (optional) | Opt-in localhost bypass on `server.ts`; default is fail-closed |
@@ -53,6 +51,7 @@ npm run dev:full   # Both of the above concurrently (VITE + ODOO) — use this f
 npm run build      # vite build → dist/
 npm run preview    # Serve the production build (:4173)
 npm run clean      # Remove dist/ build artifacts
+npm run deploy     # lint + test + build, then `firebase deploy --only hosting:dashboardsmv,functions:visual-factory` (always both; project smv-brain is shared with other apps)
 npm run lint       # tsc --noEmit (strict mode) — there is no ESLint
 npm test           # Run all unit tests (tsx --test "src/**/*.test.ts" "shared/**/*.test.ts")
 npm run test:tv-page-packing   # tsx --test src/utils/tvPagePacking.test.ts
@@ -71,15 +70,9 @@ There is **no ESLint**, but there are real `node:test`-based unit tests (via `ts
 
 ### The Odoo proxy (`server.ts`)
 
-A standalone Express server (not part of Vite) that exists to hide Odoo credentials and avoid CORS. It authenticates to Odoo via JSON-RPC (`/web/session/authenticate`), keeps the `session_id` cookie, and re-issues `call_kw` RPCs. Endpoints: `GET /api/odoo/status`, `GET /api/odoo/invoiceable-orders`, `POST /api/ai/generate`. **All `/api/*` routes require a valid Firebase ID token** (`Authorization: Bearer <idToken>`). The TV dashboard obtains that token via anonymous Firebase auth (`App.tsx` → `signInAnonymously`); admin/stats use email/password. Local bypass is **opt-in only**: set `DEV_AUTH_BYPASS=true` in `.env.local` to skip token checks for connections from `127.0.0.1` / `::1` — never rely on `NODE_ENV` alone (Cloudflare Tunnel arrives as localhost). The same auth posture exists in `functions/src/index.ts` for Firebase Hosting deploys — both entry points import the same `OdooClient` from `shared/odooClient.ts` rather than duplicating it. Configured from `.env.local` / `.env` (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`, `ODOO_PROXY_PORT`, `FIREBASE_API_KEY`, `GEMINI_API_KEY`).
+A standalone Express server (not part of Vite) that exists to hide Odoo credentials and avoid CORS. It authenticates to Odoo via JSON-RPC (`/web/session/authenticate`), keeps the `session_id` cookie, and re-issues `call_kw` RPCs. Endpoints: `GET /api/odoo/status`, `GET /api/odoo/invoiceable-orders`. **All `/api/*` routes require a valid Firebase ID token** (`Authorization: Bearer <idToken>`). The TV dashboard obtains that token via anonymous Firebase auth (`App.tsx` → `signInAnonymously`); admin/stats use email/password. Local bypass is **opt-in only**: set `DEV_AUTH_BYPASS=true` in `.env.local` to skip token checks for connections from `127.0.0.1` / `::1` — never rely on `NODE_ENV` alone (Cloudflare Tunnel arrives as localhost). The same auth posture exists in `functions/src/index.ts` for Firebase Hosting deploys — both entry points import the same `OdooClient` from `shared/odooClient.ts` rather than duplicating it. Configured from `.env.local` / `.env` (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`, `ODOO_PROXY_PORT`, `FIREBASE_API_KEY`).
 
-## AI layer (`src/services/ai.ts`)
-
-All Gemini calls go through the **server proxy** (`POST /api/ai/generate` on `server.ts` or Cloud Functions), keyed by `process.env.GEMINI_API_KEY` on the server only — the browser never holds the key. The client module `src/services/ai.ts` sends authenticated requests with the Firebase ID token. Functions cover: shift summaries (Stats), client report emails, global anomaly analysis, per-order risk prediction (ephemeral, not persisted), and natural-language order filtering. There is no voice/TTS feature: it was removed on 2026-10-01 (with `/api/ai/speech-stream` and the TTS model in the allowlist) — do not reintroduce it without an explicit request. All functions take `OdooSaleOrder` data; the `simplifyOrder` helper produces the compact Spanish-field projection used in prompts.
-
-Model IDs referenced as string literals: text tasks use `gemini-3.7-flash` (updated 2026-08-20 from `gemini-3.5-flash` — per Google's own model docs, 3.5 is now the "legacy... baseline" tier while 3.7 is "latest and most capable... for complex coding, agentic workflows, and reliable multi-step execution," which fits the structured-JSON filter/planning calls here better; verified callable with a live `generateContent` request against the project's key before switching, since a past incident shipped a documented-but-uncallable model id). `gemini-3.5-flash` stays in the allowlist as a rollback path. `gemini-2.0-flash` is **deprecated — do not reintroduce it**. The allowlist (`ALLOWED_AI_MODELS`) lives in `shared/geminiProxy.ts`, imported by both `server.ts` and `functions/src/index.ts` — update it there once, not in each entry point separately. **This allowlist is baked into the deployed Cloud Function**: bumping the frontend's model string without redeploying `functions` makes every AI call fail with `Modelo no permitido` in production, silently (no build/test failure catches it) — always deploy functions and hosting together after a model change.
-
-`window.aistudio` (typed in `src/types.ts`) gates whether an API key is selected when running inside Google AI Studio; `App.tsx` blocks the UI until `hasSelectedApiKey()` is true in that environment only.
+`GET /api/odoo/invoiceable-orders` goes through `OdooClient.fetchInvoiceableOrdersCached()` (60 s TTL, shared by simultaneous callers, failures not cached), so several TVs/tabs cost one Odoo query. Odoo is asked for at most `MAX_INVOICEABLE_ORDERS` (1000) orders; if there are more, the response carries `truncated: true` and the UI shows an "Incompleto" badge (TV header) / amber notice (Admin) instead of silently dropping orders. The frontend `fetchInvoiceableOrders` **throws** on failure, so React Query keeps the last good orders on a failed refresh (header badge turns "Sin Odoo · datos de HH:mm"); connection status is derived from that same query (no separate `/api/odoo/status` poll — the endpoint remains as a health check).
 
 ## Discord notifications (`functions/src/notifications.ts`)
 
@@ -131,9 +124,9 @@ Status filter types accepted by `setStatusFilter` (the `StatusFilter` type expor
 
 ## Conventions & gotchas
 
-- **PO number format**: canonical form is `YYYY/SXXXXX` (current year + 5 zero-padded digits). Always run user/AI-supplied PO strings through `formatPONumber` (`src/utils/formatters.ts`) before display or matching.
+- **PO number format**: canonical form is `YYYY/SXXXXX` (current year + 5 zero-padded digits). Always run user-supplied PO strings through `formatPONumber` (`src/utils/formatters.ts`) before display or matching.
 - **Customer logos**: TV dashboard maps Odoo `partner_name` → logo via keyword/regex matching in `src/utils/customerLogos.ts`; logo files live in `public/logos/`. Add new clients there.
-- **xlsx-js-style** needs Node built-ins in the browser — `vite-plugin-node-polyfills` in `vite.config.ts` provides them. Don't remove it. It's configured with `globals: { process: false }`: the process shim would shadow the `define` that injects `GEMINI_API_KEY`, breaking AI features with "An API Key must be set when running in a browser".
+- **xlsx-js-style** needs Node built-ins in the browser — `vite-plugin-node-polyfills` in `vite.config.ts` provides them. Don't remove it. It's configured with `globals: { process: false }` so the process shim doesn't shadow injected variables.
 - **PWA**: `vite-plugin-pwa` with `registerType: 'autoUpdate'`, registered in `main.tsx` via `registerSW({ immediate: true })`. Enabled in dev too. The `dev-dist/` directory holds the compiled service-worker output (`sw.js`, `workbox-*.js`) — these are **auto-generated on every dev start, never edit them**.
 - **HMR** is controlled by `DISABLE_HMR` env var (set by AI Studio to prevent flicker during agent edits) — leave the `server.hmr` logic in `vite.config.ts` alone.
 - The `@` import alias resolves to the **repo root** (`vite.config.ts` + `tsconfig.json`), but `src/` code currently uses relative imports throughout — match the surrounding style.
@@ -167,12 +160,10 @@ Status filter types accepted by `setStatusFilter` (the `StatusFilter` type expor
 │   ├── services/
 │   │   ├── companyConfigs.ts  # Firestore CRUD for delivery schedules
 │   │   ├── odoo.ts        # Odoo API client (via proxy)
-│   │   ├── ai.ts          # Gemini API calls (summaries, risk, reports, order search)
 │   │   └── ...
 │   └── utils/             # Helpers (formatPONumber, customerLogos, etc.)
 ├── shared/                # Logic shared between server.ts and functions/src/index.ts
 │   ├── odooClient.ts      # OdooClient — Odoo JSON-RPC session + call_kw
-│   └── geminiProxy.ts     # runGeminiGenerate + ALLOWED_AI_MODELS allowlist
 ├── server.ts             # Express proxy for Odoo (auth + CORS wrapper)
 ├── functions/src/
 │   ├── index.ts           # Firebase Hosting deploy of the same /api/* routes

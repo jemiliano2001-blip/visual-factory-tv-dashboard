@@ -9,7 +9,6 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@google/genai": "^2.10.0",
     "express": "^4.21.2",
     "firebase-admin": "^13.4.0",
     "firebase-functions": "^7.2.5"

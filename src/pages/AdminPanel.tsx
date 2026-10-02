@@ -6,9 +6,8 @@
 import React, { useMemo, useState } from 'react';
 import type { RowSelectionState } from '@tanstack/react-table';
 import { useOdooOrders } from '../hooks/useOdooOrders';
-import { OdooSaleOrder, getOrderStatus } from '../services/odoo';
+import { getOrderStatus } from '../services/odoo';
 import { createOrderSearchMatcher } from '../services/orderSearch';
-import { filterOrdersByNaturalLanguage, summarizePendingWork, explainOrderRequirements, AIError } from '../services/ai';
 import type { OrderStatusFilter } from '../components/admin/orderStatusMeta';
 import PendingTab from '../components/admin/PendingTab';
 import OrdersTable from '../components/admin/OrdersTable';
@@ -16,19 +15,18 @@ import OrdersFilterBar from '../components/admin/OrdersFilterBar';
 import DeliveriesTab from '../components/admin/DeliveriesTab';
 import ConfigTab from '../components/admin/ConfigTab';
 import OrderReportTab from '../components/admin/OrderReportTab';
-import AIModal from '../components/admin/AIModal';
 import { Button } from '../components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { TooltipProvider } from '../components/ui/tooltip';
 import {
-  Download, WifiOff, Loader2, RefreshCw, Table2, Settings, FileText, ListChecks, Truck, Users2,
+  Download, WifiOff, AlertTriangle, Loader2, RefreshCw, Table2, Settings, FileText, ListChecks, Truck, Users2,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
 type AdminTab = 'pending' | 'orders' | 'deliveries' | 'report' | 'config';
 
 export default function AdminPanel() {
-  const { orders, error, isLoading, isFetching, lastUpdated, refetch } = useOdooOrders();
+  const { orders, error, truncated, isLoading, isFetching, lastUpdated, refetch } = useOdooOrders();
 
   const [activeTab, setActiveTab] = useState<AdminTab>('pending');
   const [search, setSearch] = useState('');
@@ -37,14 +35,6 @@ export default function AdminPanel() {
   const [groupByClient, setGroupByClient] = useState(false);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
-  // IA
-  const [nlQuery, setNlQuery] = useState('');
-  const [isSearchingAI, setIsSearchingAI] = useState(false);
-  const [aiFilterIds, setAiFilterIds] = useState<number[] | null>(null);
-  const [aiModal, setAiModal] = useState<{ title: string; content: string | null } | null>(null);
-  const [isSummarizing, setIsSummarizing] = useState(false);
-  const [explainingId, setExplainingId] = useState<number | null>(null);
-
   const uniqueClients = useMemo(
     () => Array.from(new Set(orders.map(o => o.partner_name))).sort(),
     [orders]
@@ -52,68 +42,16 @@ export default function AdminPanel() {
 
   const filteredOrders = useMemo(() => {
     let result = orders;
-    if (aiFilterIds) result = result.filter(o => aiFilterIds.includes(o.id));
     if (clientFilter) result = result.filter(o => o.partner_name === clientFilter);
     if (statusFilter !== 'all') result = result.filter(o => getOrderStatus(o).level === statusFilter);
     if (search.trim()) result = result.filter(createOrderSearchMatcher(search));
     return result;
-  }, [orders, aiFilterIds, clientFilter, statusFilter, search]);
+  }, [orders, clientFilter, statusFilter, search]);
 
   const selectedCount = useMemo(
     () => Object.values(rowSelection).filter(Boolean).length,
     [rowSelection]
   );
-
-  // ── Handlers IA ──────────────────────────────────────────────────────────────
-
-  const handleNLSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!nlQuery.trim()) return;
-    setAiFilterIds(null);
-    setIsSearchingAI(true);
-    try {
-      const ids = await filterOrdersByNaturalLanguage(nlQuery, orders);
-      setAiFilterIds(ids);
-    } catch (err) {
-      console.error('Error en búsqueda IA', err);
-      const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al buscar.';
-      setAiModal({ title: 'Error', content: msg });
-    }
-    setIsSearchingAI(false);
-  };
-
-  const clearAIFilter = () => {
-    setAiFilterIds(null);
-    setNlQuery('');
-  };
-
-  const handleSummarizePending = async () => {
-    setIsSummarizing(true);
-    setAiModal({ title: 'Plan del día', content: null });
-    try {
-      const text = await summarizePendingWork(filteredOrders);
-      setAiModal({ title: 'Plan del día', content: text || 'Sin respuesta del modelo.' });
-    } catch (err) {
-      console.error(err);
-      const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al generar el plan.';
-      setAiModal({ title: 'Error', content: msg });
-    }
-    setIsSummarizing(false);
-  };
-
-  const handleExplainRequirements = async (order: OdooSaleOrder) => {
-    setExplainingId(order.id);
-    setAiModal({ title: `Requisitos — ${order.name}`, content: null });
-    try {
-      const text = await explainOrderRequirements(order);
-      setAiModal({ title: `Requisitos — ${order.name}`, content: text || 'Sin respuesta del modelo.' });
-    } catch (err) {
-      console.error(err);
-      const msg = err instanceof AIError ? err.userMessage : 'Ocurrió un error inesperado al explicar la orden.';
-      setAiModal({ title: 'Error', content: msg });
-    }
-    setExplainingId(null);
-  };
 
   // ── Export Excel ─────────────────────────────────────────────────────────────
 
@@ -155,6 +93,8 @@ export default function AdminPanel() {
             </div>
           )}
 
+          {truncated && <TruncatedNotice />}
+
           <Tabs value={activeTab} onValueChange={v => setActiveTab(v as AdminTab)}>
             <TabsList>
               <TabsTrigger value="pending"><ListChecks /> Pendientes</TabsTrigger>
@@ -167,12 +107,6 @@ export default function AdminPanel() {
             {activeTab !== 'config' && (
               <div className="order-report-no-print mt-5 space-y-4">
                 <OrdersFilterBar
-                  nlQuery={nlQuery}
-                  onNlQueryChange={setNlQuery}
-                  onNlSubmit={handleNLSearch}
-                  isSearchingAI={isSearchingAI}
-                  aiFilterCount={aiFilterIds ? aiFilterIds.length : null}
-                  onClearAIFilter={clearAIFilter}
                   search={search}
                   onSearchChange={setSearch}
                   clientFilter={clientFilter}
@@ -209,7 +143,7 @@ export default function AdminPanel() {
               {isLoading ? (
                 <LoadingState />
               ) : (
-                <PendingTab orders={filteredOrders} onSummarize={handleSummarizePending} isSummarizing={isSummarizing} />
+                <PendingTab orders={filteredOrders} />
               )}
             </TabsContent>
 
@@ -222,8 +156,6 @@ export default function AdminPanel() {
                   groupByClient={groupByClient}
                   rowSelection={rowSelection}
                   onRowSelectionChange={setRowSelection}
-                  explainingId={explainingId}
-                  onExplainRequirements={handleExplainRequirements}
                 />
               )}
             </TabsContent>
@@ -242,11 +174,17 @@ export default function AdminPanel() {
           </Tabs>
         </div>
 
-        {aiModal && (
-          <AIModal title={aiModal.title} content={aiModal.content} onClose={() => setAiModal(null)} />
-        )}
       </div>
     </TooltipProvider>
+  );
+}
+
+function TruncatedNotice() {
+  return (
+    <div role="status" className="flex items-center gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
+      <AlertTriangle className="size-5 shrink-0" />
+      <span>Odoo tiene más órdenes por facturar de las que se muestran; faltan las de fecha compromiso más lejana.</span>
+    </div>
   );
 }
 

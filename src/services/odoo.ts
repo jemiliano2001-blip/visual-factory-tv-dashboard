@@ -89,8 +89,9 @@ export interface OdooConnectionStatus {
 export interface OdooOrdersResponse {
   orders: OdooSaleOrder[];
   total: number;
+  /** true si Odoo tiene más órdenes por facturar de las que el proxy devuelve */
+  truncated?: boolean;
   lastUpdated: string;
-  error?: string;
 }
 
 // ─── Utilidad: parsear fechas de Odoo ──────────────────────────────────────────
@@ -111,74 +112,31 @@ export function parseOdooDate(value: string | null | undefined): Date | null {
   return isNaN(date.getTime()) ? null : date;
 }
 
-// ─── Función: obtener estado de conexión ───────────────────────────────────────
-export async function checkOdooStatus(): Promise<OdooConnectionStatus> {
-  try {
-    const response = await fetch(`${PROXY_BASE}/api/odoo/status`, {
-      signal: AbortSignal.timeout(8000),
-      headers: await getAuthHeaders(),
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => null) as { message?: string; error?: string } | null;
-      return {
-        connected: false,
-        message: body?.message || body?.error || `Error HTTP ${response.status} del proxy de Odoo`,
-      };
-    }
-    return await response.json() as OdooConnectionStatus;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('sesión') || msg.includes('token') || msg.includes('Firebase')) {
-      return {
-        connected: false,
-        message: msg,
-      };
-    }
-    return {
-      connected: false,
-      message: 'No se pudo conectar al proxy de Odoo. ¿Está corriendo el servidor?',
-    };
-  }
-}
-
 // ─── Función: obtener órdenes a facturar ───────────────────────────────────────
+/**
+ * Lanza un Error si el proxy falla: así React Query conserva las órdenes de la
+ * última consulta buena en vez de reemplazarlas por una lista vacía.
+ */
 export async function fetchInvoiceableOrders(): Promise<OdooOrdersResponse> {
+  let response: Response;
   try {
-    const response = await fetch(`${PROXY_BASE}/api/odoo/invoiceable-orders`, {
+    response = await fetch(`${PROXY_BASE}/api/odoo/invoiceable-orders`, {
       // El proxy encadena varias llamadas RPC contra Odoo (auth + search + read
       // + líneas en lotes); su techo combinado supera los 20s con Odoo lento.
       signal: AbortSignal.timeout(45000),
       headers: await getAuthHeaders(),
     });
-
-    if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({ error: response.statusText })) as { error?: string };
-      return {
-        orders: [],
-        total: 0,
-        lastUpdated: new Date().toISOString(),
-        error: errorBody.error || `Error HTTP ${response.status}`,
-      };
-    }
-
-    return await response.json() as OdooOrdersResponse;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('sesión') || msg.includes('token') || msg.includes('Firebase')) {
-      return {
-        orders: [],
-        total: 0,
-        lastUpdated: new Date().toISOString(),
-        error: msg,
-      };
-    }
-    return {
-      orders: [],
-      total: 0,
-      lastUpdated: new Date().toISOString(),
-      error: `Sin conexión al proxy de Odoo: ${msg}`,
-    };
+    if (msg.includes('sesión') || msg.includes('token') || msg.includes('Firebase')) throw new Error(msg);
+    throw new Error(`Sin conexión al proxy de Odoo: ${msg}`);
   }
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({ error: response.statusText })) as { error?: string };
+    throw new Error(errorBody.error || `Error HTTP ${response.status}`);
+  }
+  return await response.json() as OdooOrdersResponse;
 }
 
 // ─── Utilidades de display ─────────────────────────────────────────────────────

@@ -4,22 +4,19 @@
  */
 import { useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import { ChevronDown, ChevronRight, ListChecks, Sparkles, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, ListChecks } from 'lucide-react';
 import { OdooSaleOrder, getOrderStatus, parseOdooDate } from '../../services/odoo';
 import { collectPendingLines, compareByUrgency, type PendingLine } from '../../services/pendingItems';
 import { abbreviate } from '../../utils/abbreviate';
 import { formatPONumber } from '../../utils/formatters';
 import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
 import { STATUS_VARIANT } from './orderStatusMeta';
 
 interface PendingTabProps {
   orders: OdooSaleOrder[];
-  onSummarize: () => void;
-  isSummarizing: boolean;
 }
 
-export default function PendingTab({ orders, onSummarize, isSummarizing }: PendingTabProps) {
+export default function PendingTab({ orders }: PendingTabProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const groups = useMemo(() => {
@@ -65,10 +62,6 @@ export default function PendingTab({ orders, onSummarize, isSummarizing }: Pendi
         <Stat label="Piezas pendientes" value={totalMissing} />
         <Stat label="Órdenes afectadas" value={affectedOrders} />
         <Stat label="Órdenes atrasadas" value={overdueOrders} tone={overdueOrders > 0 ? 'text-destructive' : undefined} />
-        <Button type="button" variant="secondary" className="ml-auto" onClick={onSummarize} disabled={isSummarizing || orders.length === 0}>
-          {isSummarizing ? <Loader2 className="animate-spin" /> : <Sparkles />}
-          Plan del día
-        </Button>
       </div>
 
       <div className="space-y-3">

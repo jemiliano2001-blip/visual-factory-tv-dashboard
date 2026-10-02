@@ -6,6 +6,8 @@ import { OdooConnectionStatus } from '../services/odoo';
 interface OdooStatusBadgeProps {
   status: OdooConnectionStatus | null;
   lastUpdated: string | null;
+  /** Odoo tiene más órdenes de las que el proxy devuelve */
+  truncated?: boolean;
   onRefresh: () => void;
   isRefreshing: boolean;
 }
@@ -13,6 +15,7 @@ interface OdooStatusBadgeProps {
 const OdooStatusBadge: React.FC<OdooStatusBadgeProps> = ({
   status,
   lastUpdated,
+  truncated,
   onRefresh,
   isRefreshing,
 }) => {
@@ -38,9 +41,14 @@ const OdooStatusBadge: React.FC<OdooStatusBadgeProps> = ({
         <span className={connected === null ? 'text-muted-foreground' : connected ? 'text-emerald-400' : 'text-red-400'}>
           {connected === null ? 'Odoo...' : connected ? 'Odoo' : 'Sin Odoo'}
         </span>
-        {lastUpdated && connected && (
+        {truncated && (
+          <span title="Odoo tiene más órdenes por facturar de las que se muestran" className="rounded bg-amber-500/20 px-1.5 py-0.5 text-amber-300">
+            Incompleto
+          </span>
+        )}
+        {lastUpdated && connected !== null && (
           <span className="hidden sm:inline text-muted-foreground/70 font-normal normal-case tracking-normal whitespace-nowrap">
-            · {format(new Date(lastUpdated), 'HH:mm')}
+            · {connected ? '' : 'datos de '}{format(new Date(lastUpdated), 'HH:mm')}
           </span>
         )}
       </div>

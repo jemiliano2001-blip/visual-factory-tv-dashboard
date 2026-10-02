@@ -69,6 +69,9 @@ export interface NormalizedInvoiceableOrder {
   show_in_dashboard: boolean;
 }
 
+/** Tope de órdenes por consulta; si Odoo tiene más, la respuesta lo avisa con `truncated`. */
+const MAX_INVOICEABLE_ORDERS = 1000;
+
 export class OdooClient {
   private readonly url: string;
   private readonly db: string;
@@ -203,14 +206,35 @@ export class OdooClient {
     }
   }
 
-  async fetchInvoiceableOrders(): Promise<NormalizedInvoiceableOrder[]> {
-    const ids = await this.odooCall<number[]>(
+  private ordersCache: { at: number; promise: ReturnType<OdooClient['fetchInvoiceableOrders']> } | null = null;
+
+  /**
+   * Igual que fetchInvoiceableOrders, pero varias pantallas/pestañas dentro de la
+   * ventana `ttlMs` comparten una sola consulta a Odoo (también las simultáneas).
+   * Un fallo no se cachea.
+   */
+  fetchInvoiceableOrdersCached(ttlMs = 60_000): ReturnType<OdooClient['fetchInvoiceableOrders']> {
+    const cached = this.ordersCache;
+    if (cached && Date.now() - cached.at < ttlMs) return cached.promise;
+    const promise = this.fetchInvoiceableOrders();
+    this.ordersCache = { at: Date.now(), promise };
+    promise.catch(() => {
+      if (this.ordersCache?.promise === promise) this.ordersCache = null;
+    });
+    return promise;
+  }
+
+  async fetchInvoiceableOrders(): Promise<{ orders: NormalizedInvoiceableOrder[]; truncated: boolean }> {
+    const found = await this.odooCall<number[]>(
       'sale.order',
       'search',
       [[['invoice_status', '=', 'to invoice'], ['state', 'in', ['sale', 'done']]]],
-      { limit: 500, order: 'commitment_date asc, date_order asc' },
+      { limit: MAX_INVOICEABLE_ORDERS + 1, order: 'commitment_date asc, date_order asc' },
     );
-    if (!ids.length) return [];
+    // Se pide una de más para detectar el recorte sin una llamada extra a Odoo.
+    const truncated = found.length > MAX_INVOICEABLE_ORDERS;
+    const ids = truncated ? found.slice(0, MAX_INVOICEABLE_ORDERS) : found;
+    if (!ids.length) return { orders: [], truncated: false };
 
     const orders = await this.odooCall<RawOrder[]>('sale.order', 'read', [ids], {
       fields: [
@@ -293,7 +317,7 @@ export class OdooClient {
       }
     }
 
-    return orders.map(order => {
+    const normalized = orders.map(order => {
       const lines = order.order_line
         .map(id => linesMap.get(id))
         .filter((line): line is RawLine => !!line && !line.display_type);
@@ -338,5 +362,7 @@ export class OdooClient {
         show_in_dashboard: showInDashboard,
       };
     });
+
+    return { orders: normalized, truncated };
   }
 }

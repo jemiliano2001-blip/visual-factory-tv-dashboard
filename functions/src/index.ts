@@ -2,8 +2,6 @@ import * as admin from 'firebase-admin';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import express, { NextFunction, Request, Response } from 'express';
-import { GoogleGenAI } from '@google/genai';
-import { runGeminiGenerate } from '../../shared/geminiProxy';
 import { OdooClient } from '../../shared/odooClient';
 import {
   checkThresholds,
@@ -43,32 +41,21 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // ─── Firebase Auth ─────────────────────────────────────────────────────────────
 // Caché en memoria por instancia para no llamar a firebase-admin por cada poll.
-interface AuthPrincipal {
-  expiresAt: number;
-  isAdmin: boolean;
-  isVerifiedAdmin: boolean;
-}
-
-const tokenCache = new Map<string, AuthPrincipal>(); // token -> principal
+const tokenCache = new Map<string, number>(); // token -> expiración (ms)
 setInterval(() => {
   const now = Date.now();
-  for (const [k, principal] of tokenCache) if (now > principal.expiresAt) tokenCache.delete(k);
+  for (const [k, expiresAt] of tokenCache) if (now > expiresAt) tokenCache.delete(k);
 }, 10 * 60 * 1000);
 
-async function verifyFirebaseToken(token: string): Promise<AuthPrincipal | null> {
-  const cached = tokenCache.get(token);
-  if (cached && Date.now() < cached.expiresAt) return cached;
+async function verifyFirebaseToken(token: string): Promise<boolean> {
+  const expiresAt = tokenCache.get(token);
+  if (expiresAt && Date.now() < expiresAt) return true;
   try {
     const decoded = await admin.auth().verifyIdToken(token);
-    const principal = {
-      expiresAt: decoded.exp * 1000,
-      isAdmin: decoded.admin === true,
-      isVerifiedAdmin: decoded.email_verified === true && decoded.firebase.sign_in_provider !== 'anonymous',
-    };
-    tokenCache.set(token, principal);
-    return principal;
+    tokenCache.set(token, decoded.exp * 1000);
+    return true;
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -81,53 +68,17 @@ async function verifyFirebaseToken(token: string): Promise<AuthPrincipal | null>
 app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
   const token = req.headers.authorization?.replace('Bearer ', '') ?? '';
   if (!token) { res.status(401).json({ error: 'Se requiere autenticación.' }); return; }
-  const principal = await verifyFirebaseToken(token).catch(() => null);
-  if (!principal) { res.status(401).json({ error: 'Token inválido o expirado.' }); return; }
-  res.locals.auth = principal;
+  if (!(await verifyFirebaseToken(token))) { res.status(401).json({ error: 'Token inválido o expirado.' }); return; }
   next();
 });
 
-function requireAdmin(_req: Request, res: Response, next: NextFunction) {
-  if (res.locals.auth?.isAdmin === true && res.locals.auth?.isVerifiedAdmin === true) return next();
-  res.status(403).json({ error: 'Se requiere el permiso administrativo.' });
-}
-
-// ─── Odoo + Gemini (módulo compartido con server.ts) ───────────────────────────
+// ─── Odoo (módulo compartido con server.ts) ───────────────────────────
 const odooClient = new OdooClient({
   url: process.env.ODOO_URL ?? '',
   db: process.env.ODOO_DB ?? '',
   username: process.env.ODOO_USERNAME ?? '',
   password: process.env.ODOO_PASSWORD ?? '',
 });
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-async function generateAI(req: Request, res: Response) {
-  if (!process.env.GEMINI_API_KEY) {
-    res.status(503).json({ error: 'GEMINI_API_KEY no configurada en Cloud Functions.' });
-    return;
-  }
-
-  try {
-    const result = await runGeminiGenerate(
-      (model, contents, config) =>
-        ai.models.generateContent({ model, contents, config } as Parameters<typeof ai.models.generateContent>[0])
-          .then(response => ({ text: response.text, candidates: response.candidates })),
-      req.body,
-    );
-    if (result.ok === false) {
-      res.status(result.status).json({ error: result.error });
-      return;
-    }
-    res.json(result.payload);
-  } catch (err) {
-    console.error('[Gemini AI Error]', err);
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-  }
-}
-
-app.post('/api/ai/generate', generateAI);
-app.post('/api/ai/admin-generate', requireAdmin, generateAI);
 
 app.get('/api/odoo/status', async (_req: Request, res: Response) => {
   if (!odooClient.getConfiguredUrl()) {
@@ -149,8 +100,8 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
     return;
   }
   try {
-    const orders = await odooClient.fetchInvoiceableOrders();
-    res.json({ orders, total: orders.length, lastUpdated: new Date().toISOString() });
+    const { orders, truncated } = await odooClient.fetchInvoiceableOrdersCached();
+    res.json({ orders, total: orders.length, truncated, lastUpdated: new Date().toISOString() });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err), orders: [] });
   }
@@ -172,7 +123,7 @@ async function runNotificationTask(task: (orders: NotifOrder[], channels: Webhoo
   }
 
   try {
-    const orders = await odooClient.fetchInvoiceableOrders();
+    const { orders } = await odooClient.fetchInvoiceableOrders();
     const channels = buildWebhookChannels(mainUrl);
     await task(orders, channels);
   } catch (err) {

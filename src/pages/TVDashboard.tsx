@@ -89,6 +89,7 @@ export default function TVDashboard() {
     status: odooStatus,
     orders: odooOrders,
     lastUpdated: odooLastUpdated,
+    truncated: odooTruncated,
     error: odooError,
     isLoading: isLoadingOdoo,
     isFetching: isRefreshing,
@@ -413,6 +414,7 @@ export default function TVDashboard() {
         }}
         odooStatus={odooStatus}
         odooLastUpdated={odooLastUpdated}
+        odooTruncated={odooTruncated}
         isRefreshing={isRefreshing}
         onRefresh={loadOdooOrders}
         viewMode={effectiveViewMode}

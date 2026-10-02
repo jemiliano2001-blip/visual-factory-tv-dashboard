@@ -19,12 +19,3 @@ export type {
   OdooConnectionStatus,
   OdooOrdersResponse,
 } from './services/odoo';
-
-declare global {
-  interface Window {
-    aistudio: {
-      hasSelectedApiKey: () => Promise<boolean>;
-      openSelectKey: () => Promise<void>;
-    };
-  }
-}

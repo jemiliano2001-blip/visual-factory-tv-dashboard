@@ -11,15 +11,13 @@ import {
 } from '@tanstack/react-table';
 import { format } from 'date-fns';
 import DOMPurify from 'dompurify';
-import { ChevronDown, ChevronRight, Sparkles, Loader2, Clock } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clock } from 'lucide-react';
 import {
   OdooSaleOrder, parseOdooDate, getOrderStatus, getDeliveryProgress,
 } from '../../services/odoo';
 import { getOrderMissingQty } from '../../services/pendingItems';
 import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
-import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { DELIVERY_STATE_LABEL, DELIVERY_STATE_VARIANT } from './deliveryMeta';
 import { STATUS_VARIANT } from './orderStatusMeta';
 import CompanyBadge from '../CompanyBadge';
@@ -30,14 +28,12 @@ interface OrdersTableProps {
   groupByClient: boolean;
   rowSelection: RowSelectionState;
   onRowSelectionChange: (selection: RowSelectionState) => void;
-  explainingId: number | null;
-  onExplainRequirements: (order: OdooSaleOrder) => void;
 }
 
 const columnHelper = createColumnHelper<OdooSaleOrder>();
 
 export default function OrdersTable({
-  orders, groupByClient, rowSelection, onRowSelectionChange, explainingId, onExplainRequirements,
+  orders, groupByClient, rowSelection, onRowSelectionChange,
 }: OrdersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'commitment_date', desc: false }]);
   const [expanded, setExpanded] = useState<ExpandedState>({});
@@ -178,29 +174,7 @@ export default function OrdersTable({
         return <Badge variant={STATUS_VARIANT[status.level]}>{status.label}</Badge>;
       },
     }),
-    columnHelper.display({
-      id: 'actions',
-      header: 'IA',
-      cell: ({ row }) => (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => onExplainRequirements(row.original)}
-              disabled={explainingId === row.original.id}
-              aria-label="Explicar requisitos de la orden"
-              className="hover:text-primary"
-            >
-              {explainingId === row.original.id ? <Loader2 className="animate-spin" /> : <Sparkles />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Explicar requisitos</TooltipContent>
-        </Tooltip>
-      ),
-    }),
-  ], [explainingId, onExplainRequirements]);
+  ], []);
 
   const table = useReactTable({
     data,
