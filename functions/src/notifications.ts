@@ -1,5 +1,9 @@
 import * as admin from 'firebase-admin';
 import { EMPTY_STATE, persistNotificationState, type NotificationState } from './notificationState';
+import {
+  extractAssignedEngineer,
+  generateOrderSmartSummary,
+} from '../../shared/smartText';
 
 if (!admin.apps.length) admin.initializeApp();
 
@@ -17,7 +21,13 @@ export interface NotifOrder {
   deliveries: { state: string; date_done?: string | null }[];
   qty_total?: number;
   qty_delivered?: number;
+  salesperson?: string | null;
+  note?: string | null;
+  lines?: Array<{ name: string; qty?: number; delivered?: number }>;
+  engineer?: string | null;
 }
+
+export type OrderSeverity = 'critical' | 'normal';
 
 export interface WebhookChannels {
   eventos: string;
@@ -191,19 +201,125 @@ function orderEventDescription(order: NotifOrder, bodyLines: string[]): string {
   return [...bodyLines, '', ...buildOrderDetailLines(order)].join('\n');
 }
 
-export function orderAgeEmbed(order: NotifOrder, ageDays: number, color: number, title: string, trendLine?: string): DiscordEmbed {
-  const delivered = order.deliveries.filter(d => d.state === 'done').length;
-  const pending   = order.deliveries.filter(d => d.state !== 'done' && d.state !== 'cancel').length;
-  const lines = [
+// ─── Embeds de Órdenes y Reportes ─────────────────────────────────────────────
+
+export interface OrderAlertOptions {
+  order: NotifOrder;
+  severity: OrderSeverity;
+  title?: string;
+  color?: number;
+  reason?: string;
+  trendLine?: string;
+}
+
+/**
+ * Esquema común de alta visibilidad para órdenes nuevas y críticas.
+ * En cada evento de orden incluye: SO, Ingeniero asignado, Resumen contextual (Smart Text),
+ * cliente, severidad y compromiso.
+ */
+export function buildOrderAlertEmbed(options: OrderAlertOptions): DiscordEmbed {
+  const { order, severity, trendLine } = options;
+  const isCritical = severity === 'critical';
+  const ageDays = getOrderAgeDays(order.date_order);
+  const engineer = extractAssignedEngineer(order);
+  const smartSummary = generateOrderSmartSummary(order);
+  const badge = isCritical ? '🔴 CRÍTICA' : '🆕 NUEVA ORDEN';
+  const defaultColor = isCritical ? 0xDC2626 : 0x2563EB;
+  const color = options.color ?? defaultColor;
+  const defaultTitle = isCritical
+    ? `🔴 Orden Crítica — ${escapeDiscord(order.name)}`
+    : `🆕 Nueva orden — ${escapeDiscord(order.name)}`;
+  const title = options.title ?? defaultTitle;
+
+  const delivered = order.deliveries ? order.deliveries.filter(d => d.state === 'done').length : 0;
+  const pending   = order.deliveries ? order.deliveries.filter(d => d.state !== 'done' && d.state !== 'cancel').length : 0;
+
+  const lines: string[] = [
     `**${escapeDiscord(order.name)}** · ${escapeDiscord(order.partner_name)}`,
-    `⏱ ${ageDays} días hábiles de antigüedad · entrega pendiente`,
-    `📦 Entregas: ${pending} pendientes / ${delivered} completadas`,
-    ...buildOrderDetailLines(order),
-    '**Acción:** confirmar avance y fecha de entrega con el responsable.',
+    `🏷️ **Estado / Severidad:** ${badge} · ${options.reason ?? (isCritical ? `${ageDays} días hábiles de antigüedad` : 'Nueva orden registrada')}`,
+    `👤 **Ingeniero asignado:** ${escapeDiscord(engineer)}`,
+    `📝 **Resumen (Smart Text):** ${escapeDiscord(smartSummary)}`,
   ];
+
+  if (pending > 0 || delivered > 0) {
+    lines.push(`📦 **Remisiones:** ${pending} pendientes / ${delivered} completadas`);
+  }
+
+  const detailLines = buildOrderDetailLines(order);
+  if (detailLines.length > 0) {
+    lines.push(...detailLines);
+  }
+
+  const action = isCritical
+    ? '**Acción:** confirmar avance y fecha de entrega con el responsable.'
+    : '**Acción:** revisar requisitos y asignar trabajo en taller.';
+  lines.push(action);
+
   if (trendLine) lines.push('', `📊 ${trendLine}`);
+
   return {
+    title: title.slice(0, 256),
+    description: lines.join('\n').slice(0, 4096),
+    color,
+    timestamp: nowISO(),
+    footer: { text: 'Visual Factory TV · Odoo' },
+  };
+}
+
+export function orderAgeEmbed(order: NotifOrder, ageDays: number, color: number, title: string, trendLine?: string): DiscordEmbed {
+  return buildOrderAlertEmbed({
+    order,
+    severity: 'critical',
     title,
+    color,
+    reason: `${ageDays} días hábiles de antigüedad · entrega pendiente`,
+    trendLine,
+  });
+}
+
+export interface ConsolidatedOrderItem {
+  order: NotifOrder;
+  severity: OrderSeverity;
+  reason: string;
+  engineer: string;
+  smartText: string;
+}
+
+/**
+ * Notificación consolidada anti-spam para procesar ráfagas de órdenes concurrentes
+ * en una sola alerta estructurada con el detalle individual accesible de cada orden.
+ */
+export function buildConsolidatedOrdersEmbed(
+  items: ConsolidatedOrderItem[],
+  dashboardUrl: string = getDashboardUrl(),
+): DiscordEmbed {
+  const criticas = items.filter(i => i.severity === 'critical');
+  const normales = items.filter(i => i.severity === 'normal');
+  const hasCritical = criticas.length > 0;
+  const color = hasCritical ? 0xDC2626 : 0x2563EB;
+  const title = `📦 Resumen consolidado: ${items.length} órdenes (${criticas.length} críticas)`;
+
+  const lines: string[] = [
+    `⚡ Se procesaron **${items.length}** órdenes en este intervalo: **${criticas.length}** críticas · **${normales.length}** normales`,
+    '',
+    '**Detalle individual accesible:**',
+  ];
+
+  for (const item of items) {
+    const badge = item.severity === 'critical' ? '🔴 [CRÍTICA]' : '🆕 [NUEVA]';
+    const commitment = formatCommitmentLine(item.order.commitment_date);
+    lines.push(
+      `• ${badge} **${escapeDiscord(item.order.name)}** · ${escapeDiscord(item.order.partner_name)}`,
+      `  👤 **Ingeniero:** ${escapeDiscord(item.engineer)} | 📝 **Smart Text:** ${escapeDiscord(item.smartText)}`,
+      `  ⏱ **Estado:** ${item.reason}${commitment ? ` · ${commitment}` : ''}`,
+      `  🔗 [Ver en tablero](${dashboardUrl})`,
+    );
+  }
+
+  lines.push('', `🔗 [Abrir Visual Factory TV](${dashboardUrl})`);
+
+  return {
+    title: title.slice(0, 256),
     description: lines.join('\n').slice(0, 4096),
     color,
     timestamp: nowISO(),
@@ -411,6 +527,7 @@ export async function checkThresholds(
     const reached = thresholds.filter(t => ageDays >= t.days);
     const highest = reached[reached.length - 1];
     if (!highest || state.sentAlerts[`${order.id}_${highest.key}`]) continue;
+
     alerts.push({
       url: channels.criticas, mention: getClientMention(order.partner_name),
       embed: orderAgeEmbed(order, ageDays, highest.color, highest.title),
@@ -450,17 +567,33 @@ export async function checkEvents(
   const queue = (url: string, embed: DiscordEmbed, onSent: () => void, mention = '') =>
     alerts.push({ url, mention, embed, onSent });
 
+  // 1. Acumular candidatos de órdenes nuevas para aplicar agregación por lotes anti-spam
+  const newOrderCandidates: ConsolidatedOrderItem[] = [];
+
   for (const order of orders) {
     const key = String(order.id);
     const age = getOrderAgeDays(order.date_order);
     const clientLine = `**Cliente:** ${escapeDiscord(order.partner_name)}`;
-    if (!isFirstRun && !state.knownOrderIds.includes(order.id)
-      && order.lines_count >= LARGE_ORDER_LINES && age <= 2 && !isFullyDelivered(order)) {
+
+    if (!isFirstRun && !state.knownOrderIds.includes(order.id) && !isFullyDelivered(order)) {
       pendingNewIds.add(order.id);
-      queue(channels.eventos, reportEmbed(`📦 Nueva orden grande — ${order.name}`,
-        orderEventDescription(order, [clientLine, `**Líneas de producto:** ${order.lines_count}`,
-          '**Acción:** revisar requisitos y asignar el trabajo.']), 0x2563EB),
-        () => { state.knownOrderIds.push(order.id); });
+      const isCritical = age >= 14;
+      const severity: OrderSeverity = isCritical ? 'critical' : 'normal';
+      const engineer = extractAssignedEngineer(order);
+      const smartText = generateOrderSmartSummary(order);
+      const reason = isCritical
+        ? `Nueva orden con antigüedad crítica (${age} días hábiles)`
+        : order.lines_count >= LARGE_ORDER_LINES
+          ? `Nueva orden grande (${order.lines_count} líneas)`
+          : `Nueva orden registrada (${order.lines_count || 1} líneas)`;
+
+      newOrderCandidates.push({
+        order,
+        severity,
+        reason,
+        engineer,
+        smartText,
+      });
     }
 
     if (isFullyDelivered(order)) {
@@ -503,6 +636,32 @@ export async function checkEvents(
         () => { state.stalledAlerts[key] = Date.now(); });
     }
   }
+
+  // 2. Despacho anti-spam de órdenes nuevas:
+  // Si ingresa 1 sola orden: se despacha embed individual estructurado de alta visibilidad.
+  // Si ingresan múltiples órdenes concurrentes: se consolidan en un único resumen batch con detalle individual accesible.
+  if (newOrderCandidates.length === 1) {
+    const candidate = newOrderCandidates[0];
+    const embed = buildOrderAlertEmbed({
+      order: candidate.order,
+      severity: candidate.severity,
+      reason: candidate.reason,
+    });
+    const mention = candidate.severity === 'critical' ? getClientMention(candidate.order.partner_name) : '';
+    queue(channels.eventos, embed, () => {
+      state.knownOrderIds.push(candidate.order.id);
+    }, mention);
+  } else if (newOrderCandidates.length > 1) {
+    const consolidatedEmbed = buildConsolidatedOrdersEmbed(newOrderCandidates);
+    const hasCritical = newOrderCandidates.some(c => c.severity === 'critical');
+    const mention = hasCritical ? getReportMention() : '';
+    queue(channels.eventos, consolidatedEmbed, () => {
+      for (const candidate of newOrderCandidates) {
+        state.knownOrderIds.push(candidate.order.id);
+      }
+    }, mention);
+  }
+
   // Una orden nueva cuyo aviso falló queda fuera de la línea base para reintentar.
   state.knownOrderIds = orders.filter(order => !pendingNewIds.has(order.id)).map(order => order.id);
 
@@ -541,7 +700,20 @@ export async function checkEvents(
   await checkpoint();
 }
 
-// ─── Scheduled reports ────────────────────────────────────────────────────────
+/**
+ * Función consolidadora de alertas de órdenes y críticas.
+ * Ejecuta la verificación combinada bajo el canal común sin duplicar despachos.
+ */
+export async function processOrderAlerts(
+  orders: NotifOrder[],
+  channels: WebhookChannels,
+  runtime: NotificationRuntime = defaultRuntime,
+): Promise<void> {
+  await checkThresholds(orders, channels, runtime);
+  await checkEvents(orders, channels, runtime);
+}
+
+// ─── Scheduled reports (Restricción crítica: intactos y sin modificaciones) ─────
 
 export async function sendMorningReport(orders: NotifOrder[], mainUrl: string): Promise<void> {
   const active = orders.filter(o => !isFullyDelivered(o));
@@ -640,8 +812,6 @@ export async function sendEndOfShiftReport(orders: NotifOrder[], mainUrl: string
   await sendWebhook(mainUrl, '', [reportEmbed('🌙 Cierre de turno — Visual Factory', lines, 0x475569)]);
 }
 
-// ─── Cierre de semana (viernes 5pm) ──────────────────────────────────────────
-
 export async function sendWeekendReport(orders: NotifOrder[], mainUrl: string): Promise<void> {
   const state = await loadState();
   const weekAgo = Date.now() - 7 * 86_400_000;
@@ -667,19 +837,6 @@ export async function sendWeekendReport(orders: NotifOrder[], mainUrl: string): 
   }
 
   await sendWebhook(mainUrl, '', [reportEmbed('📅 Cierre de semana — Visual Factory', lines, 0x7C3AED)]);
-}
-
-// ─── Reporte mensual (1° de cada mes) ─────────────────────────────────────────
-
-function prevMonthRange(): { start: number; end: number; label: string } {
-  const now = new Date();
-  const y   = now.getFullYear();
-  const m   = now.getMonth();
-  return {
-    start: new Date(y, m - 1, 1).getTime(),
-    end:   new Date(y, m, 1).getTime(),
-    label: new Date(y, m - 1).toLocaleString('es-MX', { month: 'long', year: 'numeric' }),
-  };
 }
 
 export async function sendMonthlyReport(orders: NotifOrder[], mainUrl: string): Promise<void> {
@@ -714,4 +871,15 @@ export async function sendMonthlyReport(orders: NotifOrder[], mainUrl: string): 
   ];
 
   await sendWebhook(mainUrl, getReportMention(), [reportEmbed(`📊 Reporte mensual — ${label}`, lines, 0x0EA5E9)]);
+}
+
+function prevMonthRange(): { start: number; end: number; label: string } {
+  const now = new Date();
+  const y   = now.getFullYear();
+  const m   = now.getMonth();
+  return {
+    start: new Date(y, m - 1, 1).getTime(),
+    end:   new Date(y, m, 1).getTime(),
+    label: new Date(y, m - 1).toLocaleString('es-MX', { month: 'long', year: 'numeric' }),
+  };
 }
