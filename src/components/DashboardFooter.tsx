@@ -85,6 +85,7 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
           ['bg-orange-500', '8–30 d'],
           ['bg-red-500', 'Más de 30 d'],
           ['bg-zinc-400', 'Sin fecha'],
+          ['bg-fuchsia-400', 'Entregada · por facturar'],
         ] as const).map(([color, label]) => (
           <span key={label} className="flex items-center gap-1.5">
             <div className={`w-2.5 h-2.5 rounded-sm ${color}`} />

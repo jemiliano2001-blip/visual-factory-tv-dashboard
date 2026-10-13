@@ -1,6 +1,6 @@
 import React from 'react';
 import { useOdooOrders } from '../hooks/useOdooOrders';
-import { getOrderStatus, getOrderAgeDays, parseOdooDate, STALE_AGE_DAYS, type OrderStatusLevel } from '../services/odoo';
+import { getOrderStatus, getOrderAgeDays, getDeliveryProgress, isOrderFullyDelivered, parseOdooDate, STALE_AGE_DAYS, type OrderStatusLevel } from '../services/odoo';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell
 } from 'recharts';
@@ -31,9 +31,8 @@ export default function StatsDashboard() {
     { name: 'En tiempo', value: statusCounts['on-time'], color: '#10b981' },
     { name: 'Sin fecha', value: statusCounts.none, color: '#71717a' },
   ];
-  const totalQty = orders.reduce((s, o) => s + o.qty_total, 0);
-  const deliveredQty = orders.reduce((s, o) => s + o.qty_delivered, 0);
-  const deliveryRate = totalQty > 0 ? Math.round((deliveredQty / totalQty) * 100) : 0;
+  const deliveryRate = orders.length > 0
+    ? Math.round(orders.reduce((sum, order) => sum + getDeliveryProgress(order), 0) / orders.length) : 0;
   const staleCount = orders.filter(o => {
     const age = getOrderAgeDays(o);
     return age !== null && age > STALE_AGE_DAYS;
@@ -47,7 +46,7 @@ export default function StatsDashboard() {
       const active = (o.deliveries ?? []).filter(d => d.state !== 'cancel');
       if (active.length === 0) { b.sin++; return; }
       const done = active.filter(d => d.state === 'done').length;
-      if (done === active.length) b.entregada++;
+      if (isOrderFullyDelivered(o)) b.entregada++;
       else if (done > 0) b.parcial++;
       else if (active.some(d => d.state === 'assigned')) b.lista++;
       else b.prep++;
@@ -149,7 +148,7 @@ export default function StatsDashboard() {
             <div className="grid grid-cols-2 gap-4 2xl:grid-cols-4">
               <StatCard icon={<Package className="size-5 text-indigo-400" />} label="Órdenes por facturar" value={String(totalOrders)} accent="#6366f1" />
               <StatCard icon={<AlertTriangle className="size-5 text-red-400" />} label="Vencidas" value={String(overdueCount)} accent="#ef4444" />
-              <StatCard icon={<TrendingUp className="size-5 text-emerald-400" />} label="Avance de entrega" value={`${deliveryRate}%`} accent="#10b981" />
+              <StatCard icon={<TrendingUp className="size-5 text-emerald-400" />} label="Avance medio por orden" value={`${deliveryRate}%`} accent="#10b981" />
               <StatCard icon={<Clock className="size-5 text-amber-400" />} label="Antiguas (+1 mes)" value={String(staleCount)} accent="#f59e0b" />
             </div>
 

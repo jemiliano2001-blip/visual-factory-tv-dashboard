@@ -85,6 +85,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
     };
   }, [order.deliveries]);
   const statusLabel = presentation.timingLabel;
+  const invoiceLabel = order.invoice_status === 'partially_invoiced' ? 'Factura parcial' : 'Por facturar';
   const StatusIcon = presentation.tone === 'delivered' ? CheckCircle2 : Clock;
   const cardSize = isMobile
     ? 'min-h-[88px] p-3 pl-5'
@@ -120,7 +121,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
           : 4;
   const visibleLines = order.lines.slice(0, maxVisibleLines);
   const hiddenLineCount = Math.max(0, order.lines.length - visibleLines.length);
-  const cardLabel = `${order.name}${order.customer_reference ? `, PO ${order.customer_reference}` : ''}, ${order.partner_name}, ${progress}% entregado, ${statusLabel}`;
+  const cardLabel = `${order.name}${order.customer_reference ? `, PO ${order.customer_reference}` : ''}, ${order.partner_name}, ${progress}% de avance por partidas, ${statusLabel}, ${invoiceLabel}`;
 
   return (
     <motion.button
@@ -165,6 +166,11 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
             {urgencyBadge.label}
           </Badge>
         )}
+        {!urgencyBadge && (progress === 100 || order.invoice_status === 'partially_invoiced') && (
+          <Badge variant="info" size={isLarge ? 'lg' : isDense || isMobile ? 'sm' : 'md'} className="shrink-0">
+            {invoiceLabel}
+          </Badge>
+        )}
       </div>
 
       {/* flex-1 + min-h-0: las líneas ocupan el espacio libre de la tarjeta */}
@@ -195,7 +201,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
                   defaultLevel={2}
                 />
                 <span className={`shrink-0 font-mono-data font-bold ${isDense ? 'text-[11px] lg:text-xs' : isLarge ? 'text-sm' : 'text-xs'} ${lineComplete ? presentation.statusTextClass : 'text-zinc-300'}`}>
-                  {line.delivered}/{line.qty}
+                  {line.delivered}/{line.qty}{line.unit ? ` ${line.unit}` : ''}
                 </span>
               </div>
             );
@@ -224,7 +230,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
           </div>
           <div className="flex items-baseline gap-1 font-mono-data">
             <span className={`${percentageSize} font-black leading-none text-white`}>{progress}%</span>
-            <span className={`${isDense ? 'text-[10px]' : isLarge ? 'text-sm' : 'text-[11px]'} font-bold text-zinc-400`}>{order.qty_delivered}/{order.qty_total}</span>
+            <span title="Promedio del avance de cada partida" className={`${isDense ? 'text-[10px]' : isLarge ? 'text-sm' : 'text-[11px]'} font-bold text-zinc-400`}>por partidas</span>
           </div>
         </div>
         <div className={`${isDense ? 'h-1.5' : isLarge ? 'h-3.5' : 'h-2.5'} overflow-hidden rounded-full border border-white/10 bg-black/45`}>

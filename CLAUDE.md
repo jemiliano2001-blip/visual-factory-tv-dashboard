@@ -62,7 +62,9 @@ There is **no ESLint**, but there are real `node:test`-based unit tests (via `ts
 
 ## Data sources
 
-**Odoo ERP is the single source of truth for orders.** The TV Dashboard (`/`), Admin console (`/admin`) and Stats (`/stats`) all show Odoo `sale.order` records with `invoice_status = 'to invoice'`, fetched through the shared `useOdooOrders()` hook (`src/hooks/useOdooOrders.ts`) → React Query polling → Express proxy (`server.ts`). All three pages share one query key (`odooData`), so they share a single request/cache.
+**Odoo ERP is the single source of truth for orders.** The TV Dashboard (`/`), Admin console (`/admin`) and Stats (`/stats`) all show Odoo `sale.order` records with `invoice_status` in `['to invoice', 'partially_invoiced']`, fetched through the shared `useOdooOrders()` hook (`src/hooks/useOdooOrders.ts`) → React Query polling → Express proxy (`server.ts`). All three pages share one query key (`odooData`), so they share a single request/cache.
+
+Delivery quantities come from `stock.move.quantity_done` linked by `sale_line_id`, with both the movement and its picking in `done` (Hecho). The custom picking field `entregado` is not required. Done incoming returns linked by `origin_returned_move_id` subtract from the original sale line; units are converted to the line's UoM. A movement-query failure fails the refresh instead of falling back to the sale line's potentially inconsistent `qty_delivered`. Overall progress is the mean of the capped delivered/requested ratios for positive-quantity lines, not a sum of pieces and sets. 100% requires every line complete; binary conversion residue is normalized before comparing.
 
 `OdooSaleOrder` includes a `deliveries: OdooDelivery[]` field — the linked `stock.picking` records (outgoing transfers). Each `OdooDelivery` has `name` (e.g. `WH/OUT/00042`), `state` (`draft | confirmed | waiting | assigned | done | cancel`), and `date_done`. `OdooOrderCard` shows a badge row ("Rem.") under the progress bar summarising delivery counts by state, excluding cancelled ones (hidden on mobile, where the card is a single row).
 
@@ -124,7 +126,7 @@ A `ResizeObserver` on the grid container recomputes `gridCols` / `gridRows` / `o
 
 Status filter types accepted by `setStatusFilter` (the `StatusFilter` type exported from `TVControlBar.tsx`): `'all' | 'overdue' | 'pending' | 'delivered' | 'critical'`, chosen from the status select in the control bar (a drawer section on mobile; the header "vencidas" button also sets `'overdue'`). There is also a separate `clientFilter` string state, combinable with it; clearing the controls resets both.
 
-**Fully-delivered orders are hidden from the TV view.** `filteredOdooOrders` excludes any order where `isOrderFullyDelivered(order)` (`src/services/odoo.ts`) is true — i.e. it has deliveries and **all** non-cancelled `stock.picking` records are in `done` state. The `'delivered'` status filter is the deliberate override: it shows *only* those hidden, fully-delivered orders (also state-based, not the old `progress >= 100` quantity check). This hiding is **TV-only** — Admin/Stats filter independently and still show everything.
+**Delivered orders stay visible while invoicing is pending.** The default TV filter includes every received order, even at 100% delivery. `matchesTVStatus()` (`src/services/orderSignals.ts`) provides the status filter; `'delivered'` selects orders whose net done movements cover every requested line. Completion does not depend on all pickings being done: backorders can remain open, and all existing pickings being done does not itself prove the requested quantities were fulfilled. Fully-delivered orders show their invoicing status and are excluded from delivery-overdue/critical counts. They leave the source query when Odoo reports a fully-invoiced status.
 
 ## Conventions & gotchas
 

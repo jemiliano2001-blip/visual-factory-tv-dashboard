@@ -141,7 +141,7 @@ export default function OrdersTable({
         return (
           <div className="min-w-[110px]">
             <div className="mb-1 flex justify-between font-mono-data text-xs tabular-nums text-muted-foreground">
-              <span>{row.original.qty_delivered}/{row.original.qty_total}</span>
+              <span>Por partidas</span>
               <span>{pct}%</span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-muted">

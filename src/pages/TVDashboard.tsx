@@ -10,7 +10,6 @@ import {
   OdooSaleOrder,
   getDeliveryProgress,
   isOrderOverdue,
-  isOrderFullyDelivered,
   getOrderPriority,
   getEffectiveDeliverySchedule,
 } from '../services/odoo';
@@ -24,6 +23,7 @@ import DashboardHeader from '../components/DashboardHeader';
 import DashboardFooter from '../components/DashboardFooter';
 import TVControlBar, { type StatusFilter } from '../components/TVControlBar';
 import { createOrderSearchMatcher } from '../services/orderSearch';
+import { matchesTVStatus } from '../services/orderSignals';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useMobile } from '../hooks/useMobile';
 import { buildTVPages, type TVPage } from '../utils/tvPagePacking';
@@ -270,27 +270,7 @@ export default function TVDashboard() {
 
     const matchesText = createOrderSearchMatcher(textFilter);
 
-    // Override: el filtro 'entregadas' muestra SOLO las totalmente entregadas.
-    if (statusFilter === 'delivered') {
-      return odooOrders.filter(o => isOrderFullyDelivered(o) && matchesClient(o) && matchesText(o));
-    }
-
-    // Por defecto: ocultar de la vista TV las órdenes totalmente entregadas.
-    return odooOrders.filter(order => {
-      if (isOrderFullyDelivered(order)) return false;
-      if (!matchesClient(order)) return false;
-      if (!matchesText(order)) return false;
-      if (statusFilter === 'all') return true;
-      const isOverdue = isOrderOverdue(order);
-      const progress = getDeliveryProgress(order);
-      if (statusFilter === 'overdue') return isOverdue;
-      if (statusFilter === 'pending') return progress < 100 && !isOverdue;
-      if (statusFilter === 'critical') {
-        const priority = getOrderPriority(order);
-        return priority === 'critical' || priority === 'high';
-      }
-      return true;
-    });
+    return odooOrders.filter(order => matchesClient(order) && matchesText(order) && matchesTVStatus(order, statusFilter));
   }, [odooOrders, statusFilter, clientFilter, textFilter]);
 
   const groupedOrders = useMemo(() =>

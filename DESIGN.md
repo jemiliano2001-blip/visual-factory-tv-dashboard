@@ -42,7 +42,7 @@ delivered and a progress color painted the whole wall cyan.
 - **Atraso 8–30 d:** orange (`orange-500`).
 - **Atraso > 30 d:** red (`red-500`). Chronic; no pulse (dozens pulsing is noise).
 - **Sin fecha:** neutral zinc.
-- **Entregada (100 %):** fuchsia — only visible with the "Entregadas" filter.
+- **Entregada (100 %):** fuchsia — stays visible while invoicing is pending; the "Entregadas" filter selects it. Show invoicing separately and do not mark a completed delivery as overdue.
 - The tier, color and label come from one pure function, `getCardPresentation()`
   (`src/services/cardPresentation.ts`, tested). The footer legend mirrors it.
 - Thresholds (7 and 30 days) were picked from the real distribution (14 / 33 / 33 cards).

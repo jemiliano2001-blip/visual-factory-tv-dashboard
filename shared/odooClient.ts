@@ -17,7 +17,7 @@ interface RawLine {
   name: string;
   display_type: string | false;
   product_uom_qty: number;
-  qty_delivered: number;
+  product_uom: [number, string] | false;
 }
 
 interface RawOrder {
@@ -43,8 +43,17 @@ interface RawPicking {
 }
 
 interface RawMove {
+  id: number;
   sale_line_id: [number, string] | false;
   quantity_done: number;
+  product_uom: [number, string];
+  origin_returned_move_id: [number, string] | false;
+}
+
+interface RawUom {
+  id: number;
+  factor: number;
+  category_id: [number, string];
 }
 
 export interface NormalizedInvoiceableOrder {
@@ -63,7 +72,7 @@ export interface NormalizedInvoiceableOrder {
   salesperson: string | null;
   note: string | null;
   lines_count: number;
-  lines: Array<{ name: string; qty: number; delivered: number }>;
+  lines: Array<{ name: string; qty: number; delivered: number; unit: string }>;
   deliveries: Array<{ name: string; state: string; date_done: string | null }>;
   delivery_times: string | null;
   show_in_dashboard: boolean;
@@ -228,7 +237,7 @@ export class OdooClient {
     const found = await this.odooCall<number[]>(
       'sale.order',
       'search',
-      [[['invoice_status', '=', 'to invoice'], ['state', 'in', ['sale', 'done']]]],
+      [[['invoice_status', 'in', ['to invoice', 'partially_invoiced']], ['state', 'in', ['sale', 'done']]]],
       { limit: MAX_INVOICEABLE_ORDERS + 1, order: 'commitment_date asc, date_order asc' },
     );
     // Se pide una de más para detectar el recorte sin una llamada extra a Odoo.
@@ -247,7 +256,7 @@ export class OdooClient {
     const linesMap = new Map<number, RawLine>();
     for (let i = 0; i < allLineIds.length; i += 500) {
       const batch = await this.odooCall<RawLine[]>('sale.order.line', 'read', [allLineIds.slice(i, i + 500)], {
-        fields: ['name', 'display_type', 'product_uom_qty', 'qty_delivered'],
+        fields: ['name', 'display_type', 'product_uom_qty', 'product_uom'],
       });
       batch.forEach(line => linesMap.set(line.id, line));
     }
@@ -269,25 +278,59 @@ export class OdooClient {
       /* remisiones opcionales */
     }
 
+    // Los traslados en Hecho son la fuente de entrega. Nunca sustituir un fallo
+    // por qty_delivered de la venta: ese resumen puede discrepar de las remisiones.
+    const lineIds = Array.from(linesMap.keys());
+    const outgoingMoves: RawMove[] = [];
+    for (let i = 0; i < lineIds.length; i += 500) {
+      outgoingMoves.push(...await this.readDoneMoves([
+        ['sale_line_id', 'in', lineIds.slice(i, i + 500)], ['picking_code', '=', 'outgoing'],
+      ]));
+    }
+    const outgoingById = new Map(outgoingMoves.map(move => [move.id, move]));
+    const returnMoves: RawMove[] = [];
+    const outgoingIds = Array.from(outgoingById.keys());
+    for (let i = 0; i < outgoingIds.length; i += 500) {
+      returnMoves.push(...await this.readDoneMoves([
+        ['origin_returned_move_id', 'in', outgoingIds.slice(i, i + 500)], ['picking_code', '=', 'incoming'],
+      ]));
+    }
+    const uomIds = Array.from(new Set([
+      ...Array.from(linesMap.values()).flatMap(line => line.product_uom ? [line.product_uom[0]] : []),
+      ...outgoingMoves.map(move => move.product_uom[0]),
+      ...returnMoves.map(move => move.product_uom[0]),
+    ]));
+    const uoms = new Map<number, RawUom>();
+    for (let i = 0; i < uomIds.length; i += 500) {
+      const batch = await this.odooCall<RawUom[]>('uom.uom', 'read', [uomIds.slice(i, i + 500)], {
+        fields: ['factor', 'category_id'],
+      });
+      batch.forEach(unit => uoms.set(unit.id, unit));
+    }
     const movesBySaleLine = new Map<number, number>();
-    let fetchedMoves = false;
-    try {
-      const lineIds = Array.from(linesMap.keys());
-      for (let i = 0; i < lineIds.length; i += 500) {
-        const moves = await this.odooCall<RawMove[]>('stock.move', 'search_read',
-          [[['sale_line_id', 'in', lineIds.slice(i, i + 500)], ['state', '=', 'done'], ['picking_code', '=', 'outgoing']]],
-          { fields: ['sale_line_id', 'quantity_done'], limit: 10000 },
-        );
-        for (const move of moves) {
-          const lineId = Array.isArray(move.sale_line_id) ? move.sale_line_id[0] : null;
-          if (lineId) {
-            movesBySaleLine.set(lineId, (movesBySaleLine.get(lineId) ?? 0) + move.quantity_done);
-          }
+    const addMove = (move: RawMove, sign: number, lineId: number | undefined) => {
+      const line = lineId === undefined ? undefined : linesMap.get(lineId);
+      if (!line || line.display_type) return;
+      if (!line.product_uom) throw new Error('Falta la unidad de una partida de Odoo');
+      let quantity = move.quantity_done;
+      if (move.product_uom[0] !== line.product_uom[0]) {
+        const from = uoms.get(move.product_uom[0]);
+        const to = uoms.get(line.product_uom[0]);
+        if (!from || !to || from.factor <= 0 || to.factor <= 0 || from.category_id[0] !== to.category_id[0]) {
+          throw new Error('No se pueden convertir las unidades de un traslado de Odoo');
         }
+        quantity = quantity / from.factor * to.factor;
       }
-      fetchedMoves = true;
-    } catch {
-      /* movimientos opcionales */
+      movesBySaleLine.set(line.id, (movesBySaleLine.get(line.id) ?? 0) + sign * quantity);
+    };
+    for (const move of outgoingMoves) addMove(move, 1, move.sale_line_id ? move.sale_line_id[0] : undefined);
+    for (const move of returnMoves) {
+      const original = move.origin_returned_move_id ? outgoingById.get(move.origin_returned_move_id[0]) : undefined;
+      addMove(move, -1, original?.sale_line_id ? original.sale_line_id[0] : undefined);
+    }
+    // Quitar solo el residuo de la aritmética binaria, sin redondear piezas reales.
+    for (const [lineId, quantity] of movesBySaleLine) {
+      movesBySaleLine.set(lineId, Number(Math.max(0, quantity).toPrecision(15)));
     }
 
     const partnerIds = Array.from(new Set(
@@ -323,7 +366,7 @@ export class OdooClient {
         .filter((line): line is RawLine => !!line && !line.display_type);
       const totalQty = lines.reduce((sum, line) => sum + line.product_uom_qty, 0);
       const deliveredQty = lines.reduce((sum, line) =>
-        sum + (fetchedMoves ? (movesBySaleLine.get(line.id) ?? 0) : line.qty_delivered), 0);
+        sum + Math.max(0, movesBySaleLine.get(line.id) ?? 0), 0);
 
       const partnerId = Array.isArray(order.partner_id) ? order.partner_id[0] : null;
       const partnerInfo = partnerId ? partnersMap.get(partnerId) : undefined;
@@ -351,7 +394,8 @@ export class OdooClient {
         lines: lines.map(line => ({
           name: line.name,
           qty: line.product_uom_qty,
-          delivered: fetchedMoves ? (movesBySaleLine.get(line.id) ?? 0) : line.qty_delivered,
+          delivered: Math.max(0, movesBySaleLine.get(line.id) ?? 0),
+          unit: line.product_uom ? line.product_uom[1] : '',
         })),
         deliveries: (pickingsByOrder.get(order.id) ?? []).map(picking => ({
           name: picking.name,
@@ -364,5 +408,18 @@ export class OdooClient {
     });
 
     return { orders: normalized, truncated };
+  }
+
+  private async readDoneMoves(domain: unknown[]): Promise<RawMove[]> {
+    const result: RawMove[] = [];
+    const limit = 1000;
+    for (let offset = 0; ; offset += limit) {
+      const batch = await this.odooCall<RawMove[]>('stock.move', 'search_read',
+        [[...domain, ['state', '=', 'done'], ['picking_id.state', '=', 'done']]],
+        { fields: ['sale_line_id', 'quantity_done', 'product_uom', 'origin_returned_move_id'], limit, offset, order: 'id asc' },
+      );
+      result.push(...batch);
+      if (batch.length < limit) return result;
+    }
   }
 }

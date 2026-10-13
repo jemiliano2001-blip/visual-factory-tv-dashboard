@@ -5,6 +5,7 @@
  */
 
 import { getIdTokenOrThrow } from '../firebase';
+import { getOrderSignalProgress, isOrderSignalFullyDelivered, isOrderSignalOverdue, getOrderSignalPriority } from './orderSignals';
 
 // Base del proxy Express de Odoo. Vacío = mismo origen: en dev/preview Vite
 // reenvía /api al proxy (vite.config.ts), por lo que funciona también desde
@@ -26,6 +27,8 @@ export interface OdooOrderLine {
   qty: number;
   /** Cantidad entregada */
   delivered: number;
+  /** Unidad de la partida; nunca agregar cantidades de unidades distintas. */
+  unit?: string;
   // Precios omitidos a propósito: son confidenciales y el proxy no los envía.
 }
 
@@ -45,7 +48,7 @@ export interface OdooSaleOrder {
   date_order: string;
   /** Fecha compromiso de entrega (null si no tiene) */
   commitment_date: string | null;
-  /** Estado de facturación — siempre 'to invoice' */
+  /** Estado de facturación: 'to invoice' o 'partially_invoiced'. */
   invoice_status: string;
   /** Moneda, ej. "MXN" */
   currency: string;
@@ -158,38 +161,24 @@ export function formatCurrency(amount: number, currency: string): string {
 
 /** Calcula prioridad basada en fecha de compromiso */
 export function getOrderPriority(order: OdooSaleOrder): 'low' | 'normal' | 'high' | 'critical' {
-  const commitment = parseOdooDate(order.commitment_date);
-  if (!commitment) return 'normal';
-
-  const diffMs = commitment.getTime() - Date.now();
-  // Comparar en ms, no en días redondeados: con Math.ceil una orden vencida
-  // hace <24h daba -0 y nunca llegaba a 'critical' pese a mostrarse "Vencida".
-  if (diffMs < 0) return 'critical';      // Ya venció
-  const diffDays = diffMs / 86_400_000;
-  if (diffDays <= 2) return 'high';       // Vence en 2 días o menos
-  if (diffDays <= 7) return 'normal';     // Vence esta semana
-  return 'low';                           // Más de una semana
+  return getOrderSignalPriority(order);
 }
 
 /** Indica si la orden ya pasó su fecha compromiso */
 export function isOrderOverdue(order: OdooSaleOrder): boolean {
-  const commitment = parseOdooDate(order.commitment_date);
-  return commitment ? commitment.getTime() < Date.now() : false;
+  return isOrderSignalOverdue(order);
 }
 
-/** Calcula progreso de entrega (0–100) */
+/** Promedio de avance por partida (0–100), sin sumar unidades distintas. */
 export function getDeliveryProgress(order: OdooSaleOrder): number {
-  if (!order.qty_total || order.qty_total === 0) return 0;
-  return Math.min(100, Math.round((order.qty_delivered / order.qty_total) * 100));
+  return getOrderSignalProgress(order);
 }
 
 /**
- * True si la orden tiene remisiones y TODAS las no canceladas están en 'done'.
- * Si no tiene remisiones, devuelve false (no podemos confirmar la entrega → no ocultar).
+ * True si los movimientos hechos, netos de devoluciones, cubren cada partida.
  */
 export function isOrderFullyDelivered(order: OdooSaleOrder): boolean {
-  const active = (order.deliveries ?? []).filter(d => d.state !== 'cancel');
-  return active.length > 0 && active.every(d => d.state === 'done');
+  return isOrderSignalFullyDelivered(order);
 }
 
 // ─── Antigüedad de la orden ────────────────────────────────────────────────────
@@ -375,6 +364,7 @@ export interface OrderStatus {
  *   4. none     → sin commitment_date NI nota parseable (no fingir 'en tiempo')
  */
 export function getOrderStatus(order: OdooSaleOrder): OrderStatus {
+  if (isOrderFullyDelivered(order)) return { level: 'on-time', label: 'Entregada · por facturar' };
   const deliveryTime = getDeliveryTimeStatus(order);
   const hasDate = parseOdooDate(order.commitment_date) !== null || deliveryTime.status !== 'unknown';
 
