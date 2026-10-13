@@ -1,0 +1,8 @@
+{
+  "apiKey": "ci-placeholder-not-a-real-api-key",
+  "authDomain": "demo-visual-factory-ci.firebaseapp.com",
+  "projectId": "demo-visual-factory-ci",
+  "storageBucket": "demo-visual-factory-ci.firebasestorage.app",
+  "messagingSenderId": "000000000000",
+  "appId": "1:000000000000:web:0000000000000000000000"
+}

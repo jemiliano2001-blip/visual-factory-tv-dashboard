@@ -19,6 +19,8 @@ jobs:
             functions/package-lock.json
       - run: npm ci
       - run: npm ci --prefix functions
+      - name: Prepare synthetic Firebase config for CI only
+        run: cp .github/fixtures/firebase-config.ci.json firebase-applet-config.json
       - run: npm run lint
       - run: npm test
       - run: npm run build

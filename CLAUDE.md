@@ -60,6 +60,8 @@ npm run test:ops-remediation   # tsx --test cardPresentation/companyConfigGuards
 
 There is **no ESLint**, but there are real `node:test`-based unit tests (via `tsx --test`) covering the entire app — run `npm test` or the relevant `test:*` script when touching code, not just `npm run lint`.
 
+CI copies `.github/fixtures/firebase-config.ci.json` to the ignored root config before lint/tests/build. That fixture is synthetic, has no real credentials, and is for CI only: never use it to deploy or replace a local production config. CI builds are not published. The manual Discord smoke script keeps its runtime import of compiled Functions, but its type import points to `functions/src/notifications.ts`, so lint does not require generated JavaScript. Do not run that script as part of CI; it sends real messages.
+
 ## Data sources
 
 **Odoo ERP is the single source of truth for orders.** The TV Dashboard (`/`), Admin console (`/admin`) and Stats (`/stats`) all show Odoo `sale.order` records with `invoice_status` in `['to invoice', 'partially_invoiced']`, fetched through the shared `useOdooOrders()` hook (`src/hooks/useOdooOrders.ts`) → React Query polling → Express proxy (`server.ts`). All three pages share one query key (`odooData`), so they share a single request/cache.

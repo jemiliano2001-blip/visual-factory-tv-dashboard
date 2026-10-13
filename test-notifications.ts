@@ -24,7 +24,7 @@ if (!existsSync(COMPILED_NOTIF)) {
   process.exit(1);
 }
 
-const notif = await import(`./${COMPILED_NOTIF}`) as typeof import('./functions/lib/functions/src/notifications.js');
+const notif = await import(`./${COMPILED_NOTIF}`) as typeof import('./functions/src/notifications');
 
 const {
   sendWebhook,
