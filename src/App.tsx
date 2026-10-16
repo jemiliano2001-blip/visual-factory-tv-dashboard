@@ -27,45 +27,57 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Detección de SSO token desde SMV Hub
-    const hash = typeof window !== 'undefined' && window.location.hash.startsWith('#')
-      ? window.location.hash.slice(1)
-      : '';
-    if (hash) {
-      const params = new URLSearchParams(hash);
-      const ssoToken = params.get('sso_token');
-      if (ssoToken) {
-        signInWithCustomToken(auth, ssoToken)
-          .then(() => {
+    let cancelado = false;
+    let unsubAuth: (() => void) | null = null;
+
+    async function initAuth() {
+      // Detección de SSO token desde SMV Hub
+      const hash = typeof window !== 'undefined' && window.location.hash.startsWith('#')
+        ? window.location.hash.slice(1)
+        : '';
+      if (hash) {
+        const params = new URLSearchParams(hash);
+        const ssoToken = params.get('sso_token');
+        if (ssoToken) {
+          try {
+            await signInWithCustomToken(auth, ssoToken);
+            if (cancelado) return;
             const urlLimpia = window.location.pathname + window.location.search;
             window.history.replaceState(null, '', urlLimpia);
-          })
-          .catch((err) => {
+          } catch (err) {
             console.error('[visual-factory][auth] signInWithCustomToken falló:', err);
-          });
+          }
+        }
       }
-    }
 
+      if (cancelado) return;
 
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        try {
-          await signInAnonymously(auth);
-          // onAuthStateChanged fires again once signed in
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          setAuthError(
-            'No se pudo iniciar la sesión anónima de Firebase. Sin ella, el tablero no puede cargar datos de Odoo ni configuración. Habilita "Anonymous" en Firebase Console → Authentication → Sign-in method.',
-          );
-          console.error('[Auth] signInAnonymously falló:', msg);
+      unsubAuth = onAuthStateChanged(auth, async (user) => {
+        if (cancelado) return;
+        if (!user) {
+          try {
+            await signInAnonymously(auth);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            setAuthError(
+              'No se pudo iniciar la sesión anónima de Firebase. Sin ella, el tablero no puede cargar datos de Odoo ni configuración. Habilita "Anonymous" en Firebase Console → Authentication → Sign-in method.',
+            );
+            console.error('[Auth] signInAnonymously falló:', msg);
+            setIsAuthReady(true);
+          }
+        } else {
+          setAuthError(null);
           setIsAuthReady(true);
         }
-      } else {
-        setAuthError(null);
-        setIsAuthReady(true);
-      }
-    });
-    return () => unsubscribe();
+      });
+    }
+
+    void initAuth();
+
+    return () => {
+      cancelado = true;
+      if (unsubAuth) unsubAuth();
+    };
   }, []);
 
   if (!isAuthReady) {
