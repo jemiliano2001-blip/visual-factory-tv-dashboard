@@ -65,7 +65,7 @@ service cloud.firestore {
     // ===============================================================
 
     match /company_configs/{configId} {
-      allow read: if isAuthenticated();
+      allow read: if isRealUser();
       allow create: if isAdmin() && isValidCompanyConfig();
       allow update: if isAdmin() && isValidCompanyConfig();
       allow delete: if isAdmin();

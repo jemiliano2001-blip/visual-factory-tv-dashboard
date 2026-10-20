@@ -14,6 +14,7 @@ import * as dotenv from 'dotenv';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'node:path';
 import { OdooClient } from './shared/odooClient.ts';
+import { esTokenAnonimo } from './shared/firebaseTokenPolicy.ts';
 
 // Carga .env.local primero (alta prioridad, no se sube a git),
 // luego .env como fallback — mismo orden que Vite en desarrollo local.
@@ -117,6 +118,11 @@ app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
   const valid = await verifyFirebaseToken(token);
   if (!valid) {
     res.status(401).json({ error: 'Token inválido o expirado. Vuelve a iniciar sesión.' });
+    return;
+  }
+
+  if (esTokenAnonimo(token)) {
+    res.status(403).json({ error: 'Se requiere una cuenta de personal SMV; las sesiones anónimas no tienen acceso.' });
     return;
   }
 

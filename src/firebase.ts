@@ -7,9 +7,8 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 
-// Mirrors firestore.rules' isRealUser(): the public TV dashboard signs every
-// visitor in anonymously to satisfy Firestore's auth != null rule. A session
-// only counts as "logged in" if it's a real account, not that anonymous one.
+// Mirrors firestore.rules' isRealUser(): a session only counts as "logged in"
+// if it's a real account, never an anonymous one.
 export function isRealUser(user: User | null): user is User {
   return user != null && !user.isAnonymous;
 }
@@ -23,7 +22,7 @@ export async function getIdTokenOrThrow(): Promise<string> {
   const user = auth.currentUser;
   if (!user) {
     throw new Error(
-      'No hay sesión de Firebase. Habilita la autenticación anónima en Firebase Console → Authentication → Sign-in method.',
+      'No hay sesión de Firebase. Inicia sesión con tu cuenta de personal SMV.',
     );
   }
   const token = await user.getIdToken().catch(() => null);

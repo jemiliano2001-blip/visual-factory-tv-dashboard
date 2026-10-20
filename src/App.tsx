@@ -1,7 +1,7 @@
 import React, { useEffect, useState, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { MotionConfig } from 'framer-motion';
-import { onAuthStateChanged, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
+import { onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { auth } from './firebase';
 
 import Layout from './components/Layout';
@@ -52,23 +52,11 @@ export default function App() {
 
       if (cancelado) return;
 
-      unsubAuth = onAuthStateChanged(auth, async (user) => {
+      unsubAuth = onAuthStateChanged(auth, () => {
         if (cancelado) return;
-        if (!user) {
-          try {
-            await signInAnonymously(auth);
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            setAuthError(
-              'No se pudo iniciar la sesión anónima de Firebase. Sin ella, el tablero no puede cargar datos de Odoo ni configuración. Habilita "Anonymous" en Firebase Console → Authentication → Sign-in method.',
-            );
-            console.error('[Auth] signInAnonymously falló:', msg);
-            setIsAuthReady(true);
-          }
-        } else {
-          setAuthError(null);
-          setIsAuthReady(true);
-        }
+        // Sin sesión no se crea una cuenta anónima: cada ruta protegida manda a /login.
+        setAuthError(null);
+        setIsAuthReady(true);
       });
     }
 
@@ -118,8 +106,12 @@ export default function App() {
                 <Route path="/login" element={<Login />} />
 
                 <Route path="/" element={<Layout />}>
-                  {/* TV dashboard: público sin login visible — auth anónima provee el ID token */}
-                  <Route index element={<TVDashboard />} />
+                  {/* TV dashboard: exige cuenta real de personal SMV (la TV usa una cuenta de solo lectura). */}
+                  <Route index element={
+                    <ProtectedRoute>
+                      <TVDashboard />
+                    </ProtectedRoute>
+                  } />
 
                   {/* /admin es herramienta de trabajo del equipo de diseño, no un panel
                       restringido — cualquier cuenta real (no anónima) entra, igual que /stats. */}
