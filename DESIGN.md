@@ -61,12 +61,14 @@ delivered and a progress color painted the whole wall cyan.
 - **Code:** `JetBrains Mono`.
 - **Loading:** Google Fonts via `@import` in `src/index.css`
   (`Inter` 300-900, `Syne` 400-800, `JetBrains Mono` 400/500/700).
-- **Scale & distance:** Type scales by viewport, not just CSS breakpoints. `TVDashboard`
-  computes a `ScreenTier` (`sm` <768 / `md` 768-1279 / `lg` 1280-1919 / `xl` >=1920) and
-  a derived `big` flag (`isWide || screenTier === 'xl'`). On TV (`big`), the SO number,
-  progress %, and quantities step up to the largest sizes; on mobile/admin they step
-  down. Visual hierarchy on a card, largest to smallest: **SO number > progress % /
-  quantity > client/status > secondary meta (lines, salesperson, dates)**.
+- **Scale & distance:** On the TV, type follows the card's **measured size**, not the
+  viewport: `getCardFit()` (`src/services/cardFit.ts`) picks the largest tier (`xs`…`xl`)
+  where SO + footer + two lines fit, then spends leftover rows on fuller descriptions,
+  commitment date and remittances ("letra primero"). `computeTVGrid()` keeps a legibility
+  floor per card (340×185 px CSS = the `md` tier, 24 px SO) and rotates extra cards onto more pages ("Balance").
+  Desktop/mobile still use `ScreenTier` / `isWide` / `isDense`. Visual hierarchy on a card,
+  largest to smallest: **SO number > progress % / quantity > client/status > secondary
+  meta (lines, salesperson, dates)**.
 
 ## Color
 - **Approach:** Two axes that both mean something — **progress** (the card status color)
@@ -98,8 +100,8 @@ delivered and a progress color painted the whole wall cyan.
 
 ## Spacing
 - **Base unit:** 4px.
-- **Density:** Spacious on TV (`big`), comfortable on desktop admin, compact on dense
-  grids / mobile. Density flips off `screenTier` / `isDense` / `isWide`, not guesswork.
+- **Density:** On TV, density is the measured card tier (`getCardFit`); comfortable on
+  desktop admin, compact on mobile. Never guesswork, never dead space inside a card.
 - **Scale:** 2xs(2) xs(4) sm(8) md(16) lg(24) xl(32) 2xl(48) 3xl(64).
 
 ## Layout
@@ -138,3 +140,4 @@ delivered and a progress color painted the whole wall cyan.
 | 2026-08-20 | **One urgency signal per card: dropped the red ring/glow and merged the two pills** | The card was carrying two competing color systems at once — a progress-colored accent stripe *and* a red ring + outer glow layered over the whole surface — plus **two** badges for one fact. Root cause found in code, not taste: `getOrderPriority` returns `'critical'` exactly when `diffMs < 0`, which is the definition of `isOrderOverdue`, so `isCritical` and `isOverdue` are the same boolean and "Crítica"/"Vencida" were *guaranteed* to render together in two different colors. (Consequently the `isOverdue → orange ring` branch in `cardPresentation.ts` was unreachable dead code and was deleted.) Fix keeps the 06-30 vibrant progress-based direction intact — **the axis was not flipped**: urgency no longer paints the card surface at all, it lives in one `Badge` (shadcn `dangerSolid` + pulse). Worst case was the shared pages, where client-panel border + card ring + stripe stacked three treatments. `Badge` gained a `size` variant so it still scales with `isLarge` on TV. |
 | 2026-10-02 | Removed every AI feature (Gemini) | Not used in practice. Deleted `src/services/ai.ts`, `AIModal`, `shared/geminiProxy.ts`, the AI routes in `server.ts`/`functions`, the `@google/genai` and `react-markdown` deps, the NL search bar, "Plan del día", "Explicar requisitos" and the Stats executive summary. Also removes the public-anonymous Gemini quota exposure. |
 | 2026-10-02 | **Card color = urgency (days late), not progress; cards lose glow/blur; footer legend rewritten** | Live Odoo data: 122/124 visible orders at 0 % delivered (progress color = one flat cyan wall) and 85/124 overdue (one saturated *Vencida* badge). Replaced by a graded ramp by days late (≤7 amber / 8–30 orange / >30 red), a timing label ("Atraso 35 d"), the commitment date in the free card space, and a pulse only for newly late orders. Supersedes the 2026-06-30 progress-color decision at the user's request; progress stays visible in the % and bar. |
+| 2026-10-23 | **TV cards fit their measured size; legibility floor on the grid** | Toni: dead space inside cards and text unreadable at 3-4 m (the TV ran at 60-70 % zoom to fit more cards). Type was chosen by page flags (`cols >= 4` ⇒ dense 12-14 px even on 360×240 cards) and a second line was drawn cut in half. Now `getCardFit()` sizes per card ("letra primero", whole rows only) and `computeTVGrid()` enforces a 340×185 floor ("Balance": 1920×1080 → 20 cards at 24 px SO, chosen over 25 at 18 px). Also fixed: the grid area was having header/footer subtracted twice. |

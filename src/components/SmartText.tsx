@@ -7,8 +7,8 @@ import { generateTextLevels } from '../utils/abbreviate';
 interface SmartTextProps {
   /** Texto completo a mostrar */
   text: string;
-  /** Número máximo de líneas antes de aplicar truncado CSS (1 o 2) */
-  maxLines?: 1 | 2;
+  /** Número máximo de líneas antes de aplicar truncado CSS (1 a 3) */
+  maxLines?: 1 | 2 | 3;
   /** Clases CSS adicionales */
   className?: string;
   /** Si es true, deshabilita la lógica inteligente y muestra el texto completo */

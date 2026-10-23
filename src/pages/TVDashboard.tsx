@@ -29,6 +29,7 @@ import { useMobile } from '../hooks/useMobile';
 import { buildTVPages, type TVPage } from '../utils/tvPagePacking';
 import { getCenteredLastRowStart } from '../utils/tvGridLayout';
 import { INITIAL_ROTATION_PAUSED, shouldAutoRotate } from '../services/rotationPolicy';
+import { computeTVGrid } from '../services/tvGrid';
 
 // ─── TVDashboard principal ─────────────────────────────────────────────────────
 
@@ -211,47 +212,16 @@ export default function TVDashboard() {
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        const aspectRatio    = width / height;
-        const isWideScreen   = aspectRatio > 1.3;
-        const gap            = width > 1200 ? 16 : 12;
-        // En modo TV, reservar espacio preciso para header y footer
-        // En modo desktop, no importa tanto porque hay scroll
-        const headerArea     = isWideScreen ? 100 : 80;
-        const footerArea     = 40;
-        const available      = isTVMode
-          ? height - headerArea - footerArea
-          : height; // En desktop el grid puede crecer más allá
-
-        let cols = 1;
-        if (width > 1800) cols = 5;
-        else if (width > 1400) cols = 4;
-        else if (width > 1000) cols = 3;
-        else if (width > 600)  cols = 2;
-
-        const isDenseLayout = isTVMode && ((available / 4) < 200 || cols >= 4);
-        const minCardHeight = isDenseLayout ? 80 : (isWideScreen ? 240 : 200);
-        let rows = Math.max(1, Math.floor((available + gap) / (minCardHeight + gap)));
-
-        // En modo desktop sin paginación: mostrar hasta 20 rows
-        if (!isTVMode) {
-          rows = Math.max(rows, 4);
-        }
-
-        // Nivel de legibilidad por ancho de viewport: tablet < desktop < TV/4K.
-        // Breakpoints inteligentes: mobile (<768) / tablet (768-1279) /
-        // desktop (1280-1919) / TV (>=1920).
-        const tier: ScreenTier =
-          width >= 1920 ? 'xl'
-          : width >= 1280 ? 'lg'
-          : width >= 768  ? 'md'
-          : 'sm';
-
-        setGridCols(cols);
-        setGridRows(rows);
-        setOrdersPerPage(isTVMode ? cols * rows || 8 : 999);
-        setIsWide(cols <= 4 && rows <= 2 && isWideScreen && !isDenseLayout);
-        setIsDense(isDenseLayout);
-        setScreenTier(tier);
+        if (width <= 0 || height <= 0) continue;
+        const grid = computeTVGrid({ width, height, isTVMode });
+        setGridCols(grid.cols);
+        setGridRows(grid.rows);
+        setOrdersPerPage(grid.ordersPerPage);
+        setIsWide(grid.isWide);
+        // La letra de cada tarjeta la decide getCardFit(); isDense solo queda para
+        // el skeleton y para ocultar el cliente en rejillas muy pobladas.
+        setIsDense(isTVMode && grid.cols >= 5);
+        setScreenTier(grid.screenTier);
       }
     });
     observer.observe(containerRef.current);

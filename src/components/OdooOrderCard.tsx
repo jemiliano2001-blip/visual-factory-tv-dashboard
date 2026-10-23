@@ -5,6 +5,8 @@ import { es } from 'date-fns/locale';
 import { AlertTriangle, CalendarDays, Check, CheckCircle2, Clock, Package } from 'lucide-react';
 import { OdooSaleOrder, OdooOrderLine, getDeliveryProgress, getOrderPriority, isOrderOverdue, parseOdooDate } from '../services/odoo';
 import { getCardPresentation, isLargeTVCard } from '../services/cardPresentation';
+import { CARD_FIT_CLASSES, getCardFit } from '../services/cardFit';
+import { useElementSize } from '../hooks/useElementSize';
 import SmartText from './SmartText';
 import { Badge } from './ui/badge';
 import { getSmartCompanyName } from '../utils/customerNames';
@@ -73,7 +75,26 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   const commitmentDate = useMemo(() => parseOdooDate(order.commitment_date), [order.commitment_date]);
   const presentation = getCardPresentation({ progress, commitmentDate });
   const urgencyBadge = getUrgencyBadge(isOverdue, priority, presentation.pulse);
-  const isLarge = isLargeTVCard(viewMode, isWide, screenTier, isDense);
+  // Modo TV: la letra y cuántas partidas caben salen del tamaño real de la tarjeta.
+  const { ref: cardRef, width: cardWidth, height: cardHeight } = useElementSize<HTMLButtonElement>();
+  const fit = viewMode === 'tv' && !isMobile
+    ? getCardFit({
+        width: cardWidth,
+        height: cardHeight,
+        lineCount: order.lines.length,
+        hasReference: !!order.customer_reference,
+        showPartner: !hidePartner,
+        longestLineChars: order.lines.length
+          ? Math.max(...order.lines.map(l => `${l.name} ${l.delivered}/${l.qty} ${l.unit ?? ''}`.length))
+          : (order.main_product ?? '').length,
+      })
+    : null;
+  const fc = fit ? CARD_FIT_CLASSES[fit.tier] : null;
+  /** En TV, la clase del escalón medido; fuera de TV, la clase de siempre. */
+  const pick = (key: keyof typeof CARD_FIT_CLASSES.xs, legacy: string) => (fc ? fc[key] : legacy);
+  // En TV los márgenes siguen al escalón (xs = compacto, lg/xl = amplio).
+  if (fit) isDense = fit.tier === 'xs';
+  const isLarge = fit ? fit.tier === 'lg' || fit.tier === 'xl' : isLargeTVCard(viewMode, isWide, screenTier, isDense);
   const { deliveryCounts, deliveryStates } = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const d of order.deliveries ?? []) {
@@ -87,30 +108,30 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   const statusLabel = presentation.timingLabel;
   const invoiceLabel = order.invoice_status === 'partially_invoiced' ? 'Factura parcial' : 'Por facturar';
   const StatusIcon = presentation.tone === 'delivered' ? CheckCircle2 : Clock;
-  const cardSize = isMobile
+  const cardSize = fc ? fc.pad : isMobile
     ? 'min-h-[88px] p-3 pl-5'
     : isDense
       ? 'min-h-0 p-2.5 lg:p-3'
       : isLarge
         ? 'p-7 xl:p-8'
         : 'p-4 lg:p-5';
-  const headingSize = isMobile
+  const headingSize = fc ? fc.heading : isMobile
     ? 'text-base'
     : isDense
       ? 'text-xs lg:text-sm'
       : isLarge
         ? 'text-3xl xl:text-4xl'
         : 'text-xl lg:text-2xl';
-  const percentageSize = isMobile
+  const percentageSize = fc ? fc.pct : isMobile
     ? 'text-lg'
     : isDense
       ? 'text-sm lg:text-base'
       : isLarge
         ? 'text-4xl xl:text-5xl'
         : 'text-2xl lg:text-3xl';
-  // Cuántas líneas caben sin desbordar: escritorio las lista todas; en TV
-  // depende de si la tarjeta es grande o va apretada en una página compartida o densa.
-  const maxVisibleLines = viewMode === 'desktop'
+  // Cuántas líneas caben sin desbordar: en TV lo decide getCardFit(); escritorio
+  // las lista todas.
+  const maxVisibleLines = fit ? fit.maxVisibleLines : viewMode === 'desktop'
     ? order.lines.length
     : isMobile
       ? 1
@@ -121,6 +142,12 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
           : 4;
   const visibleLines = order.lines.slice(0, maxVisibleLines);
   const hiddenLineCount = Math.max(0, order.lines.length - visibleLines.length);
+  const lineClamp = fit?.lineClamp ?? 1;
+  const moreInline = !!fit?.moreInline && hiddenLineCount > 0;
+  const showCommitment = fit ? fit.showCommitment : !isDense && !isMobile;
+  const showDeliveries = fit ? fit.showDeliveries : !isDense && !isMobile;
+  const iconSize = pick('icon', isDense ? 'h-3.5 w-3.5' : isLarge ? 'h-5 w-5' : 'h-4 w-4');
+  const smallText = pick('small', isDense ? 'text-[10px]' : isLarge ? 'text-sm' : 'text-[11px]');
   const cardLabel = `${order.name}${order.customer_reference ? `, PO ${order.customer_reference}` : ''}, ${order.partner_name}, ${progress}% de avance por partidas, ${statusLabel}, ${invoiceLabel}`;
 
   return (
@@ -130,6 +157,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.96 }}
       transition={{ duration: 0.25 }}
+      ref={cardRef}
       id={`so-${order.name.replace(/\//g, '-')}`}
       onClick={onClick}
       aria-label={cardLabel}
@@ -143,7 +171,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
             {order.name}
           </h3>
           {order.customer_reference && (
-            <p title={`PO del cliente: ${order.customer_reference}`} className={`mt-0.5 truncate font-mono-data text-zinc-400 ${isDense ? 'text-[10px]' : isLarge ? 'text-sm' : 'text-xs'}`}>
+            <p title={`PO del cliente: ${order.customer_reference}`} className={`mt-0.5 truncate font-mono-data text-zinc-400 ${pick('meta', isDense ? 'text-[10px]' : isLarge ? 'text-sm' : 'text-xs')}`}>
               PO: {order.customer_reference}
             </p>
           )}
@@ -151,7 +179,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
             <SmartText
               text={getSmartCompanyName(order.partner_name, 'card')}
               maxLines={1}
-              className={`${isDense ? 'text-[11px]' : isLarge ? 'text-base' : 'text-xs lg:text-sm'} ${isDense ? 'mt-0.5' : 'mt-1'} font-bold uppercase tracking-[0.12em] text-zinc-300`}
+              className={`${pick('meta', isDense ? 'text-[11px]' : isLarge ? 'text-base' : 'text-xs lg:text-sm')} ${isDense ? 'mt-0.5' : 'mt-1'} font-bold uppercase tracking-[0.12em] text-zinc-300`}
               defaultLevel={0}
             />
           )}
@@ -178,36 +206,37 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
         <div className={`flex flex-col ${isDense ? 'gap-0.5' : 'gap-1'}`}>
           {visibleLines.length === 0 && (
             <div className="flex min-w-0 items-center gap-1.5 lg:gap-2">
-              <Package className={`${isDense ? 'h-3.5 w-3.5' : isLarge ? 'h-5 w-5' : 'h-4 w-4'} shrink-0 text-zinc-500`} aria-hidden="true" />
+              <Package className={`${iconSize} shrink-0 text-zinc-500`} aria-hidden="true" />
               <SmartText
                 text={order.main_product}
-                maxLines={isMobile || isDense ? 1 : 2}
-                className={`${isDense ? 'text-xs leading-tight' : isLarge ? 'text-lg' : 'text-sm'} font-semibold text-zinc-100`}
-                defaultLevel={2}
+                maxLines={fit ? lineClamp : isMobile || isDense ? 1 : 2}
+                className={`${pick('line', isDense ? 'text-xs leading-tight' : isLarge ? 'text-lg' : 'text-sm')} font-semibold ${fit ? 'leading-tight' : ''} text-zinc-100`}
+                defaultLevel={fit && lineClamp >= 2 ? 0 : 2}
               />
             </div>
           )}
           {visibleLines.map((line: OdooOrderLine, idx: number) => {
             const lineComplete = line.qty > 0 && line.delivered >= line.qty;
             return (
-              <div key={idx} className="flex min-w-0 items-center gap-1.5 lg:gap-2">
+              <div key={idx} className={`flex min-w-0 gap-1.5 lg:gap-2 ${lineClamp > 1 ? 'items-start' : 'items-center'}`}>
                 {lineComplete
-                  ? <Check className={`${isDense ? 'h-3.5 w-3.5' : isLarge ? 'h-5 w-5' : 'h-4 w-4'} shrink-0 ${presentation.statusTextClass}`} aria-hidden="true" />
-                  : <Package className={`${isDense ? 'h-3.5 w-3.5' : isLarge ? 'h-5 w-5' : 'h-4 w-4'} shrink-0 text-zinc-500`} aria-hidden="true" />}
+                  ? <Check className={`${iconSize} shrink-0 ${presentation.statusTextClass}`} aria-hidden="true" />
+                  : <Package className={`${iconSize} shrink-0 text-zinc-500`} aria-hidden="true" />}
                 <SmartText
                   text={line.name}
-                  maxLines={1}
-                  className={`${isDense ? 'text-xs leading-tight' : isLarge ? 'text-lg' : 'text-sm'} font-semibold leading-tight ${lineComplete ? 'text-zinc-500 line-through' : 'text-zinc-100'}`}
-                  defaultLevel={2}
+                  maxLines={lineClamp}
+                  className={`${pick('line', isDense ? 'text-xs leading-tight' : isLarge ? 'text-lg' : 'text-sm')} font-semibold leading-tight ${lineComplete ? 'text-zinc-500 line-through' : 'text-zinc-100'}`}
+                  defaultLevel={lineClamp >= 2 ? 0 : 2}
                 />
-                <span className={`shrink-0 font-mono-data font-bold ${isDense ? 'text-[11px] lg:text-xs' : isLarge ? 'text-sm' : 'text-xs'} ${lineComplete ? presentation.statusTextClass : 'text-zinc-300'}`}>
+                <span className={`shrink-0 font-mono-data font-bold ${pick('qty', isDense ? 'text-[11px] lg:text-xs' : isLarge ? 'text-sm' : 'text-xs')} ${lineComplete ? presentation.statusTextClass : 'text-zinc-300'}`}>
                   {line.delivered}/{line.qty}{line.unit ? ` ${line.unit}` : ''}
+                  {moreInline && <span className="text-zinc-400"> +{hiddenLineCount}</span>}
                 </span>
               </div>
             );
           })}
-          {hiddenLineCount > 0 && (
-            <span className={`pl-5 font-bold text-zinc-400 ${isDense ? 'text-[10px] lg:text-[11px]' : isLarge ? 'text-sm' : 'text-xs'}`}>
+          {hiddenLineCount > 0 && !moreInline && (
+            <span className={`pl-5 font-bold leading-tight text-zinc-400 ${pick('small', isDense ? 'text-[10px] lg:text-[11px]' : isLarge ? 'text-sm' : 'text-xs')}`}>
               +{hiddenLineCount} más
             </span>
           )}
@@ -215,9 +244,9 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       </div>
 
       {/* Fecha compromiso: ocupa el espacio libre de las tarjetas de una sola línea */}
-      {commitmentDate && !isDense && !isMobile && (
-        <p className={`relative z-10 mt-2 flex items-center gap-1.5 font-mono-data text-zinc-400 ${isLarge ? 'text-sm' : 'text-xs'}`}>
-          <CalendarDays className={isLarge ? 'h-4 w-4' : 'h-3.5 w-3.5'} aria-hidden="true" />
+      {commitmentDate && showCommitment && (
+        <p className={`relative z-10 mt-2 flex items-center gap-1.5 font-mono-data text-zinc-400 ${pick('small', isLarge ? 'text-sm' : 'text-xs')}`}>
+          <CalendarDays className={fc ? fc.icon : isLarge ? 'h-4 w-4' : 'h-3.5 w-3.5'} aria-hidden="true" />
           Compromiso {format(commitmentDate, 'd MMM yyyy', { locale: es })}
         </p>
       )}
@@ -225,31 +254,31 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       <div className={`relative z-10 mt-auto ${isDense ? 'pt-1.5' : isLarge ? 'pt-5' : 'pt-3'}`}>
         <div className={`${isDense ? 'mb-1' : 'mb-2'} flex items-end justify-between gap-2`}>
           <div className="flex items-center gap-1">
-            <StatusIcon className={`${isDense ? 'h-3.5 w-3.5' : isLarge ? 'h-5 w-5' : 'h-4 w-4'} ${presentation.statusTextClass}`} aria-hidden="true" />
-            <span className={`${isDense ? 'text-[10px]' : isLarge ? 'text-sm' : 'text-[11px]'} font-bold uppercase tracking-wider ${presentation.statusTextClass}`}>{statusLabel}</span>
+            <StatusIcon className={`${iconSize} ${presentation.statusTextClass}`} aria-hidden="true" />
+            <span className={`${smallText} font-bold uppercase tracking-wider ${presentation.statusTextClass}`}>{statusLabel}</span>
           </div>
           <div className="flex items-baseline gap-1 font-mono-data">
             <span className={`${percentageSize} font-black leading-none text-white`}>{progress}%</span>
-            <span title="Promedio del avance de cada partida" className={`${isDense ? 'text-[10px]' : isLarge ? 'text-sm' : 'text-[11px]'} font-bold text-zinc-400`}>por partidas</span>
+            <span title="Promedio del avance de cada partida" className={`${smallText} font-bold text-zinc-400`}>por partidas</span>
           </div>
         </div>
-        <div className={`${isDense ? 'h-1.5' : isLarge ? 'h-3.5' : 'h-2.5'} overflow-hidden rounded-full border border-white/10 bg-black/45`}>
+        <div className={`${pick('bar', isDense ? 'h-1.5' : isLarge ? 'h-3.5' : 'h-2.5')} overflow-hidden rounded-full border border-white/10 bg-black/45`}>
           <span
             className={`block h-full rounded-full ${presentation.progressClass}`}
             style={{ width: `${Math.max(progress, progress > 0 ? 4 : 0)}%` }}
           />
         </div>
 
-        {/* Remisiones — se omiten en móvil y en modo denso para preservar la lectura de piezas */}
-        {deliveryStates.length > 0 && !isMobile && !isDense && (
+        {/* Remisiones — solo si sobra espacio (en móvil y denso se omiten) para preservar la lectura de piezas */}
+        {deliveryStates.length > 0 && showDeliveries && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <span className={`shrink-0 font-bold uppercase tracking-wider text-zinc-500 ${isLarge ? 'text-xs' : 'text-[11px]'}`}>
+            <span className={`shrink-0 font-bold uppercase tracking-wider text-zinc-500 ${pick('small', isLarge ? 'text-xs' : 'text-[11px]')}`}>
               Rem.
             </span>
             {deliveryStates.map(state => (
               <span
                 key={state}
-                className={`rounded border px-1.5 py-0.5 font-bold ${isLarge ? 'text-xs' : 'text-[11px]'} ${DELIVERY_STATE_COLOR[state]}`}
+                className={`rounded border px-1.5 py-0.5 font-bold ${pick('small', isLarge ? 'text-xs' : 'text-[11px]')} ${DELIVERY_STATE_COLOR[state]}`}
               >
                 {deliveryCounts[state]} {DELIVERY_STATE_LABEL[state]}{(deliveryCounts[state] ?? 0) > 1 ? 's' : ''}
               </span>
