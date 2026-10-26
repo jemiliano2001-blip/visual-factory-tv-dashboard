@@ -14,7 +14,7 @@ import * as dotenv from 'dotenv';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'node:path';
 import { OdooClient } from './shared/odooClient.ts';
-import { esTokenAnonimo } from './shared/firebaseTokenPolicy.ts';
+import { createApiAuthGuard } from './shared/apiAuthGuard.ts';
 
 // Carga .env.local primero (alta prioridad, no se sube a git),
 // luego .env como fallback — mismo orden que Vite en desarrollo local.
@@ -96,38 +96,15 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
 // variable se olvida en producción, se exige token igual. No depender de
 // NODE_ENV: el túnel Cloudflare llega por 127.0.0.1 y "parecería" local, lo que
 // dejaría todo abierto si NODE_ENV no fuera 'production'.
-app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
-  if (process.env.DEV_AUTH_BYPASS === 'true') {
-    const addr = req.socket.localAddress ?? '';
-    if (addr === '127.0.0.1' || addr === '::1') {
-      return next();
-    }
-  }
-
-  const token = req.headers.authorization?.replace('Bearer ', '') || '';
-  if (!token) {
-    res.status(401).json({ error: 'Se requiere autenticación.' });
-    return;
-  }
-
-  if (!FIREBASE_API_KEY) {
-    res.status(500).json({ error: 'Server misconfiguration: FIREBASE_API_KEY no configurado.' });
-    return;
-  }
-
-  const valid = await verifyFirebaseToken(token);
-  if (!valid) {
-    res.status(401).json({ error: 'Token inválido o expirado. Vuelve a iniciar sesión.' });
-    return;
-  }
-
-  if (esTokenAnonimo(token)) {
-    res.status(403).json({ error: 'Se requiere una cuenta de personal SMV; las sesiones anónimas no tienen acceso.' });
-    return;
-  }
-
-  next();
-});
+app.use('/api', createApiAuthGuard(
+  async (token) => (FIREBASE_API_KEY ? verifyFirebaseToken(token) : false), // falla cerrado sin API key
+  {
+    // Bypass OPT-IN solo para conexiones locales (ver comentario arriba).
+    bypass: (req) =>
+      process.env.DEV_AUTH_BYPASS === 'true' &&
+      ['127.0.0.1', '::1'].includes(req.socket.localAddress ?? ''),
+  },
+));
 
 // ─── Configuración Odoo ────────────────────────────────────────────────────────
 const odooClient = new OdooClient({

@@ -34,8 +34,7 @@ test('la TV en "/" exige usuario real igual que /admin y /stats (A1)', () => {
   assert.match(leer('src', 'App.tsx'), /<ProtectedRoute>\s*<TVDashboard\s*\/>\s*<\/ProtectedRoute>/);
 });
 
-test('el servidor rechaza tokens anónimos con 403 (A1)', () => {
-  const src = leer('server.ts');
-  assert.match(src, /esTokenAnonimo/);
-  assert.match(src, /status\(403\)/);
+test('server.ts y la Cloud Function api rechazan tokens anónimos vía el guard compartido (A1)', () => {
+  assert.match(leer('shared', 'apiAuthGuard.ts'), /esTokenAnonimo\(token\)[\s\S]*status\(403\)/);
+  for (const f of [['server.ts'], ['functions', 'src', 'index.ts']]) assert.match(leer(...f), /createApiAuthGuard/);
 });

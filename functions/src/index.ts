@@ -3,6 +3,7 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import express, { NextFunction, Request, Response } from 'express';
 import { OdooClient } from '../../shared/odooClient';
+import { createApiAuthGuard } from '../../shared/apiAuthGuard';
 import {
   checkThresholds,
   checkEvents,
@@ -59,18 +60,9 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
   }
 }
 
-// Todas las rutas /api exigen un ID token de Firebase válido. La TV pública se
-// autentica de forma anónima (App.tsx → signInAnonymously) y el frontend envía
-// ese token, así que sigue funcionando sin login mientras la auth anónima esté
-// habilitada (requisito de setup en CLAUDE.md). Iguala la postura de server.ts y
-// evita exponer los datos de Odoo (clientes, productos, cantidades, notas) a
-// cualquiera con la URL.
-app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
-  const token = req.headers.authorization?.replace('Bearer ', '') ?? '';
-  if (!token) { res.status(401).json({ error: 'Se requiere autenticación.' }); return; }
-  if (!(await verifyFirebaseToken(token))) { res.status(401).json({ error: 'Token inválido o expirado.' }); return; }
-  next();
-});
+// Todas las rutas /api exigen un ID token de Firebase válido de una cuenta REAL
+// (no anónima): sin token o inválido → 401, anónimo → 403. Mismo guard que server.ts.
+app.use('/api', createApiAuthGuard(verifyFirebaseToken));
 
 // ─── Odoo (módulo compartido con server.ts) ───────────────────────────
 const odooClient = new OdooClient({
