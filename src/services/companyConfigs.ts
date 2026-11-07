@@ -14,6 +14,7 @@ import {
 import { db, auth } from '../firebase';
 import { CompanyConfig } from '../types';
 import { normalizeCompanyName } from './companyConfigGuards';
+import { guardSubscription } from './safeSubscription';
 
 const COLLECTION_NAME = 'company_configs';
 
@@ -82,6 +83,7 @@ export const subscribeToCompanyConfigs = (
   callback: (configs: CompanyConfig[]) => void,
   onError?: (error: Error) => void,
 ) => {
+  return guardSubscription(() => {
   const q = query(collection(db, COLLECTION_NAME), orderBy('company_name', 'asc'));
 
   return onSnapshot(q, (snapshot) => {
@@ -103,6 +105,7 @@ export const subscribeToCompanyConfigs = (
     handleFirestoreError(error, OperationType.LIST, COLLECTION_NAME);
     onError?.(error instanceof Error ? error : new Error(String(error)));
   });
+  }, onError);
 };
 
 export const getCompanyConfigByName = async (companyName: string): Promise<CompanyConfig | null> => {
