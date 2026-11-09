@@ -12,6 +12,7 @@ import { abbreviate } from '../../utils/abbreviate';
 import { formatPONumber } from '../../utils/formatters';
 import { Badge } from '../ui/badge';
 import { STATUS_VARIANT } from './orderStatusMeta';
+import CustomerPo from '../CustomerPo';
 
 interface AgendaTabProps {
   orders: OdooSaleOrder[];
@@ -87,7 +88,7 @@ function DayGroup({ group, collapsed, onToggle }: { group: AgendaGroup; collapse
                 <tr key={order.id} className="hover:bg-accent/20">
                   <td className="whitespace-nowrap px-4 py-2 font-mono-data font-bold text-foreground">
                     {formatPONumber(order.name)}
-                    {order.customer_reference && <div className="text-xs font-normal text-muted-foreground">PO: {order.customer_reference}</div>}
+                    <CustomerPo reference={order.customer_reference} className="text-xs font-normal text-muted-foreground" />
                   </td>
                   <td className="px-4 py-2 text-foreground/90">{order.partner_name}</td>
                   <td className="px-4 py-2 text-foreground/90">{abbreviate(order.main_product)}</td>

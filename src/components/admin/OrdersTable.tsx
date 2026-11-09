@@ -22,6 +22,8 @@ import { DELIVERY_STATE_LABEL, DELIVERY_STATE_VARIANT } from './deliveryMeta';
 import { STATUS_VARIANT } from './orderStatusMeta';
 import CompanyBadge from '../CompanyBadge';
 import { getSmartCompanyName } from '../../utils/customerNames';
+import CustomerPo from '../CustomerPo';
+import { getCustomerPo } from '../../services/customerPo';
 
 interface OrdersTableProps {
   orders: OdooSaleOrder[];
@@ -114,9 +116,28 @@ export default function OrdersTable({
       cell: ({ row }) => (
         <div className="font-mono-data">
           <span className="text-sm font-bold text-foreground">{row.original.name}</span>
-          {row.original.customer_reference && <div className="text-xs text-muted-foreground">PO: {row.original.customer_reference}</div>}
         </div>
       ),
+    }),
+    columnHelper.accessor(row => getCustomerPo(row.customer_reference) ?? '', {
+      id: 'customer_reference',
+      header: 'PO cliente',
+      cell: ({ row }) => (
+        <CustomerPo
+          reference={row.original.customer_reference}
+          prefix=""
+          className="font-mono-data text-sm text-foreground/90"
+        />
+      ),
+      // Ascendente: órdenes sin PO al final.
+      sortingFn: (a, b) => {
+        const pa = getCustomerPo(a.original.customer_reference);
+        const pb = getCustomerPo(b.original.customer_reference);
+        if (!pa && !pb) return 0;
+        if (!pa) return 1;
+        if (!pb) return -1;
+        return pa.localeCompare(pb, 'es', { numeric: true });
+      },
     }),
     columnHelper.accessor('partner_name', {
       id: 'partner_name',

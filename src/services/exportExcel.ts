@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx-js-style';
 import { format } from 'date-fns';
 import { OdooSaleOrder, getOrderStatus, OrderStatusLevel, parseOdooDate } from './odoo';
 import { collectPendingLines, getOrderMissingQty } from './pendingItems';
+import { formatCustomerPo } from './customerPo';
 
 const STATUS_LABEL: Record<OrderStatusLevel, string> = {
   overdue: 'Atrasada',
@@ -96,12 +97,13 @@ function buildSummarySheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
   return ws;
 }
 
-function buildOrdersSheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
-  const statuses = orders.map(o => getOrderStatus(o).level);
-  const data = orders.map(o => {
+/** Filas de la hoja «Órdenes» (datos puros, sin estilos). */
+export function buildOrderRows(orders: OdooSaleOrder[]) {
+  return orders.map(o => {
     const pendingDeliveries = (o.deliveries ?? []).filter(d => d.state !== 'done' && d.state !== 'cancel').length;
     return {
       'SO': o.name,
+      'PO cliente': formatCustomerPo(o.customer_reference),
       'Cliente': o.partner_name,
       'Producto': o.main_product,
       'Fecha Orden': dateStr(o.date_order),
@@ -113,17 +115,22 @@ function buildOrdersSheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
       'Remisiones pendientes': pendingDeliveries,
     };
   });
+}
+
+function buildOrdersSheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
+  const statuses = orders.map(o => getOrderStatus(o).level);
+  const data = buildOrderRows(orders);
   const ws = XLSX.utils.json_to_sheet(data);
-  applySheetChrome(ws, [14, 26, 34, 12, 12, 12, 9, 10, 8, 18]);
-  colorStatusColumn(ws, 5, data.length, statuses);
+  applySheetChrome(ws, [14, 18, 26, 34, 12, 12, 12, 9, 10, 8, 18]);
+  colorStatusColumn(ws, 6, data.length, statuses);
   return ws;
 }
 
-function buildPendingLinesSheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
-  const pendingLines = collectPendingLines(orders);
-  const statuses = pendingLines.map(pl => getOrderStatus(pl.order).level);
-  const data = pendingLines.map(pl => ({
+/** Filas de la hoja «Líneas pendientes» (datos puros, sin estilos). */
+export function buildPendingLineRows(orders: OdooSaleOrder[]) {
+  return collectPendingLines(orders).map(pl => ({
     'SO': pl.order.name,
+    'PO cliente': formatCustomerPo(pl.order.customer_reference),
     'Cliente': pl.order.partner_name,
     'Descripción': pl.line.name,
     'Cant.': pl.line.qty,
@@ -132,9 +139,14 @@ function buildPendingLinesSheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
     'Compromiso': dateStr(pl.order.commitment_date),
     'Estado': STATUS_LABEL[getOrderStatus(pl.order).level],
   }));
+}
+
+function buildPendingLinesSheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
+  const statuses = collectPendingLines(orders).map(pl => getOrderStatus(pl.order).level);
+  const data = buildPendingLineRows(orders);
   const ws = XLSX.utils.json_to_sheet(data);
-  applySheetChrome(ws, [14, 26, 40, 8, 10, 8, 12, 12]);
-  colorStatusColumn(ws, 7, data.length, statuses);
+  applySheetChrome(ws, [14, 18, 26, 40, 8, 10, 8, 12, 12]);
+  colorStatusColumn(ws, 8, data.length, statuses);
   return ws;
 }
 

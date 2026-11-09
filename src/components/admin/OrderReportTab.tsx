@@ -4,6 +4,7 @@ import { OdooSaleOrder, parseOdooDate } from '../../services/odoo';
 import { abbreviate } from '../../utils/abbreviate';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import CustomerPo from '../CustomerPo';
 
 interface OrderReportTabProps {
   orders: OdooSaleOrder[];
@@ -109,9 +110,7 @@ function ClientGroup({ client, orders }: { client: string; orders: OdooSaleOrder
         <tr key={order.id} className="align-top">
           <td className="whitespace-nowrap px-2 py-1.5 font-mono-data">
             {order.name}
-            {order.customer_reference && (
-              <div className="text-xs text-muted-foreground">PO: {order.customer_reference}</div>
-            )}
+            <CustomerPo reference={order.customer_reference} className="text-xs text-muted-foreground" />
           </td>
           <td className="whitespace-nowrap px-2 py-1.5 font-mono-data">{formatDate(order.date_order)}</td>
           <td className="px-2 py-1.5 text-right font-mono-data tabular-nums">{order.qty_total}</td>

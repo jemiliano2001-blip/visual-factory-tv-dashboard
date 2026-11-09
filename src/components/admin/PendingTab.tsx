@@ -11,6 +11,7 @@ import { abbreviate } from '../../utils/abbreviate';
 import { formatPONumber } from '../../utils/formatters';
 import { Badge } from '../ui/badge';
 import { STATUS_VARIANT } from './orderStatusMeta';
+import CustomerPo from '../CustomerPo';
 
 interface PendingTabProps {
   orders: OdooSaleOrder[];
@@ -135,7 +136,7 @@ function ClientGroup({
                 <tr key={`${pl.order.id}-${pl.line.name}-${i}`} className="hover:bg-accent/20">
                   <td className="whitespace-nowrap px-4 py-2 font-mono-data font-bold text-foreground">
                     {formatPONumber(pl.order.name)}
-                    {pl.order.customer_reference && <div className="text-xs font-normal text-muted-foreground">PO: {pl.order.customer_reference}</div>}
+                    <CustomerPo reference={pl.order.customer_reference} className="text-xs font-normal text-muted-foreground" />
                   </td>
                   <td className="px-4 py-2 text-foreground/90">{abbreviate(pl.line.name)}</td>
                   <td className="px-4 py-2 text-right font-mono-data font-bold tabular-nums text-primary">

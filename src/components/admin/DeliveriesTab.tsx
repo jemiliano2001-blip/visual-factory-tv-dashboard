@@ -12,6 +12,7 @@ import { Badge } from '../ui/badge';
 import { DELIVERY_STATE_LABEL, DELIVERY_STATE_VARIANT } from './deliveryMeta';
 import CompanyBadge from '../CompanyBadge';
 import { getSmartCompanyName } from '../../utils/customerNames';
+import CustomerPo from '../CustomerPo';
 
 interface DeliveriesTabProps {
   orders: OdooSaleOrder[];
@@ -90,7 +91,7 @@ export default function DeliveriesTab({ orders }: DeliveriesTabProps) {
                         <td className="whitespace-nowrap px-4 py-2 font-mono-data text-foreground/90">{r.delivery.name}</td>
                         <td className="whitespace-nowrap px-4 py-2 font-mono-data font-bold text-foreground">
                           {formatPONumber(r.order.name)}
-                          {r.order.customer_reference && <div className="text-xs font-normal text-muted-foreground">PO: {r.order.customer_reference}</div>}
+                          <CustomerPo reference={r.order.customer_reference} className="text-xs font-normal text-muted-foreground" />
                         </td>
                         <td className="px-4 py-2 text-foreground/90">
                           <div className="flex items-center gap-2">

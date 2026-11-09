@@ -10,6 +10,8 @@ import { useElementSize } from '../hooks/useElementSize';
 import SmartText from './SmartText';
 import { Badge } from './ui/badge';
 import { getSmartCompanyName } from '../utils/customerNames';
+import CustomerPo from './CustomerPo';
+import { getCustomerPo } from '../services/customerPo';
 
 export type ViewMode = 'tv' | 'desktop';
 export type ScreenTier = 'sm' | 'md' | 'lg' | 'xl';
@@ -82,7 +84,8 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
         width: cardWidth,
         height: cardHeight,
         lineCount: order.lines.length,
-        hasReference: !!order.customer_reference,
+        // El PO siempre ocupa su renglón (número o «—»).
+        hasReference: true,
         showPartner: !hidePartner,
         longestLineChars: order.lines.length
           ? Math.max(...order.lines.map(l => `${l.name} ${l.delivered}/${l.qty} ${l.unit ?? ''}`.length))
@@ -148,7 +151,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   const showDeliveries = fit ? fit.showDeliveries : !isDense && !isMobile;
   const iconSize = pick('icon', isDense ? 'h-3.5 w-3.5' : isLarge ? 'h-5 w-5' : 'h-4 w-4');
   const smallText = pick('small', isDense ? 'text-[10px]' : isLarge ? 'text-sm' : 'text-[11px]');
-  const cardLabel = `${order.name}${order.customer_reference ? `, PO ${order.customer_reference}` : ''}, ${order.partner_name}, ${progress}% de avance por partidas, ${statusLabel}, ${invoiceLabel}`;
+  const cardLabel = `${order.name}, PO ${getCustomerPo(order.customer_reference) ?? 'sin PO'}, ${order.partner_name}, ${progress}% de avance por partidas, ${statusLabel}, ${invoiceLabel}`;
 
   return (
     <motion.button
@@ -170,11 +173,11 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
           <h3 className={`${headingSize} truncate font-mono-data font-black tracking-tight text-white`}>
             {order.name}
           </h3>
-          {order.customer_reference && (
-            <p title={`PO del cliente: ${order.customer_reference}`} className={`mt-0.5 truncate font-mono-data text-zinc-400 ${pick('meta', isDense ? 'text-[10px]' : isLarge ? 'text-sm' : 'text-xs')}`}>
-              PO: {order.customer_reference}
-            </p>
-          )}
+          <CustomerPo
+            as="p"
+            reference={order.customer_reference}
+            className={`mt-0.5 truncate font-mono-data text-zinc-400 ${pick('meta', isDense ? 'text-[10px]' : isLarge ? 'text-sm' : 'text-xs')}`}
+          />
           {!hidePartner && (
             <SmartText
               text={getSmartCompanyName(order.partner_name, 'card')}
