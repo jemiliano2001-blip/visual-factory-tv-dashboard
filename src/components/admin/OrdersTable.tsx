@@ -23,7 +23,7 @@ import { STATUS_VARIANT } from './orderStatusMeta';
 import CompanyBadge from '../CompanyBadge';
 import { getSmartCompanyName } from '../../utils/customerNames';
 import CustomerPo from '../CustomerPo';
-import { getCustomerPo } from '../../services/customerPo';
+import { compareCustomerPo, getCustomerPo } from '../../services/customerPo';
 
 interface OrdersTableProps {
   orders: OdooSaleOrder[];
@@ -130,14 +130,7 @@ export default function OrdersTable({
         />
       ),
       // Ascendente: órdenes sin PO al final.
-      sortingFn: (a, b) => {
-        const pa = getCustomerPo(a.original.customer_reference);
-        const pb = getCustomerPo(b.original.customer_reference);
-        if (!pa && !pb) return 0;
-        if (!pa) return 1;
-        if (!pb) return -1;
-        return pa.localeCompare(pb, 'es', { numeric: true });
-      },
+      sortingFn: (a, b) => compareCustomerPo(a.original.customer_reference, b.original.customer_reference),
     }),
     columnHelper.accessor('partner_name', {
       id: 'partner_name',

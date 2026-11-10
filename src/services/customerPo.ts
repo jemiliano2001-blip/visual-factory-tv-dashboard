@@ -20,3 +20,16 @@ export function getCustomerPo(ref: string | null | undefined): string | null {
 export function formatCustomerPo(ref: string | null | undefined): string {
   return getCustomerPo(ref) ?? NO_CUSTOMER_PO;
 }
+
+/**
+ * Orden ascendente por PO del cliente: numérico-aware y las órdenes sin PO al
+ * final. (En descendente TanStack invierte el resultado, así que quedan arriba.)
+ */
+export function compareCustomerPo(a: string | null | undefined, b: string | null | undefined): number {
+  const pa = getCustomerPo(a);
+  const pb = getCustomerPo(b);
+  if (!pa && !pb) return 0;
+  if (!pa) return 1;
+  if (!pb) return -1;
+  return pa.localeCompare(pb, 'es', { numeric: true });
+}
