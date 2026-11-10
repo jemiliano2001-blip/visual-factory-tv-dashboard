@@ -8,6 +8,19 @@ import * as XLSX from 'xlsx-js-style';
 import { format } from 'date-fns';
 import { OdooSaleOrder, getOrderStatus, OrderStatusLevel, parseOdooDate } from './odoo';
 import { collectPendingLines, getOrderMissingQty } from './pendingItems';
+import { extractOrderNoteMeta } from './orderNoteParser';
+
+type EngineerNameOf = (order: OdooSaleOrder) => string | null;
+
+/** Columnas PO / Requisitor / Ingeniero SMV que van tras el cliente en cada hoja. */
+function poColumns(order: OdooSaleOrder, engineerNameOf: EngineerNameOf) {
+  const { poNumber, clientContact } = extractOrderNoteMeta(order);
+  return {
+    'PO': poNumber ? `PO.${poNumber}` : 'Sin PO',
+    'Requisitor': clientContact ?? '',
+    'Ingeniero SMV': engineerNameOf(order) ?? 'Sin asignar',
+  };
+}
 
 const STATUS_LABEL: Record<OrderStatusLevel, string> = {
   overdue: 'Atrasada',
@@ -96,13 +109,14 @@ function buildSummarySheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
   return ws;
 }
 
-function buildOrdersSheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
+function buildOrdersSheet(orders: OdooSaleOrder[], engineerNameOf: EngineerNameOf): XLSX.WorkSheet {
   const statuses = orders.map(o => getOrderStatus(o).level);
   const data = orders.map(o => {
     const pendingDeliveries = (o.deliveries ?? []).filter(d => d.state !== 'done' && d.state !== 'cancel').length;
     return {
       'SO': o.name,
       'Cliente': o.partner_name,
+      ...poColumns(o, engineerNameOf),
       'Producto': o.main_product,
       'Fecha Orden': dateStr(o.date_order),
       'Compromiso': dateStr(o.commitment_date),
@@ -114,17 +128,18 @@ function buildOrdersSheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
     };
   });
   const ws = XLSX.utils.json_to_sheet(data);
-  applySheetChrome(ws, [14, 26, 34, 12, 12, 12, 9, 10, 8, 18]);
-  colorStatusColumn(ws, 5, data.length, statuses);
+  applySheetChrome(ws, [14, 26, 16, 22, 18, 34, 12, 12, 12, 9, 10, 8, 18]);
+  colorStatusColumn(ws, 8, data.length, statuses);
   return ws;
 }
 
-function buildPendingLinesSheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
+function buildPendingLinesSheet(orders: OdooSaleOrder[], engineerNameOf: EngineerNameOf): XLSX.WorkSheet {
   const pendingLines = collectPendingLines(orders);
   const statuses = pendingLines.map(pl => getOrderStatus(pl.order).level);
   const data = pendingLines.map(pl => ({
     'SO': pl.order.name,
     'Cliente': pl.order.partner_name,
+    ...poColumns(pl.order, engineerNameOf),
     'Descripción': pl.line.name,
     'Cant.': pl.line.qty,
     'Entregado': pl.line.delivered,
@@ -133,25 +148,26 @@ function buildPendingLinesSheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
     'Estado': STATUS_LABEL[getOrderStatus(pl.order).level],
   }));
   const ws = XLSX.utils.json_to_sheet(data);
-  applySheetChrome(ws, [14, 26, 40, 8, 10, 8, 12, 12]);
-  colorStatusColumn(ws, 7, data.length, statuses);
+  applySheetChrome(ws, [14, 26, 16, 22, 18, 40, 8, 10, 8, 12, 12]);
+  colorStatusColumn(ws, 10, data.length, statuses);
   return ws;
 }
 
-function buildDeliveriesSheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
+function buildDeliveriesSheet(orders: OdooSaleOrder[], engineerNameOf: EngineerNameOf): XLSX.WorkSheet {
   const rows = orders.flatMap(o =>
     (o.deliveries ?? [])
       .filter(d => d.state !== 'cancel')
       .map(d => ({
         'SO': o.name,
         'Cliente': o.partner_name,
+        ...poColumns(o, engineerNameOf),
         'Remisión': d.name,
         'Estado': d.state,
         'Fecha': dateStr(d.date_done),
       }))
   );
   const ws = XLSX.utils.json_to_sheet(rows);
-  applySheetChrome(ws, [14, 26, 18, 14, 12]);
+  applySheetChrome(ws, [14, 26, 16, 22, 18, 18, 14, 12]);
   return ws;
 }
 
@@ -159,17 +175,19 @@ interface ExportOptions {
   /** Órdenes a exportar. Si se pasa `selectedIds`, solo se exportan esas. */
   orders: OdooSaleOrder[];
   selectedIds?: Set<number> | null;
+  /** Nombre del ingeniero SMV asignado a la orden (null = sin asignar). */
+  getEngineerName: EngineerNameOf;
 }
 
-export function exportOrdersToExcel({ orders, selectedIds }: ExportOptions): void {
+export function exportOrdersToExcel({ orders, selectedIds, getEngineerName }: ExportOptions): void {
   const scoped = selectedIds && selectedIds.size > 0
     ? orders.filter(o => selectedIds.has(o.id))
     : orders;
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, buildSummarySheet(scoped), 'Resumen');
-  XLSX.utils.book_append_sheet(wb, buildOrdersSheet(scoped), 'Órdenes');
-  XLSX.utils.book_append_sheet(wb, buildPendingLinesSheet(scoped), 'Líneas pendientes');
-  XLSX.utils.book_append_sheet(wb, buildDeliveriesSheet(scoped), 'Remisiones');
+  XLSX.utils.book_append_sheet(wb, buildOrdersSheet(scoped, getEngineerName), 'Órdenes');
+  XLSX.utils.book_append_sheet(wb, buildPendingLinesSheet(scoped, getEngineerName), 'Líneas pendientes');
+  XLSX.utils.book_append_sheet(wb, buildDeliveriesSheet(scoped, getEngineerName), 'Remisiones');
   XLSX.writeFile(wb, `ordenes_odoo_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);
 }

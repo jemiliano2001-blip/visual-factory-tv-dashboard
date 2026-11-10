@@ -12,12 +12,14 @@ import { abbreviate } from '../../utils/abbreviate';
 import { formatPONumber } from '../../utils/formatters';
 import { Badge } from '../ui/badge';
 import { STATUS_VARIANT } from './orderStatusMeta';
+import { OrderPoEngineer } from './OrdersTable';
 
 interface AgendaTabProps {
   orders: OdooSaleOrder[];
+  getEngineerName: (order: OdooSaleOrder) => string | null;
 }
 
-export default function AgendaTab({ orders }: AgendaTabProps) {
+export default function AgendaTab({ orders, getEngineerName }: AgendaTabProps) {
   // Las atrasadas suelen ser muchas: arrancan cerradas para ver primero lo que viene.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ overdue: true });
   const groups = useMemo(() => buildAgenda(orders), [orders]);
@@ -40,13 +42,19 @@ export default function AgendaTab({ orders }: AgendaTabProps) {
           group={group}
           collapsed={!!collapsed[group.key]}
           onToggle={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}
+          getEngineerName={getEngineerName}
         />
       ))}
     </div>
   );
 }
 
-function DayGroup({ group, collapsed, onToggle }: { group: AgendaGroup; collapsed: boolean; onToggle: () => void }) {
+function DayGroup({ group, collapsed, onToggle, getEngineerName }: {
+  group: AgendaGroup;
+  collapsed: boolean;
+  onToggle: () => void;
+  getEngineerName: (order: OdooSaleOrder) => string | null;
+}) {
   const pieces = group.orders.reduce((sum, o) => sum + getOrderMissingQty(o), 0);
   const tone = group.kind === 'overdue' ? 'text-destructive' : 'text-foreground';
 
@@ -72,6 +80,7 @@ function DayGroup({ group, collapsed, onToggle }: { group: AgendaGroup; collapse
           <thead className="text-xs font-medium text-muted-foreground">
             <tr>
               <th className="px-4 py-2 text-left font-medium">SO</th>
+              <th className="px-4 py-2 text-left font-medium">PO / Ingeniero</th>
               <th className="px-4 py-2 text-left font-medium">Cliente</th>
               <th className="px-4 py-2 text-left font-medium">Producto</th>
               <th className="px-4 py-2 text-right font-medium">Faltan</th>
@@ -87,7 +96,9 @@ function DayGroup({ group, collapsed, onToggle }: { group: AgendaGroup; collapse
                 <tr key={order.id} className="hover:bg-accent/20">
                   <td className="whitespace-nowrap px-4 py-2 font-mono-data font-bold text-foreground">
                     {formatPONumber(order.name)}
-                    {order.customer_reference && <div className="text-xs font-normal text-muted-foreground">PO: {order.customer_reference}</div>}
+                  </td>
+                  <td className="px-4 py-2">
+                    <OrderPoEngineer order={order} engineerName={getEngineerName(order)} />
                   </td>
                   <td className="px-4 py-2 text-foreground/90">{order.partner_name}</td>
                   <td className="px-4 py-2 text-foreground/90">{abbreviate(order.main_product)}</td>

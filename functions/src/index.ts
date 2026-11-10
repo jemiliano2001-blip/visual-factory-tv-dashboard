@@ -3,6 +3,10 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import express, { NextFunction, Request, Response } from 'express';
 import { OdooClient } from '../../shared/odooClient';
+import { esTokenAnonimo } from '../../shared/firebaseTokenPolicy';
+import {
+  applyOrderAssignmentsMutation, normalizeOrderAssignments, parseOrderAssignmentsPatch,
+} from '../../shared/orderAssignments';
 import {
   checkThresholds,
   checkEvents,
@@ -72,6 +76,16 @@ app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// Las asignaciones a ingenieros son de uso interno: la sesión anónima de la TV no entra.
+app.use('/api/order-assignments', (req: Request, res: Response, next: NextFunction) => {
+  const token = req.headers.authorization?.replace('Bearer ', '') ?? '';
+  if (esTokenAnonimo(token)) {
+    res.status(403).json({ error: 'Se requiere una cuenta de personal SMV; las sesiones anónimas no tienen acceso.' });
+    return;
+  }
+  next();
+});
+
 // ─── Odoo (módulo compartido con server.ts) ───────────────────────────
 const odooClient = new OdooClient({
   url: process.env.ODOO_URL ?? '',
@@ -104,6 +118,49 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
     res.json({ orders, total: orders.length, truncated, lastUpdated: new Date().toISOString() });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err), orders: [] });
+  }
+});
+
+// ─── Asignación de órdenes a ingenieros SMV ───────────────────────────────────
+const assignmentsDoc = () => admin.firestore().doc('visual_factory_state/order_assignments');
+
+app.get('/api/order-assignments', async (_req: Request, res: Response) => {
+  try {
+    res.json(normalizeOrderAssignments((await assignmentsDoc().get()).data()));
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/order-assignments', async (req: Request, res: Response) => {
+  let patch;
+  try {
+    patch = parseOrderAssignmentsPatch(req.body);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  let validationError: string | null = null;
+  try {
+    const next = await admin.firestore().runTransaction(async tx => {
+      const current = normalizeOrderAssignments((await tx.get(assignmentsDoc())).data());
+      let updated;
+      try {
+        updated = applyOrderAssignmentsMutation(current, patch);
+      } catch (err) {
+        validationError = err instanceof Error ? err.message : String(err);
+        return null;
+      }
+      tx.set(assignmentsDoc(), updated);
+      return updated;
+    });
+    if (validationError !== null) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+    res.json(next);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

@@ -1,12 +1,12 @@
 import { format } from 'date-fns';
-import { FileText, Printer } from 'lucide-react';
 import { OdooSaleOrder, parseOdooDate } from '../../services/odoo';
 import { abbreviate } from '../../utils/abbreviate';
-import { Button } from '../ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { extractOrderNoteMeta } from '../../services/orderNoteParser';
+import { Card, CardContent } from '../ui/card';
 
 interface OrderReportTabProps {
   orders: OdooSaleOrder[];
+  getEngineerName: (order: OdooSaleOrder) => string | null;
 }
 
 function formatDate(value: string): string {
@@ -14,19 +14,13 @@ function formatDate(value: string): string {
   return date ? format(date, 'dd/MM/yyyy') : 'Sin fecha';
 }
 
-/** Términos vienen como HTML de Odoo — para la tabla solo queremos el texto plano. */
-function stripHtml(html: string | null): string {
-  if (!html) return '';
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  return doc.body.textContent?.replace(/\s+/g, ' ').trim() || '';
-}
-
 /** Corta a `max` caracteres con elipsis solo cuando realmente corta. */
 function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max).trimEnd() + '…' : text;
 }
 
-export default function OrderReportTab({ orders }: OrderReportTabProps) {
+/** Tabla formal para imprimir / PDF; AdminPanel la monta oculta en pantalla (`hidden print:block`). */
+export default function OrderReportTab({ orders, getEngineerName }: OrderReportTabProps) {
   const groups = new Map<string, OdooSaleOrder[]>();
   for (const order of orders) {
     const list = groups.get(order.partner_name) ?? [];
@@ -34,85 +28,64 @@ export default function OrderReportTab({ orders }: OrderReportTabProps) {
     groups.set(order.partner_name, list);
   }
 
-  return (
-    <div className="space-y-4">
-      <Card className="order-report-no-print">
-        <CardHeader>
-          <CardTitle>Reporte de órdenes</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="font-mono-data text-3xl font-bold text-foreground">{orders.length}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Órdenes incluidas en el reporte — respeta los filtros activos en la pestaña Órdenes.
-            </p>
-          </div>
-          <Button type="button" onClick={() => window.print()} disabled={orders.length === 0}>
-            <Printer /> Imprimir / PDF
-          </Button>
-        </CardContent>
-      </Card>
+  if (orders.length === 0) return null;
 
-      {orders.length === 0 ? (
-        <Card className="order-report-no-print min-h-[360px]">
-          <CardContent className="flex min-h-[360px] flex-col items-center justify-center text-center text-muted-foreground">
-            <FileText className="mb-3 size-10 text-primary" />
-            <p className="font-semibold text-foreground">No hay órdenes que coincidan con los filtros actuales.</p>
-            <p className="mt-1 max-w-md text-sm">
-              Ajusta los filtros en la pestaña Órdenes para incluir órdenes en este reporte.
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="order-report-printable">
-          <CardContent className="pt-5">
-            <div className="mb-4 border-b border-border pb-3 text-center">
-              <h2 className="text-lg font-bold text-foreground">
-                Reporte de órdenes al {format(new Date(), 'dd/MM/yyyy')}
-              </h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {orders.length} órdenes · {groups.size} clientes
-              </p>
-            </div>
-            <table className="order-report-table w-full text-sm">
-              <thead>
-                <tr className="border-b-2 border-border text-xs font-medium text-muted-foreground">
-                  <th className="px-2 py-1.5 text-left">Referencia</th>
-                  <th className="px-2 py-1.5 text-left">Creado el</th>
-                  <th className="px-2 py-1.5 text-right">Cant.</th>
-                  <th className="px-2 py-1.5 text-left">Descripción</th>
-                  <th className="px-2 py-1.5 text-left">Términos y condiciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {Array.from(groups.entries()).map(([client, clientOrders]) => (
-                  <ClientGroup key={client} client={client} orders={clientOrders} />
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+  return (
+    <Card className="order-report-printable">
+      <CardContent className="pt-5">
+        <div className="mb-4 border-b border-border pb-3 text-center">
+          <h2 className="text-lg font-bold text-foreground">
+            Reporte de órdenes al {format(new Date(), 'dd/MM/yyyy')}
+          </h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {orders.length} órdenes · {groups.size} clientes
+          </p>
+        </div>
+        <table className="order-report-table w-full text-sm">
+          <thead>
+            <tr className="border-b-2 border-border text-xs font-medium text-muted-foreground">
+              <th className="px-2 py-1.5 text-left">Referencia</th>
+              <th className="px-2 py-1.5 text-left">PO / Requisitor</th>
+              <th className="px-2 py-1.5 text-left">Ingeniero SMV</th>
+              <th className="px-2 py-1.5 text-left">Creado el</th>
+              <th className="px-2 py-1.5 text-right">Cant.</th>
+              <th className="px-2 py-1.5 text-left">Descripción</th>
+              <th className="px-2 py-1.5 text-left">Términos y condiciones</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {Array.from(groups.entries()).map(([client, clientOrders]) => (
+              <ClientGroup key={client} client={client} orders={clientOrders} getEngineerName={getEngineerName} />
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
   );
 }
 
-function ClientGroup({ client, orders }: { client: string; orders: OdooSaleOrder[] }) {
+function ClientGroup({ client, orders, getEngineerName }: {
+  client: string;
+  orders: OdooSaleOrder[];
+  getEngineerName: (order: OdooSaleOrder) => string | null;
+}) {
   return (
     <>
       <tr className="order-report-group bg-muted/50">
-        <td colSpan={5} className="px-2 py-1.5 font-bold text-foreground">
+        <td colSpan={7} className="px-2 py-1.5 font-bold text-foreground">
           {client} ({orders.length})
         </td>
       </tr>
-      {orders.map(order => (
+      {orders.map(order => {
+        const { poNumber, clientContact, cleanNote } = extractOrderNoteMeta(order);
+        return (
         <tr key={order.id} className="align-top">
-          <td className="whitespace-nowrap px-2 py-1.5 font-mono-data">
-            {order.name}
-            {order.customer_reference && (
-              <div className="text-xs text-muted-foreground">PO: {order.customer_reference}</div>
-            )}
+          <td className="whitespace-nowrap px-2 py-1.5 font-mono-data">{order.name}</td>
+          <td className="px-2 py-1.5 font-mono-data">
+            {poNumber ? `PO.${poNumber}` : 'Sin PO'}
+            {clientContact && <div className="text-xs text-muted-foreground">Req: {clientContact}</div>}
           </td>
+          <td className="px-2 py-1.5">{getEngineerName(order) ?? 'Sin asignar'}</td>
           <td className="whitespace-nowrap px-2 py-1.5 font-mono-data">{formatDate(order.date_order)}</td>
           <td className="px-2 py-1.5 text-right font-mono-data tabular-nums">{order.qty_total}</td>
           <td className="px-2 py-1.5 text-foreground/90">
@@ -122,10 +95,11 @@ function ClientGroup({ client, orders }: { client: string; orders: OdooSaleOrder
             )}
           </td>
           <td className="px-2 py-1.5 text-xs text-muted-foreground">
-            {truncate(abbreviate(stripHtml(order.note)), 90)}
+            {truncate(abbreviate(cleanNote), 90)}
           </td>
         </tr>
-      ))}
+        );
+      })}
     </>
   );
 }

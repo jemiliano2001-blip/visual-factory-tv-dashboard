@@ -40,3 +40,5 @@ graphify-out/
 .windsurf/
 .superpowers/
 .migration/
+
+.local-order-assignments.json

@@ -11,10 +11,13 @@
 
 import express, { Request, Response, NextFunction } from 'express';
 import * as dotenv from 'dotenv';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'node:path';
 import { OdooClient } from './shared/odooClient.ts';
 import { esTokenAnonimo } from './shared/firebaseTokenPolicy.ts';
+import {
+  applyOrderAssignmentsMutation, normalizeOrderAssignments, parseOrderAssignmentsPatch, type OrderAssignmentsPayload,
+} from './shared/orderAssignments.ts';
 
 // Carga .env.local primero (alta prioridad, no se sube a git),
 // luego .env como fallback — mismo orden que Vite en desarrollo local.
@@ -190,6 +193,50 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[Odoo] Error al obtener órdenes:', msg);
     res.status(500).json({ error: msg, orders: [] });
+  }
+});
+
+// ─── Asignación de órdenes a ingenieros SMV ───────────────────────────────────
+// Persistencia local en archivo (ignorado por git); en Firebase vive en Firestore.
+const ASSIGNMENTS_FILE = resolve(process.cwd(), '.local-order-assignments.json');
+
+function readAssignments(): OrderAssignmentsPayload {
+  try {
+    return normalizeOrderAssignments(JSON.parse(readFileSync(ASSIGNMENTS_FILE, 'utf-8')));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return normalizeOrderAssignments(null);
+    throw err;
+  }
+}
+
+app.get('/api/order-assignments', (_req: Request, res: Response) => {
+  try {
+    res.json(readAssignments());
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/order-assignments', (req: Request, res: Response) => {
+  let current: OrderAssignmentsPayload;
+  let next: OrderAssignmentsPayload;
+  try {
+    current = readAssignments();
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  try {
+    next = applyOrderAssignmentsMutation(current, parseOrderAssignmentsPatch(req.body));
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  try {
+    writeFileSync(ASSIGNMENTS_FILE, JSON.stringify(next, null, 2));
+    res.json(next);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

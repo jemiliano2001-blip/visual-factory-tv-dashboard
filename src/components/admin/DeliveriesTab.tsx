@@ -12,9 +12,11 @@ import { Badge } from '../ui/badge';
 import { DELIVERY_STATE_LABEL, DELIVERY_STATE_VARIANT } from './deliveryMeta';
 import CompanyBadge from '../CompanyBadge';
 import { getSmartCompanyName } from '../../utils/customerNames';
+import { OrderPoEngineer } from './OrdersTable';
 
 interface DeliveriesTabProps {
   orders: OdooSaleOrder[];
+  getEngineerName: (order: OdooSaleOrder) => string | null;
 }
 
 interface DeliveryRow {
@@ -29,7 +31,7 @@ const SECTIONS: { states: string[]; title: string; defaultCollapsed: boolean }[]
   { states: ['done'], title: 'Entregado', defaultCollapsed: true },
 ];
 
-export default function DeliveriesTab({ orders }: DeliveriesTabProps) {
+export default function DeliveriesTab({ orders, getEngineerName }: DeliveriesTabProps) {
   const rows = useMemo(() => {
     const list: DeliveryRow[] = [];
     for (const order of orders) {
@@ -77,6 +79,7 @@ export default function DeliveriesTab({ orders }: DeliveriesTabProps) {
                   <tr>
                     <th className="px-4 py-2 text-left font-medium">Remisión</th>
                     <th className="px-4 py-2 text-left font-medium">SO</th>
+                    <th className="px-4 py-2 text-left font-medium">PO / Ingeniero</th>
                     <th className="px-4 py-2 text-left font-medium">Cliente</th>
                     <th className="px-4 py-2 text-left font-medium">Estado</th>
                     <th className="px-4 py-2 text-left font-medium">Fecha</th>
@@ -90,7 +93,9 @@ export default function DeliveriesTab({ orders }: DeliveriesTabProps) {
                         <td className="whitespace-nowrap px-4 py-2 font-mono-data text-foreground/90">{r.delivery.name}</td>
                         <td className="whitespace-nowrap px-4 py-2 font-mono-data font-bold text-foreground">
                           {formatPONumber(r.order.name)}
-                          {r.order.customer_reference && <div className="text-xs font-normal text-muted-foreground">PO: {r.order.customer_reference}</div>}
+                        </td>
+                        <td className="px-4 py-2">
+                          <OrderPoEngineer order={r.order} engineerName={getEngineerName(r.order)} />
                         </td>
                         <td className="px-4 py-2 text-foreground/90">
                           <div className="flex items-center gap-2">

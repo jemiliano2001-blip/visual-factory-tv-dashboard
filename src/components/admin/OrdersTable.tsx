@@ -18,22 +18,64 @@ import {
 import { getOrderMissingQty } from '../../services/pendingItems';
 import { Badge } from '../ui/badge';
 import { Checkbox } from '../ui/checkbox';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select';
 import { DELIVERY_STATE_LABEL, DELIVERY_STATE_VARIANT } from './deliveryMeta';
 import { STATUS_VARIANT } from './orderStatusMeta';
 import CompanyBadge from '../CompanyBadge';
 import { getSmartCompanyName } from '../../utils/customerNames';
+import { extractOrderNoteMeta } from '../../services/orderNoteParser';
+import type { EngineerRosterItem } from '../../../shared/orderAssignments';
 
 interface OrdersTableProps {
   orders: OdooSaleOrder[];
   groupByClient: boolean;
   rowSelection: RowSelectionState;
   onRowSelectionChange: (selection: RowSelectionState) => void;
+  engineers: EngineerRosterItem[];
+  getEngineerId: (order: OdooSaleOrder) => string | null;
+  /** Asigna (o desasigna con null) las SO indicadas por nombre. */
+  onAssign: (orderKeys: string[], engineerId: string | null) => void;
+}
+
+const UNASSIGNED = '__unassigned__';
+
+/** PO de la compañía y SMV a cargo, para pintar bajo la SO en Pendientes, Agenda y Entregas. */
+export function OrderPoEngineer({ order, engineerName }: { order: OdooSaleOrder; engineerName?: string | null }) {
+  const { poNumber } = extractOrderNoteMeta(order);
+  return (
+    <>
+      {poNumber && <div className="font-mono-data text-xs font-bold text-data">PO.{poNumber}</div>}
+      <div className="text-xs font-normal text-muted-foreground">Ing: {engineerName ?? 'Sin asignar'}</div>
+    </>
+  );
+}
+
+/** Selector directo de ingeniero SMV; compartido por la tabla y la barra de lote. */
+export function EngineerSelect({ engineers, value, onChange, ariaLabel, className }: {
+  engineers: EngineerRosterItem[];
+  value: string | null;
+  onChange: (engineerId: string | null) => void;
+  ariaLabel: string;
+  className?: string;
+}) {
+  const label = engineers.find(e => e.id === value)?.name ?? 'Sin asignar';
+  return (
+    <Select value={value ?? UNASSIGNED} onValueChange={v => onChange(v && v !== UNASSIGNED ? v : null)}>
+      <SelectTrigger aria-label={ariaLabel} className={`min-h-11 min-w-[160px] ${className ?? ''}`}>
+        <SelectValue>{label}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={UNASSIGNED}>Sin asignar</SelectItem>
+        {engineers.map(e => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  );
 }
 
 const columnHelper = createColumnHelper<OdooSaleOrder>();
 
 export default function OrdersTable({
-  orders, groupByClient, rowSelection, onRowSelectionChange,
+  orders, groupByClient, rowSelection, onRowSelectionChange, engineers, getEngineerId, onAssign,
 }: OrdersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'commitment_date', desc: false }]);
   const [expanded, setExpanded] = useState<ExpandedState>({});
@@ -49,6 +91,17 @@ export default function OrdersTable({
     }
     return Array.from(byClient.values()).flat();
   }, [orders, groupByClient]);
+
+  const groupStats = useMemo(() => {
+    const stats = new Map<string, { orders: number; missing: number }>();
+    for (const o of orders) {
+      const s = stats.get(o.partner_name) ?? { orders: 0, missing: 0 };
+      s.orders += 1;
+      s.missing += getOrderMissingQty(o);
+      stats.set(o.partner_name, s);
+    }
+    return stats;
+  }, [orders]);
 
   const columns = useMemo(() => [
     columnHelper.display({
@@ -83,44 +136,50 @@ export default function OrdersTable({
         </button>
       ),
     }),
-    columnHelper.accessor('date_order', {
-      id: 'date_order',
-      header: 'Fecha Orden',
-      meta: { className: 'hidden 2xl:table-cell' },
-      cell: info => {
-        const d = parseOdooDate(info.getValue());
-        return <span className="font-mono-data text-xs tabular-nums text-muted-foreground">{d ? format(d, 'dd/MM/yyyy') : '—'}</span>;
-      },
-    }),
-    columnHelper.accessor('commitment_date', {
-      id: 'commitment_date',
-      header: 'Compromiso',
-      cell: ({ row }) => {
-        const d = parseOdooDate(row.original.commitment_date);
-        const status = getOrderStatus(row.original);
-        return (
-          <span className={`font-mono-data text-xs tabular-nums ${status.level === 'overdue' ? 'font-bold text-destructive' : 'text-muted-foreground'}`}>
-            {d ? format(d, 'dd/MM/yyyy') : 'Sin fecha'}
-          </span>
-        );
-      },
-      sortingFn: (a, b) =>
-        (parseOdooDate(a.original.commitment_date)?.getTime() ?? Infinity) -
-        (parseOdooDate(b.original.commitment_date)?.getTime() ?? Infinity),
-    }),
     columnHelper.accessor('name', {
       id: 'name',
       header: 'SO',
+      cell: ({ row }) => {
+        const created = parseOdooDate(row.original.date_order);
+        return (
+          <div>
+            <span className="font-mono-data text-sm font-bold text-foreground">{row.original.name}</span>
+            <div className="font-mono-data text-xs tabular-nums text-muted-foreground">{created ? format(created, 'dd/MM/yyyy') : '—'}</div>
+          </div>
+        );
+      },
+    }),
+    columnHelper.display({
+      id: 'po',
+      header: 'PO de Compañía',
+      cell: ({ row }) => {
+        const { poNumber, clientContact } = extractOrderNoteMeta(row.original);
+        return (
+          <div>
+            {poNumber
+              ? <span className="font-mono-data text-sm font-bold text-data">PO.{poNumber}</span>
+              : <Badge variant="muted">Sin PO</Badge>}
+            {clientContact && <div className="text-xs text-muted-foreground">Req: {clientContact}</div>}
+          </div>
+        );
+      },
+    }),
+    columnHelper.display({
+      id: 'engineer',
+      header: 'Ingeniero SMV',
       cell: ({ row }) => (
-        <div className="font-mono-data">
-          <span className="text-sm font-bold text-foreground">{row.original.name}</span>
-          {row.original.customer_reference && <div className="text-xs text-muted-foreground">PO: {row.original.customer_reference}</div>}
-        </div>
+        <EngineerSelect
+          engineers={engineers}
+          value={getEngineerId(row.original)}
+          onChange={engineerId => onAssign([row.original.name], engineerId)}
+          ariaLabel={`Ingeniero de ${row.original.name}`}
+        />
       ),
     }),
     columnHelper.accessor('partner_name', {
       id: 'partner_name',
-      header: 'Cliente',
+      header: 'Compañía',
+      meta: { className: groupByClient ? 'hidden' : '' },
       cell: info => (
         <div className="flex items-center gap-2">
           <CompanyBadge company={info.getValue()} size="xs" />
@@ -130,18 +189,24 @@ export default function OrdersTable({
     }),
     columnHelper.accessor('main_product', {
       id: 'main_product',
-      header: 'Producto',
-      cell: info => <span className="line-clamp-1 max-w-[260px] text-sm text-muted-foreground">{info.getValue()}</span>,
+      header: 'Producto / Descripción',
+      cell: ({ row }) => (
+        <div className="max-w-[300px]">
+          <span className="line-clamp-2 text-sm text-foreground/90">{row.original.main_product}</span>
+          <span className="text-xs text-muted-foreground">{row.original.lines_count} {row.original.lines_count === 1 ? 'línea' : 'líneas'}</span>
+        </div>
+      ),
     }),
     columnHelper.display({
       id: 'progress',
-      header: 'Entrega',
+      header: 'Entrega / Falta',
       cell: ({ row }) => {
         const pct = getDeliveryProgress(row.original);
+        const missing = getOrderMissingQty(row.original);
         return (
-          <div className="min-w-[110px]">
+          <div className="min-w-[130px]">
             <div className="mb-1 flex justify-between font-mono-data text-xs tabular-nums text-muted-foreground">
-              <span>Por partidas</span>
+              <span>Entregado</span>
               <span>{pct}%</span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-muted">
@@ -150,31 +215,34 @@ export default function OrdersTable({
                 style={{ width: `${pct}%` }}
               />
             </div>
+            <div className="mt-1 text-sm">
+              <span className={`font-mono-data font-bold tabular-nums ${missing > 0 ? 'text-primary' : 'text-muted-foreground'}`}>{missing}</span>
+              <span className="text-xs text-muted-foreground"> por entregar</span>
+            </div>
           </div>
         );
       },
     }),
-    columnHelper.display({
-      id: 'missing',
-      header: 'Falta',
+    columnHelper.accessor('commitment_date', {
+      id: 'commitment_date',
+      header: 'Compromiso / Estado',
       cell: ({ row }) => {
-        const missing = getOrderMissingQty(row.original);
+        const d = parseOdooDate(row.original.commitment_date);
+        const status = getOrderStatus(row.original);
         return (
-          <span className={`font-mono-data text-sm font-bold tabular-nums ${missing > 0 ? 'text-primary' : 'text-muted-foreground'}`}>
-            {missing}
-          </span>
+          <div className="space-y-1">
+            <div className={`font-mono-data text-sm tabular-nums ${status.level === 'overdue' ? 'font-bold text-destructive' : 'text-muted-foreground'}`}>
+              {d ? format(d, 'dd/MM/yyyy') : 'Sin fecha'}
+            </div>
+            <Badge variant={STATUS_VARIANT[status.level]}>{status.label}</Badge>
+          </div>
         );
       },
+      sortingFn: (a, b) =>
+        (parseOdooDate(a.original.commitment_date)?.getTime() ?? Infinity) -
+        (parseOdooDate(b.original.commitment_date)?.getTime() ?? Infinity),
     }),
-    columnHelper.display({
-      id: 'status',
-      header: 'Estado',
-      cell: ({ row }) => {
-        const status = getOrderStatus(row.original);
-        return <Badge variant={STATUS_VARIANT[status.level]}>{status.label}</Badge>;
-      },
-    }),
-  ], []);
+  ], [groupByClient, engineers, getEngineerId, onAssign]);
 
   const table = useReactTable({
     data,
@@ -192,7 +260,19 @@ export default function OrdersTable({
     enableSortingRemoval: false,
   });
 
-  const rows = table.getRowModel().rows;
+  const sortedRows = table.getRowModel().rows;
+  const rows = useMemo(() => {
+    if (!groupByClient) return sortedRows;
+    // El orden por columna aplica dentro de cada compañía; las compañías quedan juntas
+    // en el orden de su primera fila ordenada.
+    const byClient = new Map<string, typeof sortedRows>();
+    for (const row of sortedRows) {
+      const list = byClient.get(row.original.partner_name) ?? [];
+      list.push(row);
+      byClient.set(row.original.partner_name, list);
+    }
+    return Array.from(byClient.values()).flat();
+  }, [sortedRows, groupByClient]);
   let lastClient: string | null = groupByClient ? null : undefined as unknown as string | null;
 
   return (
@@ -236,15 +316,19 @@ export default function OrdersTable({
                   <React.Fragment key={row.id}>
                     {showGroupHeader && (
                       <tr className="bg-muted/50">
-                        <td colSpan={columns.length} className="px-4 py-2 text-xs font-bold text-foreground">
-                          <div className="flex items-center gap-2">
+                        <td colSpan={columns.length} className="px-4 py-3 text-sm font-bold text-foreground">
+                          <div className="flex flex-wrap items-center gap-2">
                             <CompanyBadge company={row.original.partner_name} size="xs" />
                             <span>{getSmartCompanyName(row.original.partner_name, 'header')}</span>
+                            <span className="text-xs font-normal text-muted-foreground">
+                              {groupStats.get(row.original.partner_name)?.orders} órdenes ·{' '}
+                              <span className="font-mono-data font-semibold tabular-nums text-primary">{groupStats.get(row.original.partner_name)?.missing}</span> pzas pendientes
+                            </span>
                           </div>
                         </td>
                       </tr>
                     )}
-                    <tr className="transition-colors hover:bg-accent/40">
+                    <tr className="text-sm transition-colors hover:bg-accent/40">
                       {row.getVisibleCells().map(cell => (
                         <td key={cell.id} className={`px-3 py-3 ${(cell.column.columnDef.meta as { className?: string } | undefined)?.className ?? ''}`}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}

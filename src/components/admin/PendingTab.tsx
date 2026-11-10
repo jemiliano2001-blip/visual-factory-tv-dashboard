@@ -11,12 +11,14 @@ import { abbreviate } from '../../utils/abbreviate';
 import { formatPONumber } from '../../utils/formatters';
 import { Badge } from '../ui/badge';
 import { STATUS_VARIANT } from './orderStatusMeta';
+import { OrderPoEngineer } from './OrdersTable';
 
 interface PendingTabProps {
   orders: OdooSaleOrder[];
+  getEngineerName: (order: OdooSaleOrder) => string | null;
 }
 
-export default function PendingTab({ orders }: PendingTabProps) {
+export default function PendingTab({ orders, getEngineerName }: PendingTabProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const groups = useMemo(() => {
@@ -74,6 +76,7 @@ export default function PendingTab({ orders }: PendingTabProps) {
             lines={g.lines}
             collapsed={!!collapsed[g.client]}
             onToggle={() => toggle(g.client)}
+            getEngineerName={getEngineerName}
           />
         ))}
       </div>
@@ -91,7 +94,7 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: str
 }
 
 function ClientGroup({
-  client, orderCount, missingQty, lines, collapsed, onToggle,
+  client, orderCount, missingQty, lines, collapsed, onToggle, getEngineerName,
 }: {
   client: string;
   orderCount: number;
@@ -99,6 +102,7 @@ function ClientGroup({
   lines: PendingLine[];
   collapsed: boolean;
   onToggle: () => void;
+  getEngineerName: (order: OdooSaleOrder) => string | null;
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
@@ -121,6 +125,7 @@ function ClientGroup({
           <thead className="text-xs font-medium text-muted-foreground">
             <tr>
               <th className="px-4 py-2 text-left font-medium">SO</th>
+              <th className="px-4 py-2 text-left font-medium">PO / Ingeniero</th>
               <th className="px-4 py-2 text-left font-medium">Producto</th>
               <th className="px-4 py-2 text-right font-medium">Faltan</th>
               <th className="px-4 py-2 text-left font-medium">Compromiso</th>
@@ -135,7 +140,9 @@ function ClientGroup({
                 <tr key={`${pl.order.id}-${pl.line.name}-${i}`} className="hover:bg-accent/20">
                   <td className="whitespace-nowrap px-4 py-2 font-mono-data font-bold text-foreground">
                     {formatPONumber(pl.order.name)}
-                    {pl.order.customer_reference && <div className="text-xs font-normal text-muted-foreground">PO: {pl.order.customer_reference}</div>}
+                  </td>
+                  <td className="px-4 py-2">
+                    <OrderPoEngineer order={pl.order} engineerName={getEngineerName(pl.order)} />
                   </td>
                   <td className="px-4 py-2 text-foreground/90">{abbreviate(pl.line.name)}</td>
                   <td className="px-4 py-2 text-right font-mono-data font-bold tabular-nums text-primary">
