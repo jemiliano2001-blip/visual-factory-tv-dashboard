@@ -15,11 +15,8 @@ export interface OrderAssignmentsPayload {
   updatedAt: string;
 }
 
-export const DEFAULT_ENGINEERS: EngineerRosterItem[] = [
-  { id: 'edgar-castro', name: 'Edgar Castro' },
-  { id: 'antonio-vazquez', name: 'Antonio Vázquez' },
-  { id: 'rogelio', name: 'Rogelio' },
-];
+/** Sin ingenieros fijos: cada persona entra a la lista al asignarse una orden. */
+export const DEFAULT_ENGINEERS: EngineerRosterItem[] = [];
 
 const MIN_NAME = 2;
 const MAX_NAME = 50;

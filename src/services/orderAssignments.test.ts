@@ -10,8 +10,14 @@ test('normalize siempre incluye los ingenieros por defecto y filtra lo inválido
     engineers: [{ id: 'luis', name: 'Luis' }, { id: 'x', name: 'x' }, { id: 'rogelio', name: 'Otro' }, 7],
     assignments: { S01: 'luis', S02: 'fantasma', S03: 5 },
   });
-  assert.deepEqual(out.engineers.map(e => e.id), ['edgar-castro', 'antonio-vazquez', 'rogelio', 'luis']);
+  assert.deepEqual(out.engineers.map(e => e.id), ['luis', 'rogelio']);
   assert.deepEqual(out.assignments, { S01: 'luis' });
+});
+
+test('Edgar, Antonio y Rogelio ya no aparecen en la lista; sus asignaciones antiguas se descartan', () => {
+  assert.deepEqual(normalizeOrderAssignments(null).engineers, []);
+  const out = normalizeOrderAssignments({ assignments: { S01: 'rogelio', S02: 'edgar-castro', S03: 'antonio-vazquez' } });
+  assert.deepEqual(out.assignments, {});
 });
 
 test('claimOrders: cada quien se asigna a sí mismo y queda en la lista con su nombre', () => {
@@ -25,8 +31,8 @@ test('claimOrders: cada quien se asigna a sí mismo y queda en la lista con su n
   assert.equal(state.engineers.find(e => e.id === 'u-A1')?.name, 'Ana R.');
 });
 
-test('claimOrders: puede tomar una orden que tenía otra persona (incluida una del equipo anterior)', () => {
-  let state = normalizeOrderAssignments({ assignments: { S01: 'rogelio' } });
+test('claimOrders: puede tomar una orden que tenía otra persona', () => {
+  let state = normalizeOrderAssignments({ engineers: [{ id: 'u-C3', name: 'Carla' }], assignments: { S01: 'u-C3' } });
   state = claimOrders(state, { uid: 'B2', name: null, email: 'beto@smv.com' }, ['S01']);
   assert.equal(state.assignments.S01, 'u-B2');
   assert.equal(state.engineers.find(e => e.id === 'u-B2')?.name, 'beto@smv.com');
@@ -34,9 +40,10 @@ test('claimOrders: puede tomar una orden que tenía otra persona (incluida una d
 
 test('releaseOrders: solo suelta lo propio', () => {
   const ana = { uid: 'A1', name: 'Ana', email: null };
-  let state = claimOrders(normalizeOrderAssignments({ assignments: { S09: 'rogelio' } }), ana, ['S01']);
+  let state = normalizeOrderAssignments({ engineers: [{ id: 'u-C3', name: 'Carla' }], assignments: { S09: 'u-C3' } });
+  state = claimOrders(state, ana, ['S01']);
   state = releaseOrders(state, 'A1', ['S01', 'S09']);
-  assert.deepEqual(state.assignments, { S09: 'rogelio' });
+  assert.deepEqual(state.assignments, { S09: 'u-C3' });
 });
 
 test('claimOrders y parseOrderKeys validan la entrada', () => {

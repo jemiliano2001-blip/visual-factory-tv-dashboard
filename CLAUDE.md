@@ -108,7 +108,7 @@ Los ingenieros piden factura o remisión (parcial, por pieza y cantidad con +/�
 
 ## Asignación de órdenes
 
-Cada persona se asigna las órdenes a sí misma (Admin → Órdenes: "Asignármela" / "Soltar", y "Asignármelas" con varias seleccionadas). Endpoints `POST /api/order-assignments/claim` y `/release` con `{orderKeys}`; la identidad sale del token (en producción, con el nombre del operador del Hub) y entra a la lista como `u-<uid>`. Tomar una orden que tenía otra persona se permite y la reasigna; soltar solo quita lo propio. Ya no se puede asignar a otra persona ni agregar ingenieros a mano; Edgar, Antonio y Rogelio siguen en la lista (asignaciones antiguas y filtros). Lógica en `shared/orderAssignments.ts`.
+Cada persona se asigna las órdenes a sí misma (Admin → Órdenes: "Asignármela" / "Soltar", y "Asignármelas" con varias seleccionadas). Endpoints `POST /api/order-assignments/claim` y `/release` con `{orderKeys}`; la identidad sale del token (en producción, con el nombre del operador del Hub) y entra a la lista como `u-<uid>`. Tomar una orden que tenía otra persona se permite y la reasigna; soltar solo quita lo propio. Ya no se puede asignar a otra persona ni agregar ingenieros a mano. La lista fija (Edgar, Antonio, Rogelio) se quitó: `DEFAULT_ENGINEERS` está vacío y cada persona aparece al asignarse una orden. Las asignaciones antiguas a esos tres se descartan al leer, así que esas órdenes quedan en "Sin asignar". Lógica en `shared/orderAssignments.ts`.
 
 ## Auth & routing
 
