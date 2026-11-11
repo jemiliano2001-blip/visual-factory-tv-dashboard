@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import * as admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import express, { NextFunction, Request, Response } from 'express';
@@ -78,7 +79,9 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
 app.use('/api', crearAuthApi(verifyFirebaseToken));
 
 // Solo entran cuentas activas de SMV Hub (colección `usuarios`, mismo proyecto Firebase).
-const hubAccess = crearVerificadorHub(async uid => (await admin.firestore().doc(`usuarios/${uid}`).get()).data());
+// OJO: el Hub guarda `usuarios` en la base nombrada "compras-americanas", no en la "(default)" del dashboard.
+const hubDb = () => getFirestore(admin.app(), 'compras-americanas');
+const hubAccess = crearVerificadorHub(async uid => (await hubDb().doc(`usuarios/${uid}`).get()).data());
 app.use('/api', async (_req: Request, res: Response, next: NextFunction) => {
   const actor = res.locals.actor as RequestActor | undefined;
   if (!actor) { res.status(403).json({ error: 'Se requiere una cuenta de personal SMV.' }); return; }
