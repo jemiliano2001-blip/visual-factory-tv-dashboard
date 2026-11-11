@@ -10,10 +10,9 @@ import type { RowSelectionState } from '@tanstack/react-table';
 import { useOdooOrders } from '../hooks/useOdooOrders';
 import { getOrderStatus, type OdooSaleOrder } from '../services/odoo';
 import { createOrderSearchMatcher } from '../services/orderSearch';
-import type { OrderStatusFilter } from '../components/admin/orderStatusMeta';
 import {
-  DEFAULT_ADMIN_FILTERS, ORDER_VIEWS, UNASSIGNED_ENGINEER, parseAdminFilters, serializeAdminFilters,
-  type AdminFilters, type AdminTab, type OrderView,
+  DEFAULT_ADMIN_FILTERS, UNASSIGNED_ENGINEER, parseAdminFilters, serializeAdminFilters,
+  type AdminFilters,
 } from '../services/adminFilters';
 import {
   cacheAssignments, claimOrdersRemote, fetchOrderAssignments, loadCachedAssignments, releaseOrdersRemote,
@@ -25,7 +24,8 @@ import { auth } from '../firebase';
 import PendingTab from '../components/admin/PendingTab';
 import AgendaTab from '../components/admin/AgendaTab';
 import OrdersTable from '../components/admin/OrdersTable';
-import OrdersFilterBar from '../components/admin/OrdersFilterBar';
+import AdminToolbar from '../components/admin/AdminToolbar';
+import SelectionBar from '../components/admin/SelectionBar';
 import DeliveriesTab from '../components/admin/DeliveriesTab';
 import ConfigTab from '../components/admin/ConfigTab';
 import RequestsTab from '../components/admin/RequestsTab';
@@ -36,24 +36,16 @@ import { useInvoiceRequests } from '../hooks/useInvoiceRequests';
 import { pendingRequestsByOrder } from '../../shared/invoiceRequests';
 import OrderReportTab from '../components/admin/OrderReportTab';
 import { Button } from '../components/ui/button';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { getSection, hasActiveFilters, restoreSavedFilters, sectionFromFilters } from '../services/adminSections';
 import { TooltipProvider } from '../components/ui/tooltip';
 import {
-  Download, WifiOff, AlertTriangle, Loader2, RefreshCw, Table2, Settings, Truck, Users2,
-  Link2, Check, X, Printer, FileText,
+  WifiOff, AlertTriangle, Loader2, RefreshCw,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
 const SAVED_FILTERS_KEY = 'adminFilters';
 
-const TAB_CLASS = 'min-h-11 text-sm font-semibold';
 const BIG_BUTTON = 'min-h-11 px-4 text-sm font-semibold rounded-xl';
-
-const VIEW_LABEL: Record<OrderView, string> = {
-  company: 'Por Compañía',
-  agenda: 'Por Fecha / Agenda',
-  pending: 'Solo Piezas Pendientes',
-};
 
 /** Último filtro usado (sin pestaña): se restaura al entrar a /admin sin parámetros. */
 function readSavedFilters(): URLSearchParams | null {
@@ -83,21 +75,17 @@ export default function AdminPanel() {
   const { tab: activeTab, view, engineer: engineerFilter, search, client: clientFilter, status: statusFilter } = filters;
   const updateFilters = (patch: Partial<AdminFilters>) =>
     setParams(serializeAdminFilters({ ...filters, ...patch }), { replace: true });
-  const setActiveTab = (tab: AdminTab) => updateFilters({ tab });
-  const setView = (v: OrderView) => updateFilters({ view: v });
-  const setEngineerFilter = (engineer: string) => updateFilters({ engineer });
-  const setSearch = (q: string) => updateFilters({ search: q });
-  const setClientFilter = (client: string) => updateFilters({ client });
-  const setStatusFilter = (status: OrderStatusFilter) => updateFilters({ status });
-  const [linkCopied, setLinkCopied] = useState(false);
+  const section = sectionFromFilters(filters);
+  useEffect(() => { setRowSelection({}); }, [section]);
 
   const restoredRef = useRef(false);
   useEffect(() => {
     if (!restoredRef.current) {
       restoredRef.current = true;
       const saved = readSavedFilters();
-      if (params.size === 0 && saved && saved.size > 0) {
-        setParams(serializeAdminFilters({ ...parseAdminFilters(saved), tab: filters.tab }), { replace: true });
+      const restored = restoreSavedFilters(filters, saved ? parseAdminFilters(saved) : null);
+      if (restored) {
+        setParams(serializeAdminFilters(restored), { replace: true });
         return;
       }
     }
@@ -109,10 +97,6 @@ export default function AdminPanel() {
   const invoiceRequests = useInvoiceRequests();
   const pendingByOrder = useMemo(
     () => (invoiceRequests.data ? pendingRequestsByOrder(invoiceRequests.data) : undefined),
-    [invoiceRequests.data],
-  );
-  const pendingRequestCount = useMemo(
-    () => invoiceRequests.data?.requests.filter(r => r.status === 'pendiente').length ?? 0,
     [invoiceRequests.data],
   );
 
@@ -206,20 +190,10 @@ export default function AdminPanel() {
     [filteredOrders, rowSelection],
   );
   // La selección solo existe en Órdenes → Por Compañía; en otra pestaña o vista no cuenta.
-  const selectedCount = activeTab === 'orders' && view === 'company' ? selectedOrders.length : 0;
+  const selectedCount = section === 'company' ? selectedOrders.length : 0;
 
-  const hasActiveFilters = Boolean(search || clientFilter || engineerFilter || statusFilter !== 'all');
-  const clearFilters = () => updateFilters({ search: '', client: '', engineer: '', status: 'all' });
-
-  const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      setLinkCopied(true);
-      window.setTimeout(() => setLinkCopied(false), 2000);
-    } catch {
-      // portapapeles no disponible (p. ej. http sin permisos): la URL ya está en la barra
-    }
-  };
+  const filterEmpty = getSection(section).hasToolbar && !isLoading && orders.length > 0
+    && filteredOrders.length === 0 && hasActiveFilters(filters);
 
   const claimSelected = () => {
     claimForMe(selectedOrders.map(o => o.name));
@@ -239,18 +213,19 @@ export default function AdminPanel() {
   return (
     <TooltipProvider delayDuration={200}>
       <div className="min-h-screen bg-background font-sans text-foreground">
-        <div className="mx-auto max-w-[1600px] p-5 lg:p-8">
+        <div className={`mx-auto max-w-[1600px] p-5 lg:p-8 ${selectedCount > 0 ? 'pb-56 md:pb-28' : ''}`}>
           <div className="order-report-no-print space-y-5">
             {/* Cabecera */}
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                  Órdenes por facturar
+                  {getSection(section).label}
                 </h1>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Solo lectura, desde Odoo
-                  {lastUpdated && <> · actualizado <span className="font-mono-data tabular-nums">{format(new Date(lastUpdated), 'HH:mm')}</span></>}
-                </p>
+                {lastUpdated && (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Actualizado <span className="font-mono-data tabular-nums">{format(new Date(lastUpdated), 'HH:mm')}</span>
+                  </p>
+                )}
               </div>
               <Button type="button" variant="secondary" className={BIG_BUTTON} onClick={() => refetch()} disabled={isFetching}>
                 <RefreshCw className={isFetching ? 'animate-spin text-primary' : ''} />
@@ -274,126 +249,38 @@ export default function AdminPanel() {
               </div>
             )}
 
-            <Tabs value={activeTab} onValueChange={v => setActiveTab(v as AdminTab)}>
-              <TabsList>
-                <TabsTrigger value="orders" className={TAB_CLASS}><Table2 /> Órdenes y Seguimiento</TabsTrigger>
-                <TabsTrigger value="deliveries" className={TAB_CLASS}><Truck /> Entregas (Remisiones)</TabsTrigger>
-                <TabsTrigger value="requests" className={TAB_CLASS}><FileText /> Solicitudes{pendingRequestCount > 0 ? ` (${pendingRequestCount})` : ''}</TabsTrigger>
-                <TabsTrigger value="config" className={TAB_CLASS}><Settings /> Configuración</TabsTrigger>
-              </TabsList>
-
-              {(activeTab === 'orders' || activeTab === 'deliveries') && (
-                <div className="mt-5 space-y-3">
-                  {/* Apartado por diseñador / ingeniero */}
-                  <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filtrar por diseñador o ingeniero">
-                    <Button
-                      type="button"
-                      className={BIG_BUTTON}
-                      variant={engineerFilter === '' ? 'default' : 'secondary'}
-                      onClick={() => setEngineerFilter('')}
-                    >
-                      Todas ({orders.length})
-                    </Button>
-                    {team.engineers.map(e => (
-                      <Button
-                        key={e.id}
-                        type="button"
-                        className={BIG_BUTTON}
-                        variant={engineerFilter === e.id ? 'default' : 'secondary'}
-                        onClick={() => setEngineerFilter(e.id)}
-                      >
-                        {e.name} ({engineerCounts.counts.get(e.id) ?? 0})
-                      </Button>
-                    ))}
-                    <Button
-                      type="button"
-                      className={BIG_BUTTON}
-                      variant={engineerFilter === UNASSIGNED_ENGINEER ? 'default' : 'secondary'}
-                      onClick={() => setEngineerFilter(UNASSIGNED_ENGINEER)}
-                    >
-                      Sin asignar ({engineerCounts.unassigned})
-                    </Button>
-                  </div>
-
-                  {activeTab === 'orders' && (
-                    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Vista de órdenes">
-                      {ORDER_VIEWS.map(v => (
-                        <Button
-                          key={v}
-                          type="button"
-                          className={BIG_BUTTON}
-                          variant={view === v ? 'default' : 'secondary'}
-                          aria-pressed={view === v}
-                          onClick={() => setView(v)}
-                        >
-                          {VIEW_LABEL[v]}
-                        </Button>
-                      ))}
-                    </div>
-                  )}
-
-                  <OrdersFilterBar
-                    search={search}
-                    onSearchChange={setSearch}
-                    clientFilter={clientFilter}
-                    onClientFilterChange={setClientFilter}
+            <div>
+              {getSection(section).hasToolbar && (
+                <div className="mt-5">
+                  <AdminToolbar
+                    filters={filters}
+                    onChange={updateFilters}
                     clients={uniqueClients}
-                    statusFilter={statusFilter}
-                    onStatusFilterChange={setStatusFilter}
+                    engineers={team.engineers.map(e => ({ id: e.id, name: e.name, count: engineerCounts.counts.get(e.id) ?? 0 }))}
+                    totalCount={orders.length}
+                    unassignedCount={engineerCounts.unassigned}
+                    shownCount={filteredOrders.length}
+                    showGroupToggle={section === 'company'}
+                    groupByClient={groupByClient}
+                    onToggleGroup={() => setGroupByClient(g => !g)}
+                    onExport={handleExport}
+                    exportLabel={selectedCount > 0 ? `Excel (${selectedCount})` : 'Excel'}
+                    exportDisabled={filteredOrders.length === 0}
                   />
-
-                  {selectedCount > 0 && activeTab === 'orders' && view === 'company' && (
-                    <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-primary/30 bg-primary/10 p-3">
-                      <span className="text-sm font-semibold text-foreground">
-                        {selectedCount} {selectedCount === 1 ? 'orden seleccionada' : 'órdenes seleccionadas'}
-                      </span>
-                      <Button type="button" className={BIG_BUTTON} onClick={() => setRequestOpen(true)} disabled={selectedOrders.length === 0}>
-                        <FileText /> Pedir factura o remisión
-                      </Button>
-                      <Button type="button" variant="secondary" className={BIG_BUTTON} onClick={claimSelected} disabled={!me}>
-                        Asignármelas
-                      </Button>
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm text-muted-foreground">
-                      <span className="font-mono-data font-semibold tabular-nums text-foreground">{filteredOrders.length}</span> de{' '}
-                      <span className="font-mono-data tabular-nums">{orders.length}</span> órdenes
-                    </p>
-                    {hasActiveFilters && (
-                      <Button type="button" variant="ghost" className={BIG_BUTTON} onClick={clearFilters}>
-                        <X /> Limpiar filtros
-                      </Button>
-                    )}
-                    <div className="ml-auto flex flex-wrap gap-2">
-                      <Button type="button" variant="ghost" className={BIG_BUTTON} onClick={copyLink} title="Copiar un link a esta vista con sus filtros">
-                        {linkCopied ? <Check className="text-success" /> : <Link2 />}
-                        {linkCopied ? 'Link copiado' : 'Copiar link'}
-                      </Button>
-                      {activeTab === 'orders' && view === 'company' && (
-                        <Button
-                          type="button"
-                          className={BIG_BUTTON}
-                          variant={groupByClient ? 'default' : 'secondary'}
-                          aria-pressed={groupByClient}
-                          onClick={() => setGroupByClient(g => !g)}
-                        >
-                          <Users2 /> {groupByClient ? 'Lista plana' : 'Agrupar por compañía'}
-                        </Button>
-                      )}
-                      <Button type="button" variant="secondary" className={BIG_BUTTON} onClick={() => window.print()} disabled={filteredOrders.length === 0}>
-                        <Printer /> Imprimir / PDF
-                      </Button>
-                      <Button type="button" variant="secondary" className={BIG_BUTTON} onClick={handleExport} disabled={filteredOrders.length === 0}>
-                        <Download /> Excel{selectedCount > 0 ? ` (${selectedCount} seleccionadas)` : ''}
-                      </Button>
-                    </div>
-                  </div>
                 </div>
               )}
 
-              <TabsContent value="orders" className="mt-4">
+              {filterEmpty && (
+                <div className="mt-6 flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-12 text-center">
+                  <p className="text-base font-semibold text-foreground">Ninguna orden coincide con estos filtros</p>
+                  <Button type="button" variant="secondary" className={BIG_BUTTON} onClick={() => updateFilters({ search: '', client: '', engineer: '', status: 'all' })}>
+                    Limpiar filtros
+                  </Button>
+                </div>
+              )}
+
+              {!filterEmpty && activeTab === 'orders' && (
+              <div className="mt-4">
                 {isLoading ? (
                   <LoadingState />
                 ) : view === 'agenda' ? (
@@ -413,20 +300,19 @@ export default function AdminPanel() {
                     pendingByOrder={pendingByOrder}
                   />
                 )}
-              </TabsContent>
+              </div>
+              )}
 
-              <TabsContent value="deliveries" className="mt-4">
-                {isLoading ? <LoadingState /> : <DeliveriesTab orders={filteredOrders} getEngineerName={getEngineerName} />}
-              </TabsContent>
+              {!filterEmpty && activeTab === 'deliveries' && (
+                <div className="mt-4">
+                  {isLoading ? <LoadingState /> : <DeliveriesTab orders={filteredOrders} getEngineerName={getEngineerName} />}
+                </div>
+              )}
 
-              <TabsContent value="requests" className="mt-5">
-                <RequestsTab />
-              </TabsContent>
+              {activeTab === 'requests' && <div className="mt-5"><RequestsTab /></div>}
 
-              <TabsContent value="config" className="mt-5">
-                <ConfigTab companyNames={uniqueClients} />
-              </TabsContent>
-            </Tabs>
+              {activeTab === 'config' && <div className="mt-5"><ConfigTab companyNames={uniqueClients} /></div>}
+            </div>
           </div>
 
           {/* Tabla formal: solo se ve al imprimir, con las órdenes filtradas de cualquier vista. */}
@@ -434,6 +320,15 @@ export default function AdminPanel() {
             <OrderReportTab orders={filteredOrders} getEngineerName={getEngineerName} />
           </div>
         </div>
+
+        <SelectionBar
+          count={selectedCount}
+          onRequest={() => setRequestOpen(true)}
+          onClaim={claimSelected}
+          claimDisabled={!me}
+          onExport={handleExport}
+          onClear={() => setRowSelection({})}
+        />
 
         <RequestDialog
           orders={selectedOrders}

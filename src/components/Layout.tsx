@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { auth } from '../firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { LayoutDashboard, BarChart3, LogOut, Tv } from 'lucide-react';
+import { AdminSidebarSections, AdminMobileNav } from './admin/AdminNav';
 import { Button } from './ui/button';
 
 export default function Layout() {
@@ -74,7 +75,7 @@ export default function Layout() {
 
         {/* Navegación */}
         <nav className="flex-1 space-y-1 px-3 py-5">
-          {navItem('/admin', <LayoutDashboard className="size-[18px]" />, 'Órdenes')}
+          <AdminSidebarSections />
           {navItem('/stats', <BarChart3 className="size-[18px]" />, 'Estadísticas')}
 
           <div className="mt-4 border-t border-border pt-4">
@@ -127,7 +128,8 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      {/* Barra de navegación inferior — solo en móvil */}
+      {/* Barra de navegación inferior — solo en móvil. En /admin: secciones del Admin. */}
+      {location.pathname === '/admin' ? <AdminMobileNav /> : (
       <nav
         className="fixed bottom-0 inset-x-0 z-30 flex md:hidden backdrop-blur-2xl"
         style={{ backgroundColor: 'rgba(10,10,16,0.93)', borderTop: '1px solid rgba(255,255,255,0.07)' }}
@@ -165,6 +167,7 @@ export default function Layout() {
           <span className="text-[11px] font-medium">TV Live</span>
         </Link>
       </nav>
+      )}
     </div>
   );
 }

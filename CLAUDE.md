@@ -100,6 +100,8 @@ El compromiso de cada orden sale del plazo escrito en su nota (`TIEMPO DE ENTREG
 
 ## Admin: Agenda y estado en el link
 
+Desde 2026-11-11 las secciones del Admin (Por compañía, Pendientes, Agenda, Entregas, Solicitudes, Configuración) viven en el sidebar y en la barra inferior móvil (`AdminNav`, `src/services/adminSections.ts`) en lugar de pestañas; siguen siendo combinaciones de `tab` + `vista` del mismo link. Los controles van en una sola fila (`AdminToolbar`) y la selección en una barra fija (`SelectionBar`). Spec: `docs/superpowers/specs/2026-11-11-admin-shell-redesign-design.md`.
+
 `/admin` guarda pestaña y filtros en la URL (`?tab=agenda&q=…&cliente=…&estado=…`) vía `src/services/adminFilters.ts` (los valores se validan; un link manipulado cae a los defaults). Al entrar sin parámetros se restaura el último filtro usado (localStorage `adminFilters`, sin la pestaña), y el botón "Copiar link" comparte la vista exacta. La pestaña **Agenda** (`AgendaTab` + `buildAgenda` en `src/services/agenda.ts`) agrupa las órdenes con piezas pendientes por fecha compromiso: Atrasadas (cerrada por defecto), Hoy, Mañana, cada día de los próximos 15 y Más adelante / Sin fecha. Usa `commitment_date`, que ya viene calculado (ver abajo).
 
 ## Solicitudes de factura o remisión
