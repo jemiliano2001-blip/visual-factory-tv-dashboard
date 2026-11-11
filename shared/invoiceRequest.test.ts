@@ -19,6 +19,7 @@ test('correo de solicitudes: separa facturas y remisiones, con piezas y quién p
   assert.match(mail.text, /Facturas/);
   assert.match(mail.text, /Remisiones/);
   assert.match(mail.text, /3 Pza — Buje/);
+  assert.match(mail.text, /S02176 — Bosch <Qro> \(PO 20264321\)/);
   assert.match(mail.html, /Bosch &lt;Qro&gt;/);
 });
 

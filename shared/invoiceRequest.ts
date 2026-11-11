@@ -33,7 +33,7 @@ export function buildRequestsEmail(
   const who = (actor.name || actor.email || actor.uid).replace(/\s+/g, ' ').trim().slice(0, 80);
   const intro = `Buen día, ${who} pide lo siguiente:`;
   const head = (r: MailableRequest) =>
-    `${r.orderName} — ${r.partnerName}${r.customerReference ? ` (Compra ${r.customerReference})` : ''}`;
+    `${r.orderName} — ${r.partnerName}${r.customerReference ? ` (PO ${r.customerReference})` : ''}`;
   const pieces = (r: MailableRequest) =>
     (r.lines ?? []).map(l => `${fmtQty(l.qty)}${l.unit ? ` ${l.unit}` : ''} — ${l.name}`);
   const groups = [['Facturas', facturas], ['Remisiones', remisiones]] as const;
