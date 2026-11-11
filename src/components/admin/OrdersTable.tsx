@@ -150,14 +150,14 @@ export default function OrdersTable({
       id: 'engineer',
       header: 'Ingeniero SMV',
       cell: ({ row }) => (
-        <div className="flex min-w-[160px] flex-col items-start gap-1">
+        <div className="flex min-w-[130px] flex-col items-start gap-1">
           <span className="text-sm text-foreground">{getEngineerName(row.original) ?? 'Sin asignar'}</span>
           {isMine(row.original) ? (
-            <Button type="button" variant="ghost" className="min-h-11" onClick={() => onRelease([row.original.name])}>
+            <Button type="button" variant="ghost" className="-ml-3 min-h-11" onClick={() => onRelease([row.original.name])}>
               Soltar
             </Button>
           ) : (
-            <Button type="button" variant="secondary" className="min-h-11" onClick={() => onClaim([row.original.name])}>
+            <Button type="button" variant="ghost" className="-ml-3 min-h-11 text-primary hover:text-primary" onClick={() => onClaim([row.original.name])}>
               Asignármela
             </Button>
           )}
@@ -179,7 +179,7 @@ export default function OrdersTable({
       id: 'main_product',
       header: 'Producto / Descripción',
       cell: ({ row }) => (
-        <div className="max-w-[300px]">
+        <div className="max-w-[240px]">
           <span className="line-clamp-2 text-sm text-foreground/90">{row.original.main_product}</span>
           <span className="text-xs text-muted-foreground">{row.original.lines_count} {row.original.lines_count === 1 ? 'línea' : 'líneas'}</span>
         </div>
@@ -192,7 +192,7 @@ export default function OrdersTable({
         const pct = getDeliveryProgress(row.original);
         const missing = getOrderMissingQty(row.original);
         return (
-          <div className="min-w-[130px]">
+          <div className="min-w-[110px]">
             <div className="mb-1 flex justify-between font-mono-data text-xs tabular-nums text-muted-foreground">
               <span>Entregado</span>
               <span>{pct}%</span>

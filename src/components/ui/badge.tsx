@@ -3,7 +3,8 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../lib/utils';
 
 const badgeVariants = cva(
-  'inline-flex items-center gap-1 rounded-md font-bold uppercase tracking-wider font-mono-data whitespace-nowrap transition-colors',
+  // Frase normal en Admin/Stats; la tarjeta de TV agrega mayúsculas y tracking por su cuenta (se lee a 3-4 m).
+  'inline-flex items-center gap-1 rounded-md font-semibold whitespace-nowrap transition-colors',
   {
     variants: {
       variant: {

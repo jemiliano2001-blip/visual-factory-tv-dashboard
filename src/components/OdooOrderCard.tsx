@@ -188,14 +188,14 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
           <Badge
             variant={urgencyBadge.variant}
             size={isLarge ? 'lg' : isDense || isMobile ? 'sm' : 'md'}
-            className={`shrink-0 ${urgencyBadge.pulse ? 'animate-pulse' : ''}`}
+            className={`shrink-0 font-mono-data uppercase tracking-wider ${urgencyBadge.pulse ? 'animate-pulse' : ''}`}
           >
             <AlertTriangle className={isLarge ? 'h-4 w-4' : isDense ? 'h-2.5 w-2.5' : 'h-3 w-3'} aria-hidden="true" />
             {urgencyBadge.label}
           </Badge>
         )}
         {!urgencyBadge && (progress === 100 || order.invoice_status === 'partially_invoiced') && (
-          <Badge variant="info" size={isLarge ? 'lg' : isDense || isMobile ? 'sm' : 'md'} className="shrink-0">
+          <Badge variant="info" size={isLarge ? 'lg' : isDense || isMobile ? 'sm' : 'md'} className="shrink-0 font-mono-data uppercase tracking-wider">
             {invoiceLabel}
           </Badge>
         )}
