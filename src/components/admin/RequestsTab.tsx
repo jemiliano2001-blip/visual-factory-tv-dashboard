@@ -52,7 +52,7 @@ export default function RequestsTab() {
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   if (query.isLoading) return <p className="text-sm text-muted-foreground">Cargando solicitudes…</p>;
-  if (query.isError || !query.data) {
+  if (!query.data) {
     return (
       <div role="alert" className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
         No se pudieron cargar las solicitudes. {query.error instanceof Error ? query.error.message : ''}
@@ -67,6 +67,11 @@ export default function RequestsTab() {
 
   return (
     <div className="space-y-6">
+      {query.isError && (
+        <div role="alert" className="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
+          No se pudo actualizar la lista; se muestran las últimas solicitudes cargadas. {query.error instanceof Error ? query.error.message : ''}
+        </div>
+      )}
       {markDone.isError && (
         <div role="alert" className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
           {markDone.error instanceof Error ? markDone.error.message : 'No se pudo marcar como hecha.'}

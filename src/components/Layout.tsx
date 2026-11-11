@@ -83,7 +83,6 @@ export default function Layout() {
             </p>
             <Link
               to="/"
-              target="_blank"
               className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <Tv className="size-[18px] text-success" />
@@ -160,7 +159,6 @@ export default function Layout() {
         })}
         <Link
           to="/"
-          target="_blank"
           className="relative flex flex-1 flex-col items-center justify-center gap-1 py-2.5 min-h-[58px] text-success/80 transition-colors hover:text-success"
         >
           <Tv className="size-[22px]" />

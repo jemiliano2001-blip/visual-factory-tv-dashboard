@@ -29,6 +29,7 @@ import OrdersFilterBar from '../components/admin/OrdersFilterBar';
 import DeliveriesTab from '../components/admin/DeliveriesTab';
 import ConfigTab from '../components/admin/ConfigTab';
 import RequestsTab from '../components/admin/RequestsTab';
+import TruncatedNotice from '../components/admin/TruncatedNotice';
 import { RequestDialog } from '../components/RequestDialog';
 import { useInvoiceRequests } from '../hooks/useInvoiceRequests';
 import { pendingRequestsByOrder } from '../../shared/invoiceRequests';
@@ -119,8 +120,13 @@ export default function AdminPanel() {
   const [team, setTeam] = useState(loadCachedAssignments);
   const [teamError, setTeamError] = useState<string | null>(null);
 
+  // Se relee cada minuto: así se ve cuando otra persona toma o suelta una orden.
   useEffect(() => {
-    fetchOrderAssignments().then(setTeam).catch(err => setTeamError(err instanceof Error ? err.message : String(err)));
+    const load = () =>
+      fetchOrderAssignments().then(setTeam).catch(err => setTeamError(err instanceof Error ? err.message : String(err)));
+    void load();
+    const timer = window.setInterval(load, 60_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const me = auth.currentUser;
@@ -192,16 +198,13 @@ export default function AdminPanel() {
     return result;
   }, [orders, engineerFilter, clientFilter, statusFilter, search, getEngineerId, getEngineerName]);
 
-  const selectedCount = useMemo(
-    () => Object.values(rowSelection).filter(Boolean).length,
-    [rowSelection]
-  );
-
-  // Solo lo que se ve en la tabla: una orden seleccionada y luego oculta por un filtro no se envía.
+  // Solo lo que se ve en la tabla: una orden seleccionada y luego oculta por un filtro
+  // no se envía, no se asigna, no se exporta ni se cuenta.
   const selectedOrders = useMemo(
     () => filteredOrders.filter(o => rowSelection[o.id]),
     [filteredOrders, rowSelection],
   );
+  const selectedCount = selectedOrders.length;
 
   const hasActiveFilters = Boolean(search || clientFilter || engineerFilter || statusFilter !== 'all');
   const clearFilters = () => updateFilters({ search: '', client: '', engineer: '', status: 'all' });
@@ -217,17 +220,14 @@ export default function AdminPanel() {
   };
 
   const claimSelected = () => {
-    const ids = new Set(Object.entries(rowSelection).filter(([, v]) => v).map(([id]) => Number(id)));
-    claimForMe(orders.filter(o => ids.has(o.id)).map(o => o.name));
+    claimForMe(selectedOrders.map(o => o.name));
     setRowSelection({});
   };
 
   // ── Export Excel ─────────────────────────────────────────────────────────────
 
   const handleExport = async () => {
-    const selectedIds = selectedCount > 0
-      ? new Set(Object.entries(rowSelection).filter(([, v]) => v).map(([id]) => Number(id)))
-      : null;
+    const selectedIds = selectedCount > 0 ? new Set(selectedOrders.map(o => o.id)) : null;
     const { exportOrdersToExcel } = await import('../services/exportExcel');
     exportOrdersToExcel({ orders: filteredOrders, selectedIds, getEngineerName });
   };
@@ -441,15 +441,6 @@ export default function AdminPanel() {
         />
       </div>
     </TooltipProvider>
-  );
-}
-
-function TruncatedNotice() {
-  return (
-    <div role="status" className="flex items-center gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
-      <AlertTriangle className="size-5 shrink-0" />
-      <span>Odoo tiene más órdenes por facturar de las que se muestran; faltan las de fecha compromiso más lejana.</span>
-    </div>
   );
 }
 

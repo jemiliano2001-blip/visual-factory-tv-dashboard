@@ -27,6 +27,7 @@ import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import CompanyBadge from '../components/CompanyBadge';
+import TruncatedNotice from '../components/admin/TruncatedNotice';
 import { getSmartCompanyName } from '../utils/customerNames';
 import { UNASSIGNED_ENGINEER } from '../services/adminFilters';
 
@@ -44,7 +45,7 @@ const AXIS_TICK = { fontSize: 12, fill: '#9ca3af', fontFamily: 'var(--font-sans)
 const MONO_TICK = { fontSize: 12, fill: '#9ca3af', fontFamily: 'var(--font-mono)' };
 
 export default function StatsDashboard() {
-  const { orders, error, isLoading, isFetching, lastUpdated, refetch } = useOdooOrders();
+  const { orders, error, isLoading, isFetching, lastUpdated, refetch, truncated } = useOdooOrders();
   const [team, setTeam] = useState<OrderAssignmentsPayload>(loadCachedAssignments);
 
   useEffect(() => {
@@ -279,6 +280,8 @@ export default function StatsDashboard() {
             <span className="font-bold">{error?.startsWith('Tu cuenta no tiene acceso') ? error : `SIN CONEXIÓN A ODOO — ${error}`}</span>
           </div>
         )}
+
+        {truncated && <TruncatedNotice />}
 
         {isLoading ? (
           <div className="flex items-center justify-center gap-3 py-24 text-muted-foreground">

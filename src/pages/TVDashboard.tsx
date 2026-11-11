@@ -458,6 +458,20 @@ export default function TVDashboard() {
               <p className="text-muted-foreground mt-2">No hay órdenes de venta pendientes de facturar en Odoo.</p>
             </div>
           </div>
+        ) : pages.length === 0 ? (
+          /* Hay órdenes, pero ninguna pasa los filtros activos */
+          <div className="flex flex-col items-center justify-center h-full gap-6">
+            <div className="text-center space-y-2">
+              <h2 className="text-2xl font-bold text-foreground tracking-tight">Sin órdenes con estos filtros</h2>
+              <p className="text-muted-foreground max-w-md">Ninguna orden coincide con el cliente, estado o búsqueda activos.</p>
+            </div>
+            <button
+              onClick={handleClearControls}
+              className="flex items-center gap-2 px-6 py-3 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-2xl font-bold hover:bg-indigo-500/30 transition-all"
+            >
+              Limpiar filtros
+            </button>
+          </div>
         ) : isTVMode && currentPage ? (
           /* ── Modo TV: paginación con cards que caben en viewport ──── */
           <div className="flex flex-col h-full min-h-0 relative">

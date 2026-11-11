@@ -91,6 +91,11 @@ export default function ConfigTab({ companyNames }: ConfigTabProps) {
     }
   };
 
+  // Se pinta dentro del diálogo abierto: en la página quedaría tapado por el overlay.
+  const errorAlert = error && (
+    <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
@@ -107,7 +112,7 @@ export default function ConfigTab({ companyNames }: ConfigTabProps) {
         </Button>
       </div>
 
-      {error && <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+      {!isModalOpen && !deleteCandidate && errorAlert}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {configs.length === 0 ? (
@@ -177,6 +182,7 @@ export default function ConfigTab({ companyNames }: ConfigTabProps) {
                 required
               />
             </div>
+            {errorAlert}
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={closeModal} disabled={isSaving}>Cancelar</Button>
               <Button type="submit" disabled={isSaving}>{isSaving ? 'Guardando…' : editing ? 'Actualizar' : 'Crear'}</Button>
@@ -191,6 +197,7 @@ export default function ConfigTab({ companyNames }: ConfigTabProps) {
             <DialogTitle>Eliminar horario</DialogTitle>
             <DialogDescription>Se eliminará el horario de {deleteCandidate?.company_name}. Esta acción no se puede deshacer.</DialogDescription>
           </DialogHeader>
+          {errorAlert}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setDeleteCandidate(null)} disabled={Boolean(deletingId)}>Cancelar</Button>
             <Button type="button" variant="destructive" onClick={handleDelete} disabled={Boolean(deletingId)}>{deletingId ? 'Eliminando…' : 'Eliminar'}</Button>
