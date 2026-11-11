@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  DEFAULT_ENGINEERS, applyOrderAssignmentsMutation, getOrderEngineerId, normalizeOrderAssignments, slugifyEngineerId,
+  DEFAULT_ENGINEERS, actorEngineerId, claimOrders, getOrderEngineerId, normalizeOrderAssignments, parseOrderKeys, releaseOrders,
 } from '../../shared/orderAssignments';
-
-test('slugifyEngineerId quita acentos y símbolos', () => {
-  assert.equal(slugifyEngineerId('Antonio Vázquez'), 'antonio-vazquez');
-  assert.equal(slugifyEngineerId('  Ing. Pérez  '), 'ing-perez');
-});
 
 test('normalize siempre incluye los ingenieros por defecto y filtra lo inválido', () => {
   assert.deepEqual(normalizeOrderAssignments(null).engineers, DEFAULT_ENGINEERS);
@@ -19,25 +14,38 @@ test('normalize siempre incluye los ingenieros por defecto y filtra lo inválido
   assert.deepEqual(out.assignments, { S01: 'luis' });
 });
 
-test('mutation asigna, desasigna, agrega y elimina ingenieros', () => {
+test('claimOrders: cada quien se asigna a sí mismo y queda en la lista con su nombre', () => {
+  const ana = { uid: 'A1', name: 'Ana Ruiz', email: 'ana@smv.com' };
   let state = normalizeOrderAssignments(null);
-  state = applyOrderAssignmentsMutation(state, { orderKeys: ['S01', 'S02'], engineerId: 'rogelio' });
-  assert.deepEqual(state.assignments, { S01: 'rogelio', S02: 'rogelio' });
-  state = applyOrderAssignmentsMutation(state, { orderKeys: ['S01'], engineerId: null });
-  assert.deepEqual(state.assignments, { S02: 'rogelio' });
-  state = applyOrderAssignmentsMutation(state, { addEngineerName: 'Luis Pérez' });
-  assert.ok(state.engineers.some(e => e.id === 'luis-perez'));
-  state = applyOrderAssignmentsMutation(state, { removeEngineerId: 'rogelio' });
-  assert.deepEqual(state.assignments, {});
-  assert.equal(state.engineers.some(e => e.id === 'rogelio'), false);
+  state = claimOrders(state, ana, ['S01', 'S02']);
+  assert.deepEqual(state.assignments, { S01: actorEngineerId('A1'), S02: actorEngineerId('A1') });
+  assert.deepEqual(state.engineers.find(e => e.id === actorEngineerId('A1')), { id: 'u-A1', name: 'Ana Ruiz' });
+  state = claimOrders(state, { ...ana, name: 'Ana R.' }, ['S03']);
+  assert.equal(state.engineers.filter(e => e.id === 'u-A1').length, 1);
+  assert.equal(state.engineers.find(e => e.id === 'u-A1')?.name, 'Ana R.');
 });
 
-test('mutation rechaza nombres inválidos, repetidos e ingenieros inexistentes', () => {
+test('claimOrders: puede tomar una orden que tenía otra persona (incluida una del equipo anterior)', () => {
+  let state = normalizeOrderAssignments({ assignments: { S01: 'rogelio' } });
+  state = claimOrders(state, { uid: 'B2', name: null, email: 'beto@smv.com' }, ['S01']);
+  assert.equal(state.assignments.S01, 'u-B2');
+  assert.equal(state.engineers.find(e => e.id === 'u-B2')?.name, 'beto@smv.com');
+});
+
+test('releaseOrders: solo suelta lo propio', () => {
+  const ana = { uid: 'A1', name: 'Ana', email: null };
+  let state = claimOrders(normalizeOrderAssignments({ assignments: { S09: 'rogelio' } }), ana, ['S01']);
+  state = releaseOrders(state, 'A1', ['S01', 'S09']);
+  assert.deepEqual(state.assignments, { S09: 'rogelio' });
+});
+
+test('claimOrders y parseOrderKeys validan la entrada', () => {
   const state = normalizeOrderAssignments(null);
-  assert.throws(() => applyOrderAssignmentsMutation(state, { addEngineerName: 'a' }));
-  assert.throws(() => applyOrderAssignmentsMutation(state, { addEngineerName: 'x'.repeat(51) }));
-  assert.throws(() => applyOrderAssignmentsMutation(state, { addEngineerName: 'edgar castro' }));
-  assert.throws(() => applyOrderAssignmentsMutation(state, { orderKeys: ['S01'], engineerId: 'nadie' }));
+  assert.throws(() => claimOrders(state, { uid: '', name: 'x', email: null }, ['S01']));
+  assert.deepEqual(parseOrderKeys({ orderKeys: ['S01'] }), ['S01']);
+  assert.throws(() => parseOrderKeys({ orderKeys: [] }));
+  assert.throws(() => parseOrderKeys({ orderKeys: [1] }));
+  assert.throws(() => parseOrderKeys(null));
 });
 
 test('getOrderEngineerId busca por nombre y luego por id', () => {

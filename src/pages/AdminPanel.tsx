@@ -16,14 +16,15 @@ import {
   type AdminFilters, type AdminTab, type OrderView,
 } from '../services/adminFilters';
 import {
-  cacheAssignments, fetchOrderAssignments, loadCachedAssignments, updateOrderAssignments,
+  cacheAssignments, claimOrdersRemote, fetchOrderAssignments, loadCachedAssignments, releaseOrdersRemote,
 } from '../services/orderAssignments';
 import {
-  applyOrderAssignmentsMutation, getOrderEngineerId, type OrderAssignmentsPatch,
+  actorEngineerId, claimOrders, getOrderEngineerId, releaseOrders, type OrderAssignmentsPayload,
 } from '../../shared/orderAssignments';
+import { auth } from '../firebase';
 import PendingTab from '../components/admin/PendingTab';
 import AgendaTab from '../components/admin/AgendaTab';
-import OrdersTable, { EngineerSelect } from '../components/admin/OrdersTable';
+import OrdersTable from '../components/admin/OrdersTable';
 import OrdersFilterBar from '../components/admin/OrdersFilterBar';
 import DeliveriesTab from '../components/admin/DeliveriesTab';
 import ConfigTab from '../components/admin/ConfigTab';
@@ -33,15 +34,11 @@ import { useInvoiceRequests } from '../hooks/useInvoiceRequests';
 import { pendingRequestsByOrder } from '../../shared/invoiceRequests';
 import OrderReportTab from '../components/admin/OrderReportTab';
 import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from '../components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { TooltipProvider } from '../components/ui/tooltip';
 import {
   Download, WifiOff, AlertTriangle, Loader2, RefreshCw, Table2, Settings, Truck, Users2,
-  Link2, Check, X, Printer, UserPlus, FileText,
+  Link2, Check, X, Printer, FileText,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -121,27 +118,30 @@ export default function AdminPanel() {
 
   const [team, setTeam] = useState(loadCachedAssignments);
   const [teamError, setTeamError] = useState<string | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
-  const [newEngineer, setNewEngineer] = useState('');
 
   useEffect(() => {
     fetchOrderAssignments().then(setTeam).catch(err => setTeamError(err instanceof Error ? err.message : String(err)));
   }, []);
 
-  const mutateTeam = useCallback(async (patch: OrderAssignmentsPatch): Promise<boolean> => {
+  const me = auth.currentUser;
+  const myEngineerId = me ? actorEngineerId(me.uid) : null;
+
+  /** Cambio propio (tomar o soltar): se pinta al instante y el servidor confirma. */
+  const changeTeam = useCallback(async (
+    local: (state: OrderAssignmentsPayload) => OrderAssignmentsPayload,
+    remote: () => Promise<OrderAssignmentsPayload>,
+  ) => {
     const previous = team;
     setTeamError(null);
     try {
-      const optimistic = applyOrderAssignmentsMutation(previous, patch);
+      const optimistic = local(previous);
       setTeam(optimistic);
       cacheAssignments(optimistic);
-      setTeam(await updateOrderAssignments(patch));
-      return true;
+      setTeam(await remote());
     } catch (err) {
       setTeam(previous);
       cacheAssignments(previous);
       setTeamError(err instanceof Error ? err.message : String(err));
-      return false;
     }
   }, [team]);
 
@@ -151,8 +151,17 @@ export default function AdminPanel() {
     (o: OdooSaleOrder) => engineerNames.get(getEngineerId(o) ?? '') ?? null,
     [engineerNames, getEngineerId],
   );
-  const assignOrders = (orderKeys: string[], engineerId: string | null) => {
-    void mutateTeam({ orderKeys, engineerId });
+  const isMine = useCallback((o: OdooSaleOrder) => myEngineerId !== null && getEngineerId(o) === myEngineerId, [getEngineerId, myEngineerId]);
+  const claimForMe = (orderKeys: string[]) => {
+    if (!me) return;
+    void changeTeam(
+      state => claimOrders(state, { uid: me.uid, name: me.displayName, email: me.email }, orderKeys),
+      () => claimOrdersRemote(orderKeys),
+    );
+  };
+  const releaseMine = (orderKeys: string[]) => {
+    if (!me) return;
+    void changeTeam(state => releaseOrders(state, me.uid, orderKeys), () => releaseOrdersRemote(orderKeys));
   };
 
   const engineerCounts = useMemo(() => {
@@ -165,13 +174,6 @@ export default function AdminPanel() {
     }
     return { counts, unassigned };
   }, [orders, getEngineerId, engineerNames]);
-
-  const addEngineer = async () => {
-    if (await mutateTeam({ addEngineerName: newEngineer })) {
-      setAddOpen(false);
-      setNewEngineer('');
-    }
-  };
 
   // ── Filtros ──────────────────────────────────────────────────────────────────
 
@@ -214,9 +216,9 @@ export default function AdminPanel() {
     }
   };
 
-  const assignSelected = (engineerId: string | null) => {
+  const claimSelected = () => {
     const ids = new Set(Object.entries(rowSelection).filter(([, v]) => v).map(([id]) => Number(id)));
-    assignOrders(orders.filter(o => ids.has(o.id)).map(o => o.name), engineerId);
+    claimForMe(orders.filter(o => ids.has(o.id)).map(o => o.name));
     setRowSelection({});
   };
 
@@ -309,9 +311,6 @@ export default function AdminPanel() {
                     >
                       Sin asignar ({engineerCounts.unassigned})
                     </Button>
-                    <Button type="button" variant="ghost" className={BIG_BUTTON} onClick={() => setAddOpen(true)}>
-                      <UserPlus /> + Agregar ingeniero
-                    </Button>
                   </div>
 
                   {activeTab === 'orders' && (
@@ -349,14 +348,9 @@ export default function AdminPanel() {
                       <Button type="button" className={BIG_BUTTON} onClick={() => setRequestOpen(true)} disabled={selectedOrders.length === 0}>
                         <FileText /> Pedir factura o remisión
                       </Button>
-                      <span className="text-sm text-muted-foreground">Asignar a:</span>
-                      <EngineerSelect
-                        engineers={team.engineers}
-                        value={null}
-                        onChange={assignSelected}
-                        ariaLabel="Asignar las órdenes seleccionadas a un ingeniero"
-                        className="w-[220px]"
-                      />
+                      <Button type="button" variant="secondary" className={BIG_BUTTON} onClick={claimSelected} disabled={!me}>
+                        Asignármelas
+                      </Button>
                     </div>
                   )}
 
@@ -410,9 +404,10 @@ export default function AdminPanel() {
                     groupByClient={groupByClient}
                     rowSelection={rowSelection}
                     onRowSelectionChange={setRowSelection}
-                    engineers={team.engineers}
-                    getEngineerId={getEngineerId}
-                    onAssign={assignOrders}
+                    getEngineerName={getEngineerName}
+                    isMine={isMine}
+                    onClaim={claimForMe}
+                    onRelease={releaseMine}
                     pendingByOrder={pendingByOrder}
                   />
                 )}
@@ -444,34 +439,6 @@ export default function AdminPanel() {
           onClose={() => setRequestOpen(false)}
           onSent={() => setRowSelection({})}
         />
-
-        <Dialog open={addOpen} onOpenChange={open => { setAddOpen(open); if (!open) setNewEngineer(''); }}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Agregar ingeniero</DialogTitle>
-              <DialogDescription>Nombre del diseñador o ingeniero de SMV (de 2 a 50 caracteres).</DialogDescription>
-            </DialogHeader>
-            <form
-              className="grid gap-4"
-              onSubmit={e => { e.preventDefault(); void addEngineer(); }}
-            >
-              <Input
-                value={newEngineer}
-                onChange={e => setNewEngineer(e.target.value)}
-                aria-label="Nombre del ingeniero"
-                placeholder="Ej. Luis Pérez"
-                maxLength={50}
-                autoFocus
-                className="min-h-11"
-              />
-              {teamError && <p role="alert" className="text-sm text-destructive">{teamError}</p>}
-              <DialogFooter>
-                <Button type="button" variant="ghost" className={BIG_BUTTON} onClick={() => setAddOpen(false)}>Cancelar</Button>
-                <Button type="submit" className={BIG_BUTTON} disabled={newEngineer.trim().length < 2}>Agregar</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
       </div>
     </TooltipProvider>
   );

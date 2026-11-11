@@ -18,13 +18,12 @@ import {
 import { getOrderMissingQty } from '../../services/pendingItems';
 import { Badge } from '../ui/badge';
 import { Checkbox } from '../ui/checkbox';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select';
+import { Button } from '../ui/button';
 import { DELIVERY_STATE_LABEL, DELIVERY_STATE_VARIANT } from './deliveryMeta';
 import { STATUS_VARIANT } from './orderStatusMeta';
 import CompanyBadge from '../CompanyBadge';
 import { getSmartCompanyName } from '../../utils/customerNames';
 import { extractOrderNoteMeta } from '../../services/orderNoteParser';
-import type { EngineerRosterItem } from '../../../shared/orderAssignments';
 import type { InvoiceRequest } from '../../../shared/invoiceRequests';
 import { RequestBadges } from '../RequestDialog';
 
@@ -33,15 +32,15 @@ interface OrdersTableProps {
   groupByClient: boolean;
   rowSelection: RowSelectionState;
   onRowSelectionChange: (selection: RowSelectionState) => void;
-  engineers: EngineerRosterItem[];
-  getEngineerId: (order: OdooSaleOrder) => string | null;
-  /** Asigna (o desasigna con null) las SO indicadas por nombre. */
-  onAssign: (orderKeys: string[], engineerId: string | null) => void;
+  /** Nombre de quien lleva la orden (null si nadie). */
+  getEngineerName: (order: OdooSaleOrder) => string | null;
+  /** True si la orden es de la persona que tiene la sesión abierta. */
+  isMine: (order: OdooSaleOrder) => boolean;
+  onClaim: (orderKeys: string[]) => void;
+  onRelease: (orderKeys: string[]) => void;
   /** Solicitudes de factura/remisión pendientes por id de orden. */
   pendingByOrder?: Map<number, InvoiceRequest[]>;
 }
-
-const UNASSIGNED = '__unassigned__';
 
 /** PO de la compañía y SMV a cargo, para pintar bajo la SO en Pendientes, Agenda y Entregas. */
 export function OrderPoEngineer({ order, engineerName }: { order: OdooSaleOrder; engineerName?: string | null }) {
@@ -54,32 +53,10 @@ export function OrderPoEngineer({ order, engineerName }: { order: OdooSaleOrder;
   );
 }
 
-/** Selector directo de ingeniero SMV; compartido por la tabla y la barra de lote. */
-export function EngineerSelect({ engineers, value, onChange, ariaLabel, className }: {
-  engineers: EngineerRosterItem[];
-  value: string | null;
-  onChange: (engineerId: string | null) => void;
-  ariaLabel: string;
-  className?: string;
-}) {
-  const label = engineers.find(e => e.id === value)?.name ?? 'Sin asignar';
-  return (
-    <Select value={value ?? UNASSIGNED} onValueChange={v => onChange(v && v !== UNASSIGNED ? v : null)}>
-      <SelectTrigger aria-label={ariaLabel} className={`min-h-11 min-w-[160px] ${className ?? ''}`}>
-        <SelectValue>{label}</SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={UNASSIGNED}>Sin asignar</SelectItem>
-        {engineers.map(e => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}
-      </SelectContent>
-    </Select>
-  );
-}
-
 const columnHelper = createColumnHelper<OdooSaleOrder>();
 
 export default function OrdersTable({
-  orders, groupByClient, rowSelection, onRowSelectionChange, engineers, getEngineerId, onAssign, pendingByOrder,
+  orders, groupByClient, rowSelection, onRowSelectionChange, getEngineerName, isMine, onClaim, onRelease, pendingByOrder,
 }: OrdersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'commitment_date', desc: false }]);
   const [expanded, setExpanded] = useState<ExpandedState>({});
@@ -173,12 +150,18 @@ export default function OrdersTable({
       id: 'engineer',
       header: 'Ingeniero SMV',
       cell: ({ row }) => (
-        <EngineerSelect
-          engineers={engineers}
-          value={getEngineerId(row.original)}
-          onChange={engineerId => onAssign([row.original.name], engineerId)}
-          ariaLabel={`Ingeniero de ${row.original.name}`}
-        />
+        <div className="flex min-w-[160px] flex-col items-start gap-1">
+          <span className="text-sm text-foreground">{getEngineerName(row.original) ?? 'Sin asignar'}</span>
+          {isMine(row.original) ? (
+            <Button type="button" variant="ghost" className="min-h-11" onClick={() => onRelease([row.original.name])}>
+              Soltar
+            </Button>
+          ) : (
+            <Button type="button" variant="secondary" className="min-h-11" onClick={() => onClaim([row.original.name])}>
+              Asignármela
+            </Button>
+          )}
+        </div>
       ),
     }),
     columnHelper.accessor('partner_name', {
@@ -247,7 +230,7 @@ export default function OrdersTable({
         (parseOdooDate(a.original.commitment_date)?.getTime() ?? Infinity) -
         (parseOdooDate(b.original.commitment_date)?.getTime() ?? Infinity),
     }),
-  ], [groupByClient, engineers, getEngineerId, onAssign, pendingByOrder]);
+  ], [groupByClient, getEngineerName, isMine, onClaim, onRelease, pendingByOrder]);
 
   const table = useReactTable({
     data,
