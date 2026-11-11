@@ -24,6 +24,7 @@ import DashboardFooter from '../components/DashboardFooter';
 import TVControlBar, { type StatusFilter } from '../components/TVControlBar';
 import { createOrderSearchMatcher } from '../services/orderSearch';
 import { matchesTVStatus } from '../services/orderSignals';
+import { isAccessError } from '../services/orderLoadError';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useMobile } from '../hooks/useMobile';
 import { buildTVPages, type TVPage } from '../utils/tvPagePacking';
@@ -433,7 +434,7 @@ export default function TVDashboard() {
               <WifiOff className="w-10 h-10 text-red-400" />
             </div>
             <div className="text-center space-y-2">
-              <h2 className="text-2xl font-bold text-foreground tracking-tight">Sin conexión a Odoo</h2>
+              <h2 className="text-2xl font-bold text-foreground tracking-tight">{isAccessError(odooError) ? 'No se pudieron cargar las órdenes' : 'Sin conexión a Odoo'}</h2>
               <p className="text-muted-foreground max-w-md">{odooError}</p>
               {window.location.hostname === 'localhost' && (
                 <p className="text-muted-foreground/70 text-sm">

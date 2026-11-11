@@ -59,13 +59,20 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
   const [menuOpen, setMenuOpen] = useState(false);
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
-  const hasFilters = Boolean(clientFilter || textFilter || isPaused || statusFilter !== 'all');
+  const [dismissed, setDismissed] = useState(false);
+
+  // La pausa solo existe en modo TV (en escritorio no hay rotación que pausar).
+  const hasFilters = Boolean(clientFilter || textFilter || (isTVMode && isPaused) || statusFilter !== 'all');
 
   // Los hooks van antes del return de móvil: su orden no puede cambiar entre renders.
   // Visible mientras el cursor esté cerca, encima de la barra o con un menú
   // abierto. El foco NO la fija: antes, tras usar el buscador o "Pausar" la barra
   // se quedaba pegada hasta hacer clic en otra parte.
-  const visible = isTVMode ? (near || hovering || menuOpen) : true;
+  // "Ocultar barra" la esconde de inmediato y así se queda hasta que el cursor se aleja y vuelve.
+  const visible = isTVMode ? (!dismissed && (near || hovering || menuOpen)) : true;
+  useEffect(() => {
+    if (!near) setDismissed(false);
+  }, [near]);
 
   // Al ocultarse se suelta el foco, para que un campo invisible no capture teclas.
   useEffect(() => {
@@ -181,6 +188,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
   const handleDismiss = () => {
     setHovering(false);
     setMenuOpen(false);
+    setDismissed(true);
   };
 
   return (
@@ -256,17 +264,19 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                 />
               </div>
 
-              <Button
-                type="button"
-                variant={isPaused ? 'default' : 'secondary'}
-                size="sm"
-                className="h-10 text-xs font-semibold gap-1.5"
-                onClick={onTogglePause}
-                title={isPaused ? 'Reanudar rotación automática' : 'Pausar rotación automática'}
-              >
-                {isPaused ? <Play className="size-3.5" /> : <Pause className="size-3.5" />}
-                {isPaused ? 'Reanudar' : 'Pausar'}
-              </Button>
+              {isTVMode && (
+                <Button
+                  type="button"
+                  variant={isPaused ? 'default' : 'secondary'}
+                  size="sm"
+                  className="h-10 text-xs font-semibold gap-1.5"
+                  onClick={onTogglePause}
+                  title={isPaused ? 'Reanudar rotación automática' : 'Pausar rotación automática'}
+                >
+                  {isPaused ? <Play className="size-3.5" /> : <Pause className="size-3.5" />}
+                  {isPaused ? 'Reanudar' : 'Pausar'}
+                </Button>
+              )}
 
               {hasFilters && (
                 <Button

@@ -142,6 +142,8 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
     }));
     return { orderId: o.id, type: c.type, lineQty };
   }));
+  // Remisiones marcadas con todas las cantidades en 0: buildDrafts las omite, así que se avisa antes de enviar.
+  const emptyRemisiones = orders.filter(o => choiceOf(o).type === 'remision').length - drafts.filter(d => d.type === 'remision').length;
   const canSend = missing === 0 && drafts.length > 0 && !submit.isPending && !requests.isLoading;
   const user = auth.currentUser;
   const sender = user?.email || user?.displayName;
@@ -213,6 +215,11 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
         {sender && <p className="text-sm text-muted-foreground">Se enviará a nombre de {sender}</p>}
         {missing > 0 && (
           <p className="text-sm text-foreground">Falta escoger en <span className="font-mono-data">{missing}</span> {missing === 1 ? 'orden' : 'órdenes'}</p>
+        )}
+        {emptyRemisiones > 0 && (
+          <p className="text-sm text-warning">
+            <span className="font-mono-data">{emptyRemisiones}</span> {emptyRemisiones === 1 ? 'remisión tiene' : 'remisiones tienen'} todas las piezas en 0 y no se {emptyRemisiones === 1 ? 'enviará' : 'enviarán'}. Sube la cantidad para pedirla.
+          </p>
         )}
         <div className="grid grid-cols-2 gap-2">
           <Button size="lg" variant="outline" onClick={onClose}>Cancelar</Button>
