@@ -5,10 +5,13 @@ import {
   checkEvents,
   orderAgeEmbed,
   reportEmbed,
+  buildInvoiceRequestsEmbed,
+  sendInvoiceRequestsNotice,
   type NotifOrder,
   type NotificationRuntime,
 } from './notifications';
 import { EMPTY_STATE, type NotificationState } from './notificationState';
+import type { InvoiceRequest, RequestActor } from '../../shared/invoiceRequests';
 
 const channels = { eventos: 'eventos', criticas: 'criticas', reportes: 'reportes' };
 const oldOrder = (id = 42): NotifOrder => ({
@@ -262,3 +265,54 @@ test('el canal de reportes mantiene intacto su formato, schema y flujo de entreg
   assert.equal(report.footer.text, 'Visual Factory TV · Odoo');
 });
 
+
+const actor: RequestActor = { uid: 'u1', email: 'ana@smv.mx', name: 'Ana' };
+const invoiceReq = (over: Partial<InvoiceRequest> = {}): InvoiceRequest => ({
+  id: 'r1', orderId: 1, orderName: '2026/S00001', partnerName: 'Cliente', customerReference: null,
+  type: 'factura', status: 'pendiente', requestedBy: actor, requestedAt: '2026-11-10T00:00:00.000Z', ...over,
+});
+
+test('la solicitud de facturación agrupa factura y remisión, lista piezas y enlaza a /admin?tab=requests', () => {
+  const embed = buildInvoiceRequestsEmbed([
+    invoiceReq({ type: 'remision', orderName: '2026/S00002', customerReference: 'PO-9', lines: [{ lineId: 1, name: 'Eje', qty: 3, unit: 'pz' }] }),
+    invoiceReq({ id: 'r2', orderName: '2026/S00001' }),
+  ], actor);
+  const d = embed.description ?? '';
+  assert.equal(embed.title, 'Solicitud de factura y remisión');
+  assert.ok(d.indexOf('**Factura** · 2026/S00001') < d.indexOf('**Remisión** · 2026/S00002'));
+  assert.ok(d.includes(' · PO PO-9'));
+  assert.ok(d.includes('• 3 pz Eje'));
+  assert.ok(d.includes('Pidió: Ana'));
+  assert.ok(d.includes('/admin?tab=requests'));
+});
+
+test('el título depende del tipo de solicitudes', () => {
+  assert.equal(buildInvoiceRequestsEmbed([invoiceReq()], actor).title, 'Nueva solicitud de facturación');
+  const rem = invoiceReq({ type: 'remision', lines: [{ lineId: 1, name: 'Eje', qty: 1, unit: null }] });
+  assert.equal(buildInvoiceRequestsEmbed([rem], actor).title, 'Solicitud de remisión');
+});
+
+test('la solicitud de facturación escapa menciones de datos', () => {
+  const embed = buildInvoiceRequestsEmbed([invoiceReq({ partnerName: '@everyone', orderName: '<@123>' })], { uid: 'u', email: null, name: '@here' });
+  const d = embed.description ?? '';
+  assert.ok(!/(^|[^\\])@/.test(d));
+});
+
+test('la solicitud de facturación no pasa de 4096 caracteres y avisa las órdenes omitidas', () => {
+  const many = Array.from({ length: 100 }, (_, i) => invoiceReq({ id: 'x' + i, orderId: i + 1, orderName: '2026/S' + String(i).padStart(5, '0'), partnerName: 'Cliente con nombre bastante largo '.repeat(2) }));
+  const d = buildInvoiceRequestsEmbed(many, actor).description ?? '';
+  assert.ok(d.length <= 4096);
+  assert.match(d, /…y \d+ órdenes más/);
+});
+
+test('sendInvoiceRequestsNotice devuelve false sin webhook configurado', async () => {
+  const saved = { a: process.env.DISCORD_WEBHOOK_URL_FACTURACION, b: process.env.DISCORD_WEBHOOK_URL };
+  delete process.env.DISCORD_WEBHOOK_URL_FACTURACION;
+  delete process.env.DISCORD_WEBHOOK_URL;
+  try {
+    assert.equal(await sendInvoiceRequestsNotice([invoiceReq()], actor), false);
+  } finally {
+    if (saved.a !== undefined) process.env.DISCORD_WEBHOOK_URL_FACTURACION = saved.a;
+    if (saved.b !== undefined) process.env.DISCORD_WEBHOOK_URL = saved.b;
+  }
+});

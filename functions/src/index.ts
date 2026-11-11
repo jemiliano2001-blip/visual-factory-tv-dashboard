@@ -1,12 +1,16 @@
+import { randomUUID } from 'node:crypto';
 import * as admin from 'firebase-admin';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import express, { NextFunction, Request, Response } from 'express';
 import { OdooClient } from '../../shared/odooClient';
-import { esTokenAnonimo } from '../../shared/firebaseTokenPolicy';
+import { crearAuthApi } from '../../shared/firebaseTokenPolicy';
 import {
   applyOrderAssignmentsMutation, normalizeOrderAssignments, parseOrderAssignmentsPatch,
 } from '../../shared/orderAssignments';
+import {
+  createInvoiceRequests, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody, type RequestActor,
+} from '../../shared/invoiceRequests';
 import {
   checkThresholds,
   checkEvents,
@@ -19,6 +23,7 @@ import {
   loadState,
   saveState,
   buildWebhookChannels,
+  sendInvoiceRequestsNotice,
   type NotifOrder,
   type WebhookChannels,
 } from './notifications';
@@ -63,28 +68,11 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
   }
 }
 
-// Todas las rutas /api exigen un ID token de Firebase válido. La TV pública se
-// autentica de forma anónima (App.tsx → signInAnonymously) y el frontend envía
-// ese token, así que sigue funcionando sin login mientras la auth anónima esté
-// habilitada (requisito de setup en CLAUDE.md). Iguala la postura de server.ts y
-// evita exponer los datos de Odoo (clientes, productos, cantidades, notas) a
-// cualquiera con la URL.
-app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
-  const token = req.headers.authorization?.replace('Bearer ', '') ?? '';
-  if (!token) { res.status(401).json({ error: 'Se requiere autenticación.' }); return; }
-  if (!(await verifyFirebaseToken(token))) { res.status(401).json({ error: 'Token inválido o expirado.' }); return; }
-  next();
-});
-
-// Las asignaciones a ingenieros son de uso interno: la sesión anónima de la TV no entra.
-app.use('/api/order-assignments', (req: Request, res: Response, next: NextFunction) => {
-  const token = req.headers.authorization?.replace('Bearer ', '') ?? '';
-  if (esTokenAnonimo(token)) {
-    res.status(403).json({ error: 'Se requiere una cuenta de personal SMV; las sesiones anónimas no tienen acceso.' });
-    return;
-  }
-  next();
-});
+// Todas las rutas /api exigen un ID token de Firebase válido de una cuenta real:
+// ya no hay sesión anónima (la TV entra con cuenta real) y los tokens anónimos
+// reciben 403. Evita exponer los datos de Odoo (clientes, productos, cantidades,
+// notas) a cualquiera con la URL; la identidad queda en res.locals.actor.
+app.use('/api', crearAuthApi(verifyFirebaseToken));
 
 // ─── Odoo (módulo compartido con server.ts) ───────────────────────────
 const odooClient = new OdooClient({
@@ -156,6 +144,78 @@ app.post('/api/order-assignments', async (req: Request, res: Response) => {
     });
     if (validationError !== null) {
       res.status(400).json({ error: validationError });
+      return;
+    }
+    res.json(next);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ─── Solicitudes de factura/remisión ──────────────────────────────────────────
+const requestsDoc = () => admin.firestore().doc('visual_factory_state/invoice_requests');
+const isActor = (a: unknown): a is RequestActor => typeof a === 'object' && a !== null && typeof (a as RequestActor).uid === 'string';
+const NO_ACTOR = 'Se requiere una cuenta de personal SMV.';
+
+app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
+  try {
+    res.json(normalizeInvoiceRequests((await requestsDoc().get()).data()));
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/invoice-requests', async (req: Request, res: Response) => {
+  let drafts;
+  try {
+    drafts = parseCreateRequestsBody(req.body);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  const actor = res.locals.actor;
+  if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
+  if (!odooClient.isConfigured()) { res.status(503).json({ error: 'Odoo no configurado.' }); return; }
+  let orders;
+  try {
+    orders = (await odooClient.fetchInvoiceableOrdersCached()).orders;
+  } catch {
+    res.status(503).json({ error: 'No se pudo consultar Odoo; no se guardó nada.' });
+    return;
+  }
+  try {
+    const result = await admin.firestore().runTransaction(async tx => {
+      const current = normalizeInvoiceRequests((await tx.get(requestsDoc())).data());
+      const out = createInvoiceRequests(current, drafts, orders, { actor, now: new Date().toISOString(), newId: randomUUID });
+      if (out.created.length > 0) tx.set(requestsDoc(), out.state);
+      return out;
+    });
+    const notified = result.created.length > 0 ? await sendInvoiceRequestsNotice(result.created, actor) : false;
+    res.json({ state: result.state, created: result.created, skipped: result.skipped, notified });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/invoice-requests/:id/done', async (req: Request, res: Response) => {
+  const actor = res.locals.actor;
+  if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
+  let validationError: string | null = null;
+  try {
+    const next = await admin.firestore().runTransaction(async tx => {
+      const current = normalizeInvoiceRequests((await tx.get(requestsDoc())).data());
+      let updated;
+      try {
+        updated = markInvoiceRequestDone(current, String(req.params.id), { actor, now: new Date().toISOString() });
+      } catch (err) {
+        validationError = err instanceof Error ? err.message : String(err);
+        return null;
+      }
+      if (updated !== current) tx.set(requestsDoc(), updated);
+      return updated;
+    });
+    if (validationError !== null) {
+      res.status(validationError === 'No se encontró la solicitud.' ? 404 : 500).json({ error: validationError });
       return;
     }
     res.json(next);

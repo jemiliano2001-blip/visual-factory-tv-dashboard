@@ -93,6 +93,7 @@ test('incluye órdenes parcialmente facturadas y calcula SO1992 por movimientos 
   const { orders } = await client.fetchInvoiceableOrders();
   assert.deepEqual(calls[0].args, [[['invoice_status', 'in', ['to invoice', 'partially_invoiced']], ['state', 'in', ['sale', 'done']]]]);
   assert.deepEqual(orders[0].lines.map(line => line.delivered), [3, 5]);
+  assert.deepEqual(orders[0].lines.map(line => line.id), [5159, 5160]);
   for (const call of calls.filter(call => call.model === 'stock.move')) {
     assert.ok(JSON.stringify(call.args).includes('["state","=","done"]'));
     assert.ok(JSON.stringify(call.args).includes('["picking_id.state","=","done"]'));

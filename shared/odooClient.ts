@@ -72,7 +72,7 @@ export interface NormalizedInvoiceableOrder {
   salesperson: string | null;
   note: string | null;
   lines_count: number;
-  lines: Array<{ name: string; qty: number; delivered: number; unit: string }>;
+  lines: Array<{ id: number; name: string; qty: number; delivered: number; unit: string }>;
   deliveries: Array<{ name: string; state: string; date_done: string | null }>;
   delivery_times: string | null;
   show_in_dashboard: boolean;
@@ -392,6 +392,7 @@ export class OdooClient {
         note: typeof order.note === 'string' ? order.note : null,
         lines_count: lines.length,
         lines: lines.map(line => ({
+          id: line.id,
           name: line.name,
           qty: line.product_uom_qty,
           delivered: Math.max(0, movesBySaleLine.get(line.id) ?? 0),

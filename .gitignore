@@ -42,3 +42,4 @@ graphify-out/
 .migration/
 
 .local-order-assignments.json
+.local-invoice-requests.json

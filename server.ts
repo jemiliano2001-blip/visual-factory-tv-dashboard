@@ -13,11 +13,16 @@ import express, { Request, Response, NextFunction } from 'express';
 import * as dotenv from 'dotenv';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { OdooClient } from './shared/odooClient.ts';
-import { esTokenAnonimo } from './shared/firebaseTokenPolicy.ts';
+import { crearAuthApi, identidadDeToken } from './shared/firebaseTokenPolicy.ts';
 import {
   applyOrderAssignmentsMutation, normalizeOrderAssignments, parseOrderAssignmentsPatch, type OrderAssignmentsPayload,
 } from './shared/orderAssignments.ts';
+import {
+  createInvoiceRequests, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody,
+  type InvoiceRequestsState, type RequestActor,
+} from './shared/invoiceRequests.ts';
 
 // Carga .env.local primero (alta prioridad, no se sube a git),
 // luego .env como fallback — mismo orden que Vite en desarrollo local.
@@ -99,37 +104,23 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
 // variable se olvida en producción, se exige token igual. No depender de
 // NODE_ENV: el túnel Cloudflare llega por 127.0.0.1 y "parecería" local, lo que
 // dejaría todo abierto si NODE_ENV no fuera 'production'.
+const authApi = crearAuthApi(verifyFirebaseToken);
 app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
+  const token = req.headers.authorization?.replace('Bearer ', '') || '';
   if (process.env.DEV_AUTH_BYPASS === 'true') {
     const addr = req.socket.localAddress ?? '';
     if (addr === '127.0.0.1' || addr === '::1') {
+      res.locals.actor = identidadDeToken(token) ?? { uid: 'dev-local', email: null, name: 'Desarrollo local' };
       return next();
     }
   }
 
-  const token = req.headers.authorization?.replace('Bearer ', '') || '';
-  if (!token) {
-    res.status(401).json({ error: 'Se requiere autenticación.' });
-    return;
-  }
-
-  if (!FIREBASE_API_KEY) {
+  if (token && !FIREBASE_API_KEY) {
     res.status(500).json({ error: 'Server misconfiguration: FIREBASE_API_KEY no configurado.' });
     return;
   }
 
-  const valid = await verifyFirebaseToken(token);
-  if (!valid) {
-    res.status(401).json({ error: 'Token inválido o expirado. Vuelve a iniciar sesión.' });
-    return;
-  }
-
-  if (esTokenAnonimo(token)) {
-    res.status(403).json({ error: 'Se requiere una cuenta de personal SMV; las sesiones anónimas no tienen acceso.' });
-    return;
-  }
-
-  next();
+  await authApi(req, res, next);
 });
 
 // ─── Configuración Odoo ────────────────────────────────────────────────────────
@@ -237,6 +228,72 @@ app.post('/api/order-assignments', (req: Request, res: Response) => {
     res.json(next);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ─── Solicitudes de factura/remisión ──────────────────────────────────────────
+// Persistencia local en archivo (ignorado por git); en Firebase vive en Firestore.
+const REQUESTS_FILE = resolve(process.cwd(), '.local-invoice-requests.json');
+
+function readRequests(): InvoiceRequestsState {
+  try {
+    return normalizeInvoiceRequests(JSON.parse(readFileSync(REQUESTS_FILE, 'utf-8')));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return normalizeInvoiceRequests(null);
+    throw err;
+  }
+}
+
+const isActor = (a: unknown): a is RequestActor => typeof a === 'object' && a !== null && typeof (a as RequestActor).uid === 'string';
+const NO_ACTOR = 'Se requiere una cuenta de personal SMV.';
+
+app.get('/api/invoice-requests', (_req: Request, res: Response) => {
+  try {
+    res.json(readRequests());
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/invoice-requests', async (req: Request, res: Response) => {
+  let drafts;
+  try {
+    drafts = parseCreateRequestsBody(req.body);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  const actor = res.locals.actor;
+  if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
+  if (!odooClient.isConfigured()) { res.status(503).json({ error: 'Odoo no configurado.' }); return; }
+  let orders;
+  try {
+    orders = (await odooClient.fetchInvoiceableOrdersCached()).orders;
+  } catch {
+    res.status(503).json({ error: 'No se pudo consultar Odoo; no se guardó nada.' });
+    return;
+  }
+  // Sin await entre leer y escribir: otra petición no puede intercalarse.
+  try {
+    const out = createInvoiceRequests(readRequests(), drafts, orders, { actor, now: new Date().toISOString(), newId: randomUUID });
+    if (out.created.length > 0) writeFileSync(REQUESTS_FILE, JSON.stringify(out.state, null, 2));
+    res.json({ state: out.state, created: out.created, skipped: out.skipped, notified: false });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/invoice-requests/:id/done', (req: Request, res: Response) => {
+  const actor = res.locals.actor;
+  if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
+  try {
+    const current = readRequests();
+    const next = markInvoiceRequestDone(current, String(req.params.id), { actor, now: new Date().toISOString() });
+    if (next !== current) writeFileSync(REQUESTS_FILE, JSON.stringify(next, null, 2));
+    res.json(next);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(msg === 'No se encontró la solicitud.' ? 404 : 500).json({ error: msg });
   }
 });
 

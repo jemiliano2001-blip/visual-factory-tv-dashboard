@@ -4,6 +4,7 @@ import {
   extractAssignedEngineer,
   generateOrderSmartSummary,
 } from '../../shared/smartText';
+import { actorLabel, type InvoiceRequest, type RequestActor } from '../../shared/invoiceRequests';
 
 if (!admin.apps.length) admin.initializeApp();
 
@@ -882,4 +883,38 @@ function prevMonthRange(): { start: number; end: number; label: string } {
     end:   new Date(y, m, 1).getTime(),
     label: new Date(y, m - 1).toLocaleString('es-MX', { month: 'long', year: 'numeric' }),
   };
+}
+
+// ─── Solicitudes de factura/remisión ──────────────────────────────────────────
+
+export function buildInvoiceRequestsEmbed(created: InvoiceRequest[], actor: RequestActor): DiscordEmbed {
+  const factura = created.filter(r => r.type === 'factura');
+  const remision = created.filter(r => r.type === 'remision');
+  const title = !remision.length ? 'Nueva solicitud de facturación'
+    : !factura.length ? 'Solicitud de remisión' : 'Solicitud de factura y remisión';
+  const blocks = [...factura, ...remision].map(r => {
+    const head = `**${r.type === 'factura' ? 'Factura' : 'Remisión'}** · ${escapeDiscord(r.orderName)} · ${escapeDiscord(r.partnerName)}`
+      + (r.customerReference ? ` · PO ${escapeDiscord(r.customerReference)}` : '');
+    const pieces = (r.lines ?? []).map(l => `• ${l.qty} ${l.unit ? escapeDiscord(l.unit) + ' ' : ''}${escapeDiscord(l.name)}`);
+    return [head, ...pieces].join('\n');
+  });
+  const tail = `\nPidió: ${escapeDiscord(actorLabel(actor))}\n${getDashboardUrl()}/admin?tab=requests`;
+  const kept: string[] = [];
+  let length = tail.length;
+  for (const block of blocks) {
+    const rest = blocks.length - kept.length - 1;
+    // Reserva espacio para el aviso "…y N órdenes más" mientras queden órdenes sin incluir.
+    if (length + block.length + 1 + (rest ? 30 : 0) > 4096) break;
+    kept.push(block);
+    length += block.length + 1;
+  }
+  const omitted = blocks.length - kept.length;
+  const description = kept.join('\n') + (omitted ? `\n…y ${omitted} órdenes más` : '') + tail;
+  return { title, description, color: 0x0E7490, timestamp: nowISO(), footer: { text: 'Visual Factory TV · Solicitudes' } };
+}
+
+export async function sendInvoiceRequestsNotice(created: InvoiceRequest[], actor: RequestActor): Promise<boolean> {
+  const url = process.env.DISCORD_WEBHOOK_URL_FACTURACION || process.env.DISCORD_WEBHOOK_URL;
+  if (!url || process.env.NOTIFICATIONS_ENABLED === 'false') return false;
+  return sendWebhook(url, '', [buildInvoiceRequestsEmbed(created, actor)]);
 }

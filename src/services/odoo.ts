@@ -21,6 +21,7 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
 export interface OdooOrderLine {
+  id?: number;
   /** Descripción del producto */
   name: string;
   /** Cantidad pedida (product_uom_qty) */
