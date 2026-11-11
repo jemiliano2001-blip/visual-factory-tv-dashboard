@@ -1,11 +1,12 @@
 /**
  * Pestaña "Solicitudes": lo que los ingenieros pidieron a facturación.
- * Quien factura marca "Hecha" (con confirmación) y la orden puede volver a pedirse.
+ * Se marcan "Hecha" solas cuando Odoo ya las cumplió (el servidor lo revisa al leer); mientras,
+ * cada partida muestra su avance en Odoo. Quien factura también puede marcarla a mano.
  */
 import { useState } from 'react';
 import { format } from 'date-fns';
 import { useInvoiceRequests, useMarkInvoiceRequestDone } from '../../hooks/useInvoiceRequests';
-import { actorLabel, type InvoiceRequest } from '../../../shared/invoiceRequests';
+import { actorLabel, type InvoiceRequest, type LineProgress } from '../../../shared/invoiceRequests';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 
@@ -16,7 +17,7 @@ const fmt = (iso: string | undefined) => {
 };
 const qty = (n: number) => String(Math.round(n * 100) / 100);
 
-function RequestCard({ request, action }: { request: InvoiceRequest; action?: React.ReactNode }) {
+function RequestCard({ request, action, progress }: { request: InvoiceRequest; action?: React.ReactNode; progress?: LineProgress[] }) {
   const isFactura = request.type === 'factura';
   return (
     <li className="rounded-2xl border border-border bg-card p-4 space-y-2">
@@ -30,9 +31,17 @@ function RequestCard({ request, action }: { request: InvoiceRequest; action?: Re
       </div>
       {request.lines && request.lines.length > 0 && (
         <ul className="space-y-0.5 text-sm text-foreground">
-          {request.lines.map(l => (
-            <li key={l.lineId}><span className="font-mono-data font-semibold">{qty(l.qty)}</span>{l.unit ? ` ${l.unit}` : ''} — {l.name}</li>
-          ))}
+          {request.lines.map(l => {
+            const p = progress?.find(x => x.lineId === l.lineId);
+            return (
+              <li key={l.lineId}>
+                <span className="font-mono-data font-semibold">{qty(l.qty)}</span>{l.unit ? ` ${l.unit}` : ''} — {l.name}
+                {p && (
+                  <span className="text-muted-foreground"> · <span className="font-mono-data">{qty(p.done)}</span> de <span className="font-mono-data">{qty(p.qty)}</span> en Odoo</span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
       <p className="text-sm text-muted-foreground">
@@ -87,6 +96,7 @@ export default function RequestsTab() {
             <RequestCard
               key={r.id}
               request={r}
+              progress={query.data.progress?.[r.id]}
               action={confirmId === r.id ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm text-foreground">¿Ya quedó hecha?</span>

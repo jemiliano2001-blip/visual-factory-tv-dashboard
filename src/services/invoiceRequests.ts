@@ -4,7 +4,10 @@
  * el último estado bueno (mismo esquema de auth que services/odoo.ts).
  */
 import { getIdTokenOrThrow } from '../firebase';
-import type { InvoiceRequest, InvoiceRequestsState, RequestDraft, SkippedRequest } from '../../shared/invoiceRequests';
+import type { InvoiceRequest, InvoiceRequestsState, RequestDraft, RequestsProgress, SkippedRequest } from '../../shared/invoiceRequests';
+
+/** Lo que devuelve el GET: el estado más el avance en Odoo de las pendientes (puede faltar). */
+export type InvoiceRequestsView = InvoiceRequestsState & { progress?: RequestsProgress };
 
 export { buildDrafts, type OrderChoice } from './invoiceDrafts';
 
@@ -39,7 +42,7 @@ async function request<T>(path: string, method: 'GET' | 'POST', body?: RequestDr
   return await response.json() as T;
 }
 
-export const fetchInvoiceRequests = () => request<InvoiceRequestsState>('', 'GET');
+export const fetchInvoiceRequests = () => request<InvoiceRequestsView>('', 'GET');
 
 export const submitInvoiceRequests = (drafts: RequestDraft[]) =>
   request<CreateInvoiceRequestsResult>('', 'POST', drafts, 45000);

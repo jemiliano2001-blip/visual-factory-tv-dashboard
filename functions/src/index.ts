@@ -14,7 +14,8 @@ import {
   claimOrders, normalizeOrderAssignments, parseOrderKeys, releaseOrders, type OrderAssignmentsPayload,
 } from '../../shared/orderAssignments';
 import {
-  createInvoiceRequests, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody, type RequestActor,
+  createInvoiceRequests, loadOrderSnapshots, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody,
+  reconcileWithOdoo, type OdooOrderSnapshot, type RequestActor,
 } from '../../shared/invoiceRequests';
 import { isKnownSatCode } from '../../shared/satCatalogServer';
 import {
@@ -211,9 +212,33 @@ app.get('/api/team-access', async (_req: Request, res: Response) => {
   }
 });
 
+// Al leer, marca "hecha" lo que Odoo ya cumplió y agrega el avance. Si Odoo falla, devuelve lo guardado.
 app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
   try {
-    res.json(normalizeInvoiceRequests((await requestsDoc().get()).data()));
+    const stored = normalizeInvoiceRequests((await requestsDoc().get()).data());
+    let orders: OdooOrderSnapshot[] = [];
+    if (odooClient.isConfigured()) {
+      try {
+        orders = await loadOrderSnapshots(stored, {
+          fetchCached: () => odooClient.fetchInvoiceableOrdersCached(),
+          fetchByIds: ids => odooClient.fetchOrdersByIds(ids),
+        });
+      } catch (err) {
+        console.warn('solicitudes: no se pudo consultar Odoo, se devuelve lo guardado:', err);
+        res.json({ ...stored, progress: {} });
+        return;
+      }
+    }
+    let out = reconcileWithOdoo(stored, orders, new Date().toISOString());
+    if (out.state !== stored) {
+      out = await admin.firestore().runTransaction(async tx => {
+        const current = normalizeInvoiceRequests((await tx.get(requestsDoc())).data());
+        const next = reconcileWithOdoo(current, orders, new Date().toISOString());
+        if (next.state !== current) tx.set(requestsDoc(), next.state);
+        return next;
+      });
+    }
+    res.json({ ...out.state, progress: out.progress });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }

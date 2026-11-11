@@ -20,8 +20,8 @@ import {
   claimOrders, normalizeOrderAssignments, parseOrderKeys, releaseOrders, type OrderAssignmentsPayload,
 } from './shared/orderAssignments.ts';
 import {
-  createInvoiceRequests, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody,
-  type InvoiceRequestsState, type RequestActor,
+  createInvoiceRequests, loadOrderSnapshots, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody,
+  reconcileWithOdoo, type InvoiceRequestsState, type OdooOrderSnapshot, type RequestActor,
 } from './shared/invoiceRequests.ts';
 import { isKnownSatCode } from './shared/satCatalogServer.ts';
 
@@ -256,9 +256,28 @@ function readRequests(): InvoiceRequestsState {
 }
 
 
-app.get('/api/invoice-requests', (_req: Request, res: Response) => {
+// Al leer, marca "hecha" lo que Odoo ya cumplió y agrega el avance. Si Odoo falla, devuelve lo guardado.
+app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
   try {
-    res.json(readRequests());
+    const stored = readRequests();
+    let orders: OdooOrderSnapshot[] = [];
+    if (odooClient.isConfigured()) {
+      try {
+        orders = await loadOrderSnapshots(stored, {
+          fetchCached: () => odooClient.fetchInvoiceableOrdersCached(),
+          fetchByIds: ids => odooClient.fetchOrdersByIds(ids),
+        });
+      } catch (err) {
+        console.warn('solicitudes: no se pudo consultar Odoo, se devuelve lo guardado:', err);
+        res.json({ ...stored, progress: {} });
+        return;
+      }
+    }
+    // Sin await entre leer y escribir: otra petición no puede intercalarse.
+    const current = readRequests();
+    const out = reconcileWithOdoo(current, orders, new Date().toISOString());
+    if (out.state !== current) writeFileSync(REQUESTS_FILE, JSON.stringify(out.state, null, 2));
+    res.json({ ...out.state, progress: out.progress });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }

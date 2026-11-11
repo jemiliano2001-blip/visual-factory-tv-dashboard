@@ -247,8 +247,21 @@ export class OdooClient {
     // Se pide una de más para detectar el recorte sin una llamada extra a Odoo.
     const truncated = found.length > MAX_INVOICEABLE_ORDERS;
     const ids = truncated ? found.slice(0, MAX_INVOICEABLE_ORDERS) : found;
-    if (!ids.length) return { orders: [], truncated: false };
+    return { orders: await this.readNormalizedOrders(ids), truncated };
+  }
 
+  /**
+   * Órdenes por id sin importar su estado de facturación (las que ya salieron del catálogo).
+   * Se buscan primero para omitir ids borrados o sin acceso en vez de fallar el `read`.
+   */
+  async fetchOrdersByIds(ids: number[]): Promise<NormalizedInvoiceableOrder[]> {
+    if (!ids.length) return [];
+    const found = await this.odooCall<number[]>('sale.order', 'search', [[['id', 'in', ids]]]);
+    return this.readNormalizedOrders(found);
+  }
+
+  private async readNormalizedOrders(ids: number[]): Promise<NormalizedInvoiceableOrder[]> {
+    if (!ids.length) return [];
     const orders = await this.odooCall<RawOrder[]>('sale.order', 'read', [ids], {
       fields: [
         'name', 'client_order_ref', 'partner_id', 'date_order', 'commitment_date',
@@ -414,7 +427,7 @@ export class OdooClient {
       };
     });
 
-    return { orders: normalized, truncated };
+    return normalized;
   }
 
   private async readDoneMoves(domain: unknown[]): Promise<RawMove[]> {

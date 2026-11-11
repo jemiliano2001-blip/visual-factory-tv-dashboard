@@ -330,6 +330,83 @@ export function markInvoiceRequestDone(
   return trim({ requests: state.requests.map(r => (r === target ? updated : r)), updatedAt: ctx.now });
 }
 
+/** Lo mínimo de una orden de Odoo para saber si una solicitud ya quedó hecha. */
+export interface OdooOrderSnapshot {
+  id: number;
+  invoice_status: string;
+  state: string;
+  lines: Array<{ id: number; delivered: number; invoiced: number }>;
+}
+export interface LineProgress { lineId: number; done: number; qty: number }
+/** Avance en Odoo por solicitud pendiente (id → partidas). Se calcula al vuelo, no se guarda. */
+export type RequestsProgress = Record<string, LineProgress[]>;
+export const ODOO_AUTO_ACTOR: RequestActor = { uid: 'odoo-auto', email: null, name: 'Odoo (automático)' };
+
+/**
+ * Marca "hecha" lo que Odoo ya cumplió: remisión = entregado desde que se pidió; factura parcial =
+ * facturado desde que se pidió; factura completa = orden `invoiced`. Varias solicitudes de la misma
+ * partida se reparten por orden de llegada (cursor): una entrega no completa dos solicitudes.
+ * Sin foto de cantidades, con la orden cancelada o ausente, la solicitud queda como está.
+ */
+export function reconcileWithOdoo(
+  state: InvoiceRequestsState,
+  orders: OdooOrderSnapshot[],
+  now: string,
+): { state: InvoiceRequestsState; progress: RequestsProgress } {
+  const byId = new Map(orders.map(o => [o.id, o]));
+  const cursors = new Map<string, number>();
+  const progress: RequestsProgress = {};
+  const doneIds = new Set<string>();
+  // El estado guarda la más reciente primero: al revés = orden de llegada.
+  for (let i = state.requests.length - 1; i >= 0; i--) {
+    const r = state.requests[i];
+    if (r.status !== 'pendiente') continue;
+    const order = byId.get(r.orderId);
+    if (!order || order.state === 'cancel') continue;
+    if (!r.lines) {
+      if (r.type === 'factura' && order.invoice_status === 'invoiced') doneIds.add(r.id);
+      continue;
+    }
+    const field = r.type === 'remision' ? 'delivered' : 'invoiced';
+    const lines: LineProgress[] = [];
+    let complete = true;
+    for (const l of r.lines) {
+      const base = r.type === 'remision' ? l.deliveredAtRequest : l.invoicedAtRequest;
+      const line = order.lines.find(ol => ol.id === l.lineId);
+      if (base === undefined || !line) { complete = false; continue; }
+      const key = `${field}:${r.orderId}:${l.lineId}`;
+      const start = Math.max(base, cursors.get(key) ?? -Infinity);
+      const done = round6(Math.min(l.qty, Math.max(0, line[field] - start)));
+      cursors.set(key, start + done);
+      lines.push({ lineId: l.lineId, done, qty: l.qty });
+      if (done < l.qty - EPS) complete = false;
+    }
+    if (complete) doneIds.add(r.id);
+    else if (lines.length > 0) progress[r.id] = lines;
+  }
+  if (doneIds.size === 0) return { state, progress };
+  const requests = state.requests.map(r => (doneIds.has(r.id) ? { ...r, status: 'hecha' as const, doneBy: ODOO_AUTO_ACTOR, doneAt: now } : r));
+  return { state: trim({ requests, updatedAt: now }), progress };
+}
+
+/**
+ * Órdenes de Odoo de las solicitudes pendientes: del catálogo por facturar (con caché) y, las que
+ * ya salieron de él (p. ej. facturadas completas), buscadas por id. Un fallo de Odoo se propaga.
+ */
+export async function loadOrderSnapshots(
+  state: InvoiceRequestsState,
+  deps: {
+    fetchCached: () => Promise<{ orders: OdooOrderSnapshot[] }>;
+    fetchByIds: (ids: number[]) => Promise<OdooOrderSnapshot[]>;
+  },
+): Promise<OdooOrderSnapshot[]> {
+  const wanted = new Set(state.requests.filter(r => r.status === 'pendiente').map(r => r.orderId));
+  if (wanted.size === 0) return [];
+  const found = (await deps.fetchCached()).orders.filter(o => wanted.has(o.id));
+  const missing = [...wanted].filter(id => !found.some(o => o.id === id));
+  return missing.length > 0 ? [...found, ...await deps.fetchByIds(missing)] : found;
+}
+
 export function pendingRequestsByOrder(state: InvoiceRequestsState): Map<number, InvoiceRequest[]> {
   const map = new Map<number, InvoiceRequest[]>();
   for (const r of state.requests) {
