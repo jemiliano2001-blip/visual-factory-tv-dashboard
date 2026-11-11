@@ -13,6 +13,7 @@ export type CreateInvoiceRequestsResult = {
   created: InvoiceRequest[];
   skipped: SkippedRequest[];
   notified: boolean;
+  emailed: boolean;
 };
 
 const PROXY_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ODOO_PROXY_URL) || '';

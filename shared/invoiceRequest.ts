@@ -73,6 +73,48 @@ export function buildInvoiceRequestEmail(orders: InvoiceRequestOrder[]) {
   return { subject, text, html };
 }
 
+/** Solicitud ya guardada (forma estructural de InvoiceRequest; shared no importa entre archivos). */
+export interface MailableRequest {
+  orderName: string;
+  partnerName: string;
+  customerReference: string | null;
+  type: 'factura' | 'remision';
+  lines?: { name: string; qty: number; unit: string | null }[];
+}
+
+export function buildRequestsEmail(
+  requests: MailableRequest[],
+  actor: { email: string | null; name: string | null; uid: string },
+) {
+  if (requests.length === 0) throw new Error('Se requiere al menos una solicitud.');
+  const facturas = requests.filter(r => r.type === 'factura');
+  const remisiones = requests.filter(r => r.type === 'remision');
+  const counts = [
+    facturas.length ? `${facturas.length} ${facturas.length > 1 ? 'facturas' : 'factura'}` : '',
+    remisiones.length ? `${remisiones.length} ${remisiones.length > 1 ? 'remisiones' : 'remisión'}` : '',
+  ].filter(Boolean).join(' y ');
+  const subject = `Solicitud de ${counts}: ${[...new Set(requests.map(r => r.orderName))].join(', ')}`;
+  const who = actor.name || actor.email || actor.uid;
+  const intro = `Buen día, ${who} pide lo siguiente:`;
+  const head = (r: MailableRequest) =>
+    `${r.orderName} — ${r.partnerName}${r.customerReference ? ` (Compra ${r.customerReference})` : ''}`;
+  const pieces = (r: MailableRequest) =>
+    (r.lines ?? []).map(l => `${fmtQty(l.qty)}${l.unit ? ` ${l.unit}` : ''} — ${l.name}`);
+  const groups = [['Facturas', facturas], ['Remisiones', remisiones]] as const;
+
+  const text = [intro, ...groups.filter(([, rs]) => rs.length).map(([title, rs]) => [
+    '', `${title}:`,
+    ...rs.map(r => [`  ${head(r)}`, ...pieces(r).map(l => `    • ${l}`)].join('\n')),
+  ].join('\n')), '', 'Gracias.'].join('\n');
+
+  const html = [`<p>${escapeHtml(intro)}</p>`, ...groups.filter(([, rs]) => rs.length).map(([title, rs]) =>
+    `<h3>${title}</h3>` + rs.map(r =>
+      `<p><strong>${escapeHtml(head(r))}</strong></p>` +
+      (pieces(r).length ? `<ul>${pieces(r).map(l => `<li>${escapeHtml(l)}</li>`).join('')}</ul>` : '')).join('')),
+    '<p>Gracias.</p>'].join('');
+  return { subject, text, html };
+}
+
 export async function sendInvoiceRequest(args: {
   names: string[];
   orders: InvoiceRequestOrder[];

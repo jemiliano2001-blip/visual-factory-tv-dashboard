@@ -141,16 +141,18 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
   const send = () => { submit.mutateAsync(drafts).then(setResult).catch(() => undefined); };
 
   if (result) {
-    const { created, skipped, notified } = result;
+    const { created, skipped, notified, emailed } = result;
     return (
       <>
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3" aria-live="polite">
           <p className="text-base font-bold text-foreground">
             {created.length === 0
               ? 'No se creó ninguna solicitud'
-              : notified
-                ? 'Listo, se avisó a facturación'
-                : 'Quedó guardada, pero no se pudo avisar por Discord. Avísale a facturación.'}
+              : emailed
+                ? 'Listo, se mandó el correo a facturación'
+                : notified
+                  ? 'Listo, se avisó a facturación'
+                  : 'Quedó guardada, pero no se pudo avisar. Avísale a facturación.'}
           </p>
           <p className="text-sm text-muted-foreground">
             Se {created.length === 1 ? 'creó' : 'crearon'} <span className="font-mono-data">{created.length}</span> {created.length === 1 ? 'solicitud' : 'solicitudes'}.

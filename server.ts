@@ -277,7 +277,7 @@ app.post('/api/invoice-requests', async (req: Request, res: Response) => {
   try {
     const out = createInvoiceRequests(readRequests(), drafts, orders, { actor, now: new Date().toISOString(), newId: randomUUID });
     if (out.created.length > 0) writeFileSync(REQUESTS_FILE, JSON.stringify(out.state, null, 2));
-    res.json({ state: out.state, created: out.created, skipped: out.skipped, notified: false });
+    res.json({ state: out.state, created: out.created, skipped: out.skipped, notified: false, emailed: false });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }

@@ -6,7 +6,7 @@ import express, { NextFunction, Request, Response } from 'express';
 import { OdooClient } from '../../shared/odooClient';
 import nodemailer from 'nodemailer';
 import { crearAuthApi } from '../../shared/firebaseTokenPolicy';
-import { sendInvoiceRequest } from '../../shared/invoiceRequest';
+import { buildRequestsEmail, sendInvoiceRequest } from '../../shared/invoiceRequest';
 import {
   applyOrderAssignmentsMutation, normalizeOrderAssignments, parseOrderAssignmentsPatch,
 } from '../../shared/orderAssignments';
@@ -192,8 +192,25 @@ app.post('/api/invoice-requests', async (req: Request, res: Response) => {
       if (out.created.length > 0) tx.set(requestsDoc(), out.state);
       return out;
     });
+    // El registro ya quedó guardado: si falla el correo o Discord solo se reporta.
+    let emailed = false;
+    if (result.created.length > 0) {
+      const { GMAIL_USER, GMAIL_APP_PASSWORD, INVOICE_MAIL_TO, INVOICE_MAIL_CC } = process.env;
+      if (GMAIL_USER && GMAIL_APP_PASSWORD && INVOICE_MAIL_TO) {
+        try {
+          const transport = nodemailer.createTransport({ service: 'gmail', auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD } });
+          await transport.sendMail({
+            from: GMAIL_USER, to: INVOICE_MAIL_TO, ...(INVOICE_MAIL_CC ? { cc: INVOICE_MAIL_CC } : {}),
+            ...buildRequestsEmail(result.created, actor),
+          });
+          emailed = true;
+        } catch (err) {
+          console.error('correo de solicitud falló:', err);
+        }
+      }
+    }
     const notified = result.created.length > 0 ? await sendInvoiceRequestsNotice(result.created, actor) : false;
-    res.json({ state: result.state, created: result.created, skipped: result.skipped, notified });
+    res.json({ state: result.state, created: result.created, skipped: result.skipped, notified, emailed });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
