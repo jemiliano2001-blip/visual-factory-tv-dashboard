@@ -21,6 +21,9 @@ export const DEFAULT_ENGINEERS: EngineerRosterItem[] = [];
 const MIN_NAME = 2;
 const MAX_NAME = 50;
 
+/** Ingenieros que antes se sembraron por código y nunca entraron con cuenta: se descartan de lo guardado. */
+const LEGACY_SEEDED_IDS = new Set(['edgar-castro', 'antonio-vazquez', 'rogelio']);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -33,7 +36,7 @@ export function normalizeOrderAssignments(raw: unknown): OrderAssignmentsPayload
       if (!isRecord(item) || typeof item.id !== 'string' || typeof item.name !== 'string') continue;
       const name = item.name.trim();
       if (!item.id || name.length < MIN_NAME || name.length > MAX_NAME) continue;
-      if (engineers.some(e => e.id === item.id)) continue;
+      if (LEGACY_SEEDED_IDS.has(item.id) || engineers.some(e => e.id === item.id)) continue;
       engineers.push({ id: item.id, name });
     }
   }

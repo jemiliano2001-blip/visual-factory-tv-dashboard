@@ -10,7 +10,7 @@ test('normalize siempre incluye los ingenieros por defecto y filtra lo inválido
     engineers: [{ id: 'luis', name: 'Luis' }, { id: 'x', name: 'x' }, { id: 'rogelio', name: 'Otro' }, 7],
     assignments: { S01: 'luis', S02: 'fantasma', S03: 5 },
   });
-  assert.deepEqual(out.engineers.map(e => e.id), ['luis', 'rogelio']);
+  assert.deepEqual(out.engineers.map(e => e.id), ['luis']);
   assert.deepEqual(out.assignments, { S01: 'luis' });
 });
 
@@ -18,6 +18,20 @@ test('Edgar, Antonio y Rogelio ya no aparecen en la lista; sus asignaciones anti
   assert.deepEqual(normalizeOrderAssignments(null).engineers, []);
   const out = normalizeOrderAssignments({ assignments: { S01: 'rogelio', S02: 'edgar-castro', S03: 'antonio-vazquez' } });
   assert.deepEqual(out.assignments, {});
+});
+
+test('los ingenieros sembrados por código se quitan de la lista guardada; las cuentas conectadas se quedan', () => {
+  const out = normalizeOrderAssignments({
+    engineers: [
+      { id: 'edgar-castro', name: 'Edgar Castro' },
+      { id: 'antonio-vazquez', name: 'Antonio Vázquez' },
+      { id: 'rogelio', name: 'Rogelio' },
+      { id: 'u-A1', name: 'Emiliano Vázquez' },
+    ],
+    assignments: { S01: 'u-A1', S02: 'rogelio' },
+  });
+  assert.deepEqual(out.engineers, [{ id: 'u-A1', name: 'Emiliano Vázquez' }]);
+  assert.deepEqual(out.assignments, { S01: 'u-A1' });
 });
 
 test('claimOrders: cada quien se asigna a sí mismo y queda en la lista con su nombre', () => {
