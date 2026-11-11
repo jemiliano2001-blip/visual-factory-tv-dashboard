@@ -9,7 +9,7 @@ import { crearAuthApi } from '../../shared/firebaseTokenPolicy';
 import { crearVerificadorHub } from '../../shared/hubAccess';
 import { buildMailEnvelope, buildRequestsEmail } from '../../shared/invoiceRequest';
 import {
-  applyOrderAssignmentsMutation, normalizeOrderAssignments, parseOrderAssignmentsPatch,
+  claimOrders, normalizeOrderAssignments, parseOrderKeys, releaseOrders, type OrderAssignmentsPayload,
 } from '../../shared/orderAssignments';
 import {
   createInvoiceRequests, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody, type RequestActor,
@@ -133,6 +133,8 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
 });
 
 // ─── Asignación de órdenes a ingenieros SMV ───────────────────────────────────
+const isActor = (a: unknown): a is RequestActor => typeof a === 'object' && a !== null && typeof (a as RequestActor).uid === 'string';
+const NO_ACTOR = 'Se requiere una cuenta de personal SMV.';
 const assignmentsDoc = () => admin.firestore().doc('visual_factory_state/order_assignments');
 
 app.get('/api/order-assignments', async (_req: Request, res: Response) => {
@@ -143,42 +145,37 @@ app.get('/api/order-assignments', async (_req: Request, res: Response) => {
   }
 });
 
-app.post('/api/order-assignments', async (req: Request, res: Response) => {
-  let patch;
-  try {
-    patch = parseOrderAssignmentsPatch(req.body);
-  } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
-    return;
-  }
-  let validationError: string | null = null;
-  try {
-    const next = await admin.firestore().runTransaction(async tx => {
-      const current = normalizeOrderAssignments((await tx.get(assignmentsDoc())).data());
-      let updated;
-      try {
-        updated = applyOrderAssignmentsMutation(current, patch);
-      } catch (err) {
-        validationError = err instanceof Error ? err.message : String(err);
-        return null;
-      }
-      tx.set(assignmentsDoc(), updated);
-      return updated;
-    });
-    if (validationError !== null) {
-      res.status(400).json({ error: validationError });
+const changeAssignments = (mutate: (current: OrderAssignmentsPayload, actor: RequestActor, keys: string[]) => OrderAssignmentsPayload) =>
+  async (req: Request, res: Response) => {
+    const actor = res.locals.actor;
+    if (!isActor(actor)) {
+      res.status(403).json({ error: NO_ACTOR });
       return;
     }
-    res.json(next);
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-  }
-});
+    let keys: string[];
+    try {
+      keys = parseOrderKeys(req.body);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    try {
+      const next = await admin.firestore().runTransaction(async tx => {
+        const updated = mutate(normalizeOrderAssignments((await tx.get(assignmentsDoc())).data()), actor, keys);
+        tx.set(assignmentsDoc(), updated);
+        return updated;
+      });
+      res.json(next);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+app.post('/api/order-assignments/claim', changeAssignments((cur, actor, keys) => claimOrders(cur, actor, keys)));
+app.post('/api/order-assignments/release', changeAssignments((cur, actor, keys) => releaseOrders(cur, actor.uid, keys)));
 
 // ─── Solicitudes de factura/remisión ──────────────────────────────────────────
 const requestsDoc = () => admin.firestore().doc('visual_factory_state/invoice_requests');
-const isActor = (a: unknown): a is RequestActor => typeof a === 'object' && a !== null && typeof (a as RequestActor).uid === 'string';
-const NO_ACTOR = 'Se requiere una cuenta de personal SMV.';
 
 app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
   try {

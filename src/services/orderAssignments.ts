@@ -5,7 +5,7 @@
  */
 import { getIdTokenOrThrow } from '../firebase';
 import {
-  normalizeOrderAssignments, type OrderAssignmentsPatch, type OrderAssignmentsPayload,
+  normalizeOrderAssignments, type OrderAssignmentsPayload,
 } from '../../shared/orderAssignments';
 
 const CACHE_KEY = 'visual_factory_order_assignments_v1';
@@ -28,11 +28,11 @@ export function cacheAssignments(payload: OrderAssignmentsPayload): void {
   }
 }
 
-async function request(method: 'GET' | 'POST', body?: OrderAssignmentsPatch): Promise<OrderAssignmentsPayload> {
+async function request(path: string, body?: { orderKeys: string[] }): Promise<OrderAssignmentsPayload> {
   const headers: Record<string, string> = { Authorization: `Bearer ${await getIdTokenOrThrow()}` };
   if (body) headers['Content-Type'] = 'application/json';
-  const response = await fetch(`${PROXY_BASE}/api/order-assignments`, {
-    method,
+  const response = await fetch(`${PROXY_BASE}/api/order-assignments${path}`, {
+    method: body ? 'POST' : 'GET',
     headers,
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(15000),
@@ -46,6 +46,10 @@ async function request(method: 'GET' | 'POST', body?: OrderAssignmentsPatch): Pr
   return payload;
 }
 
-export const fetchOrderAssignments = () => request('GET');
+export const fetchOrderAssignments = () => request('');
 
-export const updateOrderAssignments = (patch: OrderAssignmentsPatch) => request('POST', patch);
+/** La persona toma las órdenes para sí; el servidor la identifica por su cuenta. */
+export const claimOrdersRemote = (orderKeys: string[]) => request('/claim', { orderKeys });
+
+/** La persona suelta las órdenes que tiene asignadas. */
+export const releaseOrdersRemote = (orderKeys: string[]) => request('/release', { orderKeys });

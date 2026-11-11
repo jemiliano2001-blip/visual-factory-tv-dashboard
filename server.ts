@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { OdooClient } from './shared/odooClient.ts';
 import { crearAuthApi, identidadDeToken } from './shared/firebaseTokenPolicy.ts';
 import {
-  applyOrderAssignmentsMutation, normalizeOrderAssignments, parseOrderAssignmentsPatch, type OrderAssignmentsPayload,
+  claimOrders, normalizeOrderAssignments, parseOrderKeys, releaseOrders, type OrderAssignmentsPayload,
 } from './shared/orderAssignments.ts';
 import {
   createInvoiceRequests, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody,
@@ -189,6 +189,8 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
 
 // ─── Asignación de órdenes a ingenieros SMV ───────────────────────────────────
 // Persistencia local en archivo (ignorado por git); en Firebase vive en Firestore.
+const isActor = (a: unknown): a is RequestActor => typeof a === 'object' && a !== null && typeof (a as RequestActor).uid === 'string';
+const NO_ACTOR = 'Se requiere una cuenta de personal SMV.';
 const ASSIGNMENTS_FILE = resolve(process.cwd(), '.local-order-assignments.json');
 
 function readAssignments(): OrderAssignmentsPayload {
@@ -208,28 +210,31 @@ app.get('/api/order-assignments', (_req: Request, res: Response) => {
   }
 });
 
-app.post('/api/order-assignments', (req: Request, res: Response) => {
-  let current: OrderAssignmentsPayload;
-  let next: OrderAssignmentsPayload;
-  try {
-    current = readAssignments();
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-    return;
-  }
-  try {
-    next = applyOrderAssignmentsMutation(current, parseOrderAssignmentsPatch(req.body));
-  } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
-    return;
-  }
-  try {
-    writeFileSync(ASSIGNMENTS_FILE, JSON.stringify(next, null, 2));
-    res.json(next);
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-  }
-});
+const changeAssignments = (mutate: (current: OrderAssignmentsPayload, actor: RequestActor, keys: string[]) => OrderAssignmentsPayload) =>
+  (req: Request, res: Response) => {
+    const actor = res.locals.actor;
+    if (!isActor(actor)) {
+      res.status(403).json({ error: NO_ACTOR });
+      return;
+    }
+    let keys: string[];
+    try {
+      keys = parseOrderKeys(req.body);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    try {
+      const next = mutate(readAssignments(), actor, keys);
+      writeFileSync(ASSIGNMENTS_FILE, JSON.stringify(next, null, 2));
+      res.json(next);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+app.post('/api/order-assignments/claim', changeAssignments((cur, actor, keys) => claimOrders(cur, actor, keys)));
+app.post('/api/order-assignments/release', changeAssignments((cur, actor, keys) => releaseOrders(cur, actor.uid, keys)));
 
 // ─── Solicitudes de factura/remisión ──────────────────────────────────────────
 // Persistencia local en archivo (ignorado por git); en Firebase vive en Firestore.
@@ -244,8 +249,6 @@ function readRequests(): InvoiceRequestsState {
   }
 }
 
-const isActor = (a: unknown): a is RequestActor => typeof a === 'object' && a !== null && typeof (a as RequestActor).uid === 'string';
-const NO_ACTOR = 'Se requiere una cuenta de personal SMV.';
 
 app.get('/api/invoice-requests', (_req: Request, res: Response) => {
   try {
