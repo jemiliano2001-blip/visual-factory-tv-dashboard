@@ -3,7 +3,9 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import express, { NextFunction, Request, Response } from 'express';
 import { OdooClient } from '../../shared/odooClient';
+import nodemailer from 'nodemailer';
 import { esTokenAnonimo } from '../../shared/firebaseTokenPolicy';
+import { sendInvoiceRequest } from '../../shared/invoiceRequest';
 import {
   applyOrderAssignmentsMutation, normalizeOrderAssignments, parseOrderAssignmentsPatch,
 } from '../../shared/orderAssignments';
@@ -77,7 +79,7 @@ app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // Las asignaciones a ingenieros son de uso interno: la sesión anónima de la TV no entra.
-app.use('/api/order-assignments', (req: Request, res: Response, next: NextFunction) => {
+app.use(['/api/order-assignments', '/api/invoice-request'], (req: Request, res: Response, next: NextFunction) => {
   const token = req.headers.authorization?.replace('Bearer ', '') ?? '';
   if (esTokenAnonimo(token)) {
     res.status(403).json({ error: 'Se requiere una cuenta de personal SMV; las sesiones anónimas no tienen acceso.' });
@@ -161,6 +163,33 @@ app.post('/api/order-assignments', async (req: Request, res: Response) => {
     res.json(next);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ─── Solicitud de factura por correo (Gmail) ──────────────────────────────────
+// Destinatarios y credenciales viven solo en functions/.env; el cliente manda
+// únicamente nombres de SO y el contenido sale de Odoo.
+app.post('/api/invoice-request', async (req: Request, res: Response) => {
+  const { GMAIL_USER, GMAIL_APP_PASSWORD, INVOICE_MAIL_TO, INVOICE_MAIL_CC } = process.env;
+  if (!GMAIL_USER || !GMAIL_APP_PASSWORD || !INVOICE_MAIL_TO) {
+    res.status(503).json({ error: 'Correo no configurado. Define GMAIL_USER, GMAIL_APP_PASSWORD e INVOICE_MAIL_TO en functions/.env' });
+    return;
+  }
+  const names: unknown = req.body?.orders;
+  if (!Array.isArray(names) || !names.every((n): n is string => typeof n === 'string')) {
+    res.status(400).json({ error: 'orders debe ser una lista de nombres de SO.' });
+    return;
+  }
+  try {
+    const { orders } = await odooClient.fetchInvoiceableOrdersCached();
+    const transport = nodemailer.createTransport({ service: 'gmail', auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD } });
+    res.json(await sendInvoiceRequest({
+      names, orders, transport,
+      config: { from: GMAIL_USER, to: INVOICE_MAIL_TO, cc: INVOICE_MAIL_CC || undefined },
+    }));
+  } catch (err) {
+    console.error('invoice-request falló:', err);
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
