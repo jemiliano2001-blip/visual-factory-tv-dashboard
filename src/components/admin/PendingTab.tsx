@@ -12,6 +12,7 @@ import { formatPONumber } from '../../utils/formatters';
 import { Badge } from '../ui/badge';
 import { STATUS_VARIANT } from './orderStatusMeta';
 import { OrderPoEngineer } from './OrdersTable';
+import { useMobile } from '../../hooks/useMobile';
 
 interface PendingTabProps {
   orders: OdooSaleOrder[];
@@ -86,9 +87,9 @@ export default function PendingTab({ orders, getEngineerName }: PendingTabProps)
 
 function Stat({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
-    <div className="px-5 py-4">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className={`mt-1 font-mono-data text-3xl font-semibold tabular-nums ${tone ?? 'text-foreground'}`}>{value.toLocaleString('es-MX')}</p>
+    <div className="min-w-0 px-3 py-3 md:px-5 md:py-4">
+      <p className="text-xs text-muted-foreground md:text-sm">{label}</p>
+      <p className={`mt-1 font-mono-data text-2xl font-semibold tabular-nums md:text-3xl ${tone ?? 'text-foreground'}`}>{value.toLocaleString('es-MX')}</p>
     </div>
   );
 }
@@ -104,15 +105,16 @@ function ClientGroup({
   onToggle: () => void;
   getEngineerName: (order: OdooSaleOrder) => string | null;
 }) {
+  const isMobile = useMobile();
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-2 border-b border-border bg-muted/40 px-4 py-3 text-left transition-colors hover:bg-accent/40"
+        className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-muted/40 px-4 py-3 text-left transition-colors hover:bg-accent/40"
       >
-        {collapsed ? <ChevronRight className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
-        <span className="font-semibold text-foreground">{client}</span>
+        {collapsed ? <ChevronRight className="size-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="size-4 shrink-0 text-muted-foreground" />}
+        <span className="min-w-0 break-words font-semibold text-foreground">{client}</span>
         <span className="text-xs text-muted-foreground">
           {orderCount} {orderCount === 1 ? 'orden' : 'órdenes'}
         </span>
@@ -120,7 +122,36 @@ function ClientGroup({
           <span className="font-mono-data font-semibold tabular-nums text-primary">{missingQty}</span> pza{missingQty === 1 ? '' : 's'} pendientes
         </span>
       </button>
-      {!collapsed && (
+      {!collapsed && isMobile && (
+        <ul className="divide-y divide-border">
+          {lines.map((pl, i) => {
+            const status = getOrderStatus(pl.order);
+            const d = parseOdooDate(pl.order.commitment_date);
+            return (
+              <li key={`${pl.order.id}-${pl.line.name}-${i}`} className="space-y-1.5 px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-mono-data text-base font-bold text-foreground">{formatPONumber(pl.order.name)}</div>
+                    <OrderPoEngineer order={pl.order} engineerName={getEngineerName(pl.order)} />
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="font-mono-data text-2xl font-bold tabular-nums leading-none text-primary">{pl.missing}</div>
+                    <div className="text-xs text-muted-foreground">faltan</div>
+                  </div>
+                </div>
+                <p className="break-words text-sm text-foreground/90">{abbreviate(pl.line.name)}</p>
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                  <span className="font-mono-data text-xs tabular-nums text-muted-foreground">
+                    Compromiso {d ? format(d, 'dd/MM/yyyy') : 'sin fecha'}
+                  </span>
+                  <Badge variant={STATUS_VARIANT[status.level]}>{status.label}</Badge>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {!collapsed && !isMobile && (
         <table className="w-full text-sm">
           <thead className="text-xs font-medium text-muted-foreground">
             <tr>

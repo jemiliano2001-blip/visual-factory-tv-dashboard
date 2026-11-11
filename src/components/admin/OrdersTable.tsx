@@ -26,6 +26,7 @@ import { getSmartCompanyName } from '../../utils/customerNames';
 import { extractOrderNoteMeta } from '../../services/orderNoteParser';
 import type { InvoiceRequest } from '../../../shared/invoiceRequests';
 import { RequestBadges } from '../RequestDialog';
+import { useMobile } from '../../hooks/useMobile';
 
 interface OrdersTableProps {
   orders: OdooSaleOrder[];
@@ -58,6 +59,7 @@ const columnHelper = createColumnHelper<OdooSaleOrder>();
 export default function OrdersTable({
   orders, groupByClient, rowSelection, onRowSelectionChange, getEngineerName, isMine, onClaim, onRelease, pendingByOrder,
 }: OrdersTableProps) {
+  const isMobile = useMobile();
   const [sorting, setSorting] = useState<SortingState>([{ id: 'commitment_date', desc: false }]);
   const [expanded, setExpanded] = useState<ExpandedState>({});
 
@@ -263,6 +265,50 @@ export default function OrdersTable({
   }, [sortedRows, groupByClient]);
   let lastClient: string | null = groupByClient ? null : undefined as unknown as string | null;
 
+  // Teléfono: una columna de tarjetas (sin tabla ni scroll lateral), en el orden por compromiso.
+  if (isMobile) {
+    return (
+      <div className="space-y-3">
+        {rows.length === 0 && (
+          <p className="rounded-2xl border border-border bg-card px-4 py-12 text-center text-sm text-muted-foreground">
+            No hay órdenes que coincidan con los filtros
+          </p>
+        )}
+        {rows.map(row => {
+          const showGroupHeader = groupByClient && row.original.partner_name !== lastClient;
+          if (showGroupHeader) lastClient = row.original.partner_name;
+          const stats = groupStats.get(row.original.partner_name);
+          return (
+            <React.Fragment key={row.id}>
+              {showGroupHeader && (
+                <div className="flex flex-wrap items-center gap-2 pt-1 text-sm font-bold text-foreground">
+                  <CompanyBadge company={row.original.partner_name} size="xs" />
+                  <span className="min-w-0 break-words">{getSmartCompanyName(row.original.partner_name, 'header')}</span>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {stats?.orders} órdenes · <span className="font-mono-data font-semibold tabular-nums text-primary">{stats?.missing}</span> pzas pendientes
+                  </span>
+                </div>
+              )}
+              <OrderCard
+                order={row.original}
+                selected={row.getIsSelected()}
+                onSelect={v => row.toggleSelected(v)}
+                expanded={row.getIsExpanded()}
+                onToggleExpanded={row.getToggleExpandedHandler()}
+                showCompany={!groupByClient}
+                engineerName={getEngineerName(row.original)}
+                mine={isMine(row.original)}
+                onClaim={onClaim}
+                onRelease={onRelease}
+                requests={pendingByOrder?.get(row.original.id)}
+              />
+            </React.Fragment>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
       <div className="overflow-x-auto">
@@ -337,6 +383,99 @@ export default function OrdersTable({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/** Una orden como tarjeta de teléfono: todo el dato visible en una columna, sin scroll lateral. */
+function OrderCard({
+  order, selected, onSelect, expanded, onToggleExpanded, showCompany, engineerName, mine, onClaim, onRelease, requests,
+}: {
+  order: OdooSaleOrder;
+  selected: boolean;
+  onSelect: (value: boolean) => void;
+  expanded: boolean;
+  onToggleExpanded: (event: unknown) => void;
+  showCompany: boolean;
+  engineerName: string | null;
+  mine: boolean;
+  onClaim: (orderKeys: string[]) => void;
+  onRelease: (orderKeys: string[]) => void;
+  requests?: InvoiceRequest[];
+}) {
+  const created = parseOdooDate(order.date_order);
+  const d = parseOdooDate(order.commitment_date);
+  const status = getOrderStatus(order);
+  const pct = getDeliveryProgress(order);
+  const missing = getOrderMissingQty(order);
+  const { poNumber, clientContact } = extractOrderNoteMeta(order);
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
+      <div className="space-y-2 p-4">
+        <div className="flex items-center gap-2">
+          <Checkbox checked={selected} onCheckedChange={v => onSelect(!!v)} aria-label={`Seleccionar la orden ${order.name}`} />
+          <span className="font-mono-data text-base font-bold text-foreground">{order.name}</span>
+          <Badge variant={STATUS_VARIANT[status.level]} className="ml-auto">{status.label}</Badge>
+        </div>
+        <RequestBadges requests={requests} />
+        {showCompany && (
+          <div className="flex items-center gap-2">
+            <CompanyBadge company={order.partner_name} size="xs" />
+            <span className="min-w-0 break-words text-sm font-medium text-foreground/90">{getSmartCompanyName(order.partner_name, 'card')}</span>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {poNumber
+            ? <span className="font-mono-data text-sm font-bold text-data">PO.{poNumber}</span>
+            : <Badge variant="muted">Sin PO</Badge>}
+          {clientContact && <span className="text-xs text-muted-foreground">Req: {clientContact}</span>}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-2">
+          <span className="text-sm text-foreground">Ing: {engineerName ?? 'Sin asignar'}</span>
+          {mine ? (
+            <Button type="button" variant="ghost" className="min-h-11" onClick={() => onRelease([order.name])}>Soltar</Button>
+          ) : (
+            <Button type="button" variant="ghost" className="min-h-11 text-primary hover:text-primary" onClick={() => onClaim([order.name])}>Asignármela</Button>
+          )}
+        </div>
+        <div>
+          <span className="line-clamp-2 text-sm text-foreground/90">{order.main_product}</span>
+          <span className="text-xs text-muted-foreground">{order.lines_count} {order.lines_count === 1 ? 'línea' : 'líneas'}</span>
+        </div>
+        <div>
+          <div className="mb-1 flex justify-between font-mono-data text-xs tabular-nums text-muted-foreground">
+            <span>Entregado</span>
+            <span>{pct}%</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className={`h-full rounded-full ${pct >= 100 ? 'bg-success' : 'bg-primary'}`} style={{ width: `${pct}%` }} />
+          </div>
+          <div className="mt-1 text-sm">
+            <span className={`font-mono-data font-bold tabular-nums ${missing > 0 ? 'text-primary' : 'text-muted-foreground'}`}>{missing}</span>
+            <span className="text-xs text-muted-foreground"> por entregar</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 font-mono-data text-xs tabular-nums text-muted-foreground">
+          <span className={status.level === 'overdue' ? 'font-bold text-destructive' : undefined}>
+            Compromiso {d ? format(d, 'dd/MM/yyyy') : 'sin fecha'}
+          </span>
+          <span>Creada {created ? format(created, 'dd/MM/yyyy') : '—'}</span>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onToggleExpanded}
+        aria-expanded={expanded}
+        className="flex min-h-11 w-full items-center justify-center gap-1 border-t border-border bg-muted/40 text-sm text-muted-foreground transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      >
+        {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+        {expanded ? 'Ocultar líneas, remisiones y nota' : 'Ver líneas, remisiones y nota'}
+      </button>
+      {expanded && (
+        <div className="border-t border-border bg-background/50 p-4">
+          <ExpandedRow order={order} />
+        </div>
+      )}
     </div>
   );
 }
