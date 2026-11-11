@@ -15,8 +15,7 @@ import { getSmartCompanyName } from '../../utils/customerNames';
 import { OrderPoEngineer } from './OrdersTable';
 import { Checkbox } from '../ui/checkbox';
 import { Button } from '../ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
-import { requestInvoices } from '../../services/invoiceRequest';
+import { RequestDialog } from '../RequestDialog';
 
 interface DeliveriesTabProps {
   orders: OdooSaleOrder[];
@@ -52,34 +51,19 @@ export default function DeliveriesTab({ orders, getEngineerName }: DeliveriesTab
   );
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+  const [requestOpen, setRequestOpen] = useState(false);
 
-  // Solo cuentan las SO que siguen visibles con los filtros actuales.
-  const selectedNames = useMemo(
-    () => [...new Set(rows.map(r => r.order.name))].filter(n => selected.has(n)),
-    [rows, selected],
-  );
+  // Solo cuentan las órdenes que siguen visibles con los filtros actuales.
+  const selectedOrders = useMemo(() => {
+    const byName = new Map<string, OdooSaleOrder>();
+    for (const r of rows) if (selected.has(r.order.name)) byName.set(r.order.name, r.order);
+    return [...byName.values()];
+  }, [rows, selected]);
   const toggle = (name: string) => setSelected(prev => {
     const next = new Set(prev);
     if (!next.delete(name)) next.add(name);
     return next;
   });
-
-  const send = async () => {
-    setSending(true);
-    try {
-      const sent = await requestInvoices(selectedNames);
-      setFeedback({ ok: true, text: `Correo enviado a Mari: ${sent.join(', ')}` });
-      setSelected(new Set());
-      setConfirmOpen(false);
-    } catch (err) {
-      setFeedback({ ok: false, text: err instanceof Error ? err.message : 'No se pudo enviar el correo.' });
-    } finally {
-      setSending(false);
-    }
-  };
 
   if (rows.length === 0) {
     return (
@@ -93,33 +77,18 @@ export default function DeliveriesTab({ orders, getEngineerName }: DeliveriesTab
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3">
-        <Button type="button" disabled={selectedNames.length === 0} onClick={() => { setFeedback(null); setConfirmOpen(true); }}>
+        <Button type="button" size="lg" disabled={selectedOrders.length === 0} onClick={() => setRequestOpen(true)}>
           <Mail className="size-4" aria-hidden="true" />
-          Pedir factura a Mari{selectedNames.length > 0 ? ` (${selectedNames.length})` : ''}
+          Pedir factura o remisión{selectedOrders.length > 0 ? ` (${selectedOrders.length})` : ''}
         </Button>
-        <span className="text-sm text-muted-foreground">Marca las SO de las que quieres factura.</span>
-        {feedback && (
-          <span role="status" className={feedback.ok ? 'text-sm font-medium text-emerald-500' : 'text-sm font-medium text-destructive'}>
-            {feedback.text}
-          </span>
-        )}
+        <span className="text-sm text-muted-foreground">Marca las órdenes que quieres pedir.</span>
       </div>
-      <Dialog open={confirmOpen} onOpenChange={open => { if (!sending) setConfirmOpen(open); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>¿Pedir factura a Mari?</DialogTitle>
-            <DialogDescription>
-              Se enviará un correo a Mari, con copia a tu correo, pidiendo factura de: {selectedNames.join(', ')}.
-              Incluye las piezas y las remisiones de cada SO.
-            </DialogDescription>
-          </DialogHeader>
-          {feedback && !feedback.ok && <p role="alert" className="text-sm font-medium text-destructive">{feedback.text}</p>}
-          <DialogFooter>
-            <Button type="button" variant="outline" disabled={sending} onClick={() => setConfirmOpen(false)}>Cancelar</Button>
-            <Button type="button" disabled={sending} onClick={send}>{sending ? 'Enviando…' : 'Enviar correo'}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <RequestDialog
+        orders={selectedOrders}
+        open={requestOpen}
+        onClose={() => setRequestOpen(false)}
+        onSent={() => setSelected(new Set())}
+      />
       {SECTIONS.map(section => {
         const sectionRows = rows.filter(r => section.states.includes(r.delivery.state));
         if (sectionRows.length === 0) return null;
@@ -157,7 +126,7 @@ export default function DeliveriesTab({ orders, getEngineerName }: DeliveriesTab
                           <Checkbox
                             checked={selected.has(r.order.name)}
                             onCheckedChange={() => toggle(r.order.name)}
-                            aria-label={`Pedir factura de ${r.order.name}`}
+                            aria-label={`Seleccionar la orden ${r.order.name}`}
                           />
                         </td>
                         <td className="whitespace-nowrap px-4 py-2 font-mono-data text-foreground/90">{r.delivery.name}</td>

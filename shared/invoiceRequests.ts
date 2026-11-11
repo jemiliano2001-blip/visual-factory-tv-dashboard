@@ -33,6 +33,8 @@ export interface SkippedRequest { orderId: number; orderName: string | null; rea
 
 export const MAX_DONE_KEPT = 200;
 export const MAX_DRAFTS = 100;
+/** Tope de pendientes: viven en un solo documento de Firestore (1 MiB). */
+export const MAX_PENDING = 300;
 const MAX_STATE_CHARS = 800_000;
 const EPS = 1e-6;
 
@@ -47,6 +49,16 @@ const strOrNull = (v: unknown): string | null | undefined => (v === null || v ==
 
 export function linePendingQty(line: { qty: number; delivered: number }): number {
   return round6(Math.max(0, line.qty - line.delivered));
+}
+
+/** Lo que aún se puede pedir en una remisión: pendiente de entrega menos lo ya pedido en remisiones pendientes. */
+export function lineRemainingQty(line: { id?: number; qty: number; delivered: number }, pendingForOrder: InvoiceRequest[]): number {
+  let requested = 0;
+  for (const r of pendingForOrder) {
+    if (r.status !== 'pendiente' || r.type !== 'remision') continue;
+    for (const l of r.lines ?? []) if (l.lineId === line.id) requested += l.qty;
+  }
+  return round6(Math.max(0, linePendingQty(line) - requested));
 }
 
 export function clampQty(qty: number, max: number): number {
@@ -149,15 +161,15 @@ export function parseCreateRequestsBody(body: unknown): RequestDraft[] {
 
 type DraftResult = { request: InvoiceRequest } | { reason: string };
 
-function buildRequest(draft: RequestDraft, order: RequestableOrder, id: string, actor: RequestActor, now: string): DraftResult {
+function buildRequest(draft: RequestDraft, order: RequestableOrder, pendingForOrder: InvoiceRequest[], id: string, actor: RequestActor, now: string): DraftResult {
   const base: InvoiceRequest = {
     id, orderId: order.id, orderName: order.name, partnerName: order.partner_name,
     customerReference: order.customer_reference ?? null, type: draft.type, status: 'pendiente',
     requestedBy: actor, requestedAt: now,
   };
   if (draft.type === 'factura') return { request: base };
-  if (!order.lines.some(l => l.id !== undefined && linePendingQty(l) > EPS)) {
-    return { reason: `La orden ${order.name} no tiene piezas pendientes de entrega.` };
+  if (!order.lines.some(l => l.id !== undefined && lineRemainingQty(l, pendingForOrder) > EPS)) {
+    return { reason: `La orden ${order.name} no tiene piezas pendientes de entrega, o ya están pedidas en otra remisión.` };
   }
   if (!draft.lines || draft.lines.length === 0) return { reason: 'La remisión necesita al menos una pieza.' };
   const seen = new Set<number>();
@@ -167,8 +179,9 @@ function buildRequest(draft: RequestDraft, order: RequestableOrder, id: string, 
     if (!line) return { reason: `La pieza ${dl.lineId} no existe en la orden ${order.name}.` };
     if (seen.has(dl.lineId)) return { reason: `La pieza ${line.name} está repetida.` };
     seen.add(dl.lineId);
-    if (dl.qty > linePendingQty(line) + EPS) return { reason: `La cantidad de ${line.name} excede lo pendiente (${linePendingQty(line)}).` };
-    const qty = clampQty(dl.qty, linePendingQty(line));
+    const remaining = lineRemainingQty(line, pendingForOrder);
+    if (dl.qty > remaining + EPS) return { reason: `La cantidad de ${line.name} excede lo que falta por pedir (${remaining}).` };
+    const qty = clampQty(dl.qty, remaining);
     if (!(qty > 0)) return { reason: `La cantidad de ${line.name} debe ser mayor a 0.` };
     lines.push({ lineId: dl.lineId, name: line.name, qty, unit: line.unit ?? null });
   }
@@ -181,18 +194,22 @@ export function createInvoiceRequests(
   orders: RequestableOrder[],
   ctx: { actor: RequestActor; now: string; newId: () => string },
 ): { state: InvoiceRequestsState; created: InvoiceRequest[]; skipped: SkippedRequest[] } {
-  const pending = new Set(state.requests.filter(r => r.status === 'pendiente').map(r => `${r.orderId}:${r.type}`));
+  const pendingAll = state.requests.filter(r => r.status === 'pendiente');
+  const pendingFacturas = new Set(pendingAll.filter(r => r.type === 'factura').map(r => r.orderId));
+  let pendingCount = pendingAll.length;
   const created: InvoiceRequest[] = [];
   const skipped: SkippedRequest[] = [];
   for (const draft of drafts) {
     const order = orders.find(o => o.id === draft.orderId);
     const skip = (reason: string) => skipped.push({ orderId: draft.orderId, orderName: order?.name ?? null, reason });
     if (!order) { skip('La orden ya no está disponible en el catálogo.'); continue; }
-    const key = `${draft.orderId}:${draft.type}`;
-    if (pending.has(key)) { skip(`Ya hay una solicitud pendiente de ${draft.type === 'factura' ? 'factura' : 'remisión'} para ${order.name}.`); continue; }
-    const result = buildRequest(draft, order, ctx.newId(), ctx.actor, ctx.now);
+    if (pendingCount >= MAX_PENDING) { skip('Hay demasiadas solicitudes pendientes; pide a facturación que marque las que ya están hechas.'); continue; }
+    if (draft.type === 'factura' && pendingFacturas.has(order.id)) { skip(`Ya hay una solicitud pendiente de factura para ${order.name}.`); continue; }
+    const pendingForOrder = [...pendingAll, ...created].filter(r => r.orderId === order.id);
+    const result = buildRequest(draft, order, pendingForOrder, ctx.newId(), ctx.actor, ctx.now);
     if ('reason' in result) { skip(result.reason); continue; }
-    pending.add(key);
+    if (draft.type === 'factura') pendingFacturas.add(order.id);
+    pendingCount += 1;
     created.push(result.request);
   }
   if (created.length === 0) return { state, created, skipped };

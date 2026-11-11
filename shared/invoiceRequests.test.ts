@@ -6,7 +6,9 @@ import {
   actorLabel,
   clampQty,
   createInvoiceRequests,
+  lineRemainingQty,
   linePendingQty,
+  MAX_PENDING,
   markInvoiceRequestDone,
   normalizeInvoiceRequests,
   parseCreateRequestsBody,
@@ -237,4 +239,57 @@ test('pendingRequestsByOrder y actorLabel', () => {
   assert.equal(actorLabel(actor), 'Ana');
   assert.equal(actorLabel({ uid: 'u', email: 'e@x', name: null }), 'e@x');
   assert.equal(actorLabel({ uid: 'u', email: null, name: null }), 'u');
+});
+
+const pendRemision = (qty: number, id = 'rem1'): InvoiceRequest =>
+  req({ id, orderId: 10, type: 'remision', lines: [{ lineId: 1, name: 'Placa', qty, unit: 'pza' }] });
+
+test('varias remisiones de la misma orden: cada una descuenta lo ya pedido', () => {
+  // Placa: faltan 3. Primera remisión pide 2, la segunda solo puede pedir 1.
+  const first = createInvoiceRequests(empty, [{ orderId: 10, type: 'remision', lines: [{ lineId: 1, qty: 2 }] }], [order], ctx());
+  assert.equal(first.created.length, 1);
+  const second = createInvoiceRequests(first.state, [{ orderId: 10, type: 'remision', lines: [{ lineId: 1, qty: 1 }] }], [order], ctx());
+  assert.equal(second.created.length, 1);
+  const third = createInvoiceRequests(second.state, [{ orderId: 10, type: 'remision', lines: [{ lineId: 1, qty: 1 }] }], [order], ctx());
+  assert.equal(third.created.length, 0);
+  assert.match(third.skipped[0].reason, /pedid|pendiente/);
+});
+
+test('remisión: no puede pasar de lo pendiente menos lo ya pedido', () => {
+  const r = createInvoiceRequests({ requests: [pendRemision(2)], updatedAt: '' },
+    [{ orderId: 10, type: 'remision', lines: [{ lineId: 1, qty: 2 }] }], [order], ctx());
+  assert.equal(r.created.length, 0);
+  assert.match(r.skipped[0].reason, /excede/);
+});
+
+test('remisiones hechas ya no descuentan; la factura sigue sin repetirse', () => {
+  const hecha = { ...pendRemision(3), status: 'hecha' as const };
+  const r = createInvoiceRequests({ requests: [hecha], updatedAt: '' },
+    [{ orderId: 10, type: 'remision', lines: [{ lineId: 1, qty: 3 }] }], [order], ctx());
+  assert.equal(r.created.length, 1);
+});
+
+test('dos remisiones de la misma orden en un mismo envío se descuentan entre sí', () => {
+  const r = createInvoiceRequests(empty, [
+    { orderId: 10, type: 'remision', lines: [{ lineId: 1, qty: 2 }] },
+    { orderId: 10, type: 'remision', lines: [{ lineId: 1, qty: 2 }] },
+  ], [order], ctx());
+  assert.equal(r.created.length, 1);
+  assert.equal(r.skipped.length, 1);
+});
+
+test('lineRemainingQty resta solo remisiones pendientes de esa pieza', () => {
+  const line = { id: 1, qty: 5, delivered: 2 };
+  assert.equal(lineRemainingQty(line, []), 3);
+  assert.equal(lineRemainingQty(line, [pendRemision(2)]), 1);
+  assert.equal(lineRemainingQty(line, [pendRemision(5)]), 0);
+  assert.equal(lineRemainingQty(line, [{ ...pendRemision(2), status: 'hecha' }]), 3);
+  assert.equal(lineRemainingQty(line, [req({ id: 'f', orderId: 10 })]), 3);
+});
+
+test('tope de solicitudes pendientes', () => {
+  const many = Array.from({ length: MAX_PENDING }, (_, i) => req({ id: `p${i}`, orderId: 1000 + i }));
+  const r = createInvoiceRequests({ requests: many, updatedAt: '' }, [{ orderId: 10, type: 'factura' }], [order], ctx());
+  assert.equal(r.created.length, 0);
+  assert.match(r.skipped[0].reason, /demasiadas/);
 });

@@ -6,7 +6,7 @@ import express, { NextFunction, Request, Response } from 'express';
 import { OdooClient } from '../../shared/odooClient';
 import nodemailer from 'nodemailer';
 import { crearAuthApi } from '../../shared/firebaseTokenPolicy';
-import { buildRequestsEmail, sendInvoiceRequest } from '../../shared/invoiceRequest';
+import { buildRequestsEmail } from '../../shared/invoiceRequest';
 import {
   applyOrderAssignmentsMutation, normalizeOrderAssignments, parseOrderAssignmentsPatch,
 } from '../../shared/orderAssignments';
@@ -180,7 +180,7 @@ app.post('/api/invoice-requests', async (req: Request, res: Response) => {
   if (!odooClient.isConfigured()) { res.status(503).json({ error: 'Odoo no configurado.' }); return; }
   let orders;
   try {
-    orders = (await odooClient.fetchInvoiceableOrdersCached()).orders;
+    orders = (await odooClient.fetchInvoiceableOrders()).orders; // sin caché: las cantidades deben ser las de ahora
   } catch {
     res.status(503).json({ error: 'No se pudo consultar Odoo; no se guardó nada.' });
     return;
@@ -240,33 +240,6 @@ app.post('/api/invoice-requests/:id/done', async (req: Request, res: Response) =
     res.json(next);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-  }
-});
-
-// ─── Solicitud de factura por correo (Gmail) ──────────────────────────────────
-// Destinatarios y credenciales viven solo en functions/.env; el cliente manda
-// únicamente nombres de SO y el contenido sale de Odoo.
-app.post('/api/invoice-request', async (req: Request, res: Response) => {
-  const { GMAIL_USER, GMAIL_APP_PASSWORD, INVOICE_MAIL_TO, INVOICE_MAIL_CC } = process.env;
-  if (!GMAIL_USER || !GMAIL_APP_PASSWORD || !INVOICE_MAIL_TO) {
-    res.status(503).json({ error: 'Correo no configurado. Define GMAIL_USER, GMAIL_APP_PASSWORD e INVOICE_MAIL_TO en functions/.env' });
-    return;
-  }
-  const names: unknown = req.body?.orders;
-  if (!Array.isArray(names) || !names.every((n): n is string => typeof n === 'string')) {
-    res.status(400).json({ error: 'orders debe ser una lista de nombres de SO.' });
-    return;
-  }
-  try {
-    const { orders } = await odooClient.fetchInvoiceableOrdersCached();
-    const transport = nodemailer.createTransport({ service: 'gmail', auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD } });
-    res.json(await sendInvoiceRequest({
-      names, orders, transport,
-      config: { from: GMAIL_USER, to: INVOICE_MAIL_TO, cc: INVOICE_MAIL_CC || undefined },
-    }));
-  } catch (err) {
-    console.error('invoice-request falló:', err);
-    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

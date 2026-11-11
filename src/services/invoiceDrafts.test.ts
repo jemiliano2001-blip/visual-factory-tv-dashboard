@@ -33,9 +33,10 @@ test('conserva el orden de entrada', () => {
   assert.deepEqual(out.map(d => d.orderId), [9, 7, 2]);
 });
 
-const req = (type: 'factura' | 'remision', by: { uid: string; email: string | null; name: string | null }): InvoiceRequest => ({
+const req = (type: 'factura' | 'remision', by: { uid: string; email: string | null; name: string | null }, qty = 0): InvoiceRequest => ({
   id: 'r', orderId: 1, orderName: 'S00001', partnerName: 'X', customerReference: null,
   type, status: 'pendiente', requestedBy: by, requestedAt: '2026-01-01T00:00:00Z',
+  ...(type === 'remision' ? { lines: [{ lineId: 1, name: 'P', qty, unit: null }] } : {}),
 });
 const ana = { uid: 'u1', email: 'ana@x.com', name: 'Ana' };
 const order = { lines: [{ id: 1, qty: 5, delivered: 2 }] };
@@ -44,9 +45,14 @@ test('requestAvailability: ambos tipos disponibles', () => {
   assert.deepEqual(requestAvailability(order, []), { factura: null, remision: null });
 });
 
-test('requestAvailability: cada tipo pendiente es independiente', () => {
+test('requestAvailability: factura pendiente la bloquea, remisión parcial no bloquea otra remisión', () => {
   assert.deepEqual(requestAvailability(order, [req('factura', ana)]), { factura: 'Ya la pidió Ana', remision: null });
-  assert.deepEqual(requestAvailability(order, [req('remision', ana)]), { factura: null, remision: 'Ya la pidió Ana' });
+  assert.deepEqual(requestAvailability(order, [req('remision', ana, 2)]), { factura: null, remision: null });
+});
+
+test('requestAvailability: remisión bloqueada cuando ya pidieron todo lo que falta', () => {
+  assert.deepEqual(requestAvailability(order, [req('remision', ana, 3)]), { factura: null, remision: 'Ya pidieron todas las piezas que faltan' });
+  assert.deepEqual(requestAvailability(order, [req('remision', ana, 2), req('remision', ana, 1)]).remision, 'Ya pidieron todas las piezas que faltan');
 });
 
 test('requestAvailability: remisión sin piezas pendientes', () => {

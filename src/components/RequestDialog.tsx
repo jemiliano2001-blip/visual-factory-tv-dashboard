@@ -6,7 +6,7 @@ import { useMobile } from '../hooks/useMobile';
 import { useInvoiceRequests, useSubmitInvoiceRequests } from '../hooks/useInvoiceRequests';
 import type { CreateInvoiceRequestsResult } from '../services/invoiceRequests';
 import { buildDrafts, requestAvailability, type OrderChoice } from '../services/invoiceDrafts';
-import { clampQty, linePendingQty, pendingRequestsByOrder, type InvoiceRequest, type RequestType } from '../../shared/invoiceRequests';
+import { clampQty, lineRemainingQty, linePendingQty, pendingRequestsByOrder, type InvoiceRequest, type RequestType } from '../../shared/invoiceRequests';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
@@ -21,9 +21,11 @@ const TYPES: Array<{ type: RequestType; label: string }> = [
 const NO_CHOICE: Choice = { type: null, lineQty: {} };
 const EMPTY_STATE = { requests: [], updatedAt: '' };
 
-const pendingLines = (o: OdooSaleOrder) => o.lines.filter(l => l.id !== undefined && linePendingQty(l) > 0);
-const fullQty = (o: OdooSaleOrder): Record<number, number> =>
-  Object.fromEntries(pendingLines(o).map(l => [l.id as number, linePendingQty(l)]));
+// Lo que aún se puede pedir: lo que falta entregar menos lo ya pedido en otras remisiones pendientes.
+const pendingLines = (o: OdooSaleOrder, pending: InvoiceRequest[]) =>
+  o.lines.filter(l => l.id !== undefined && lineRemainingQty(l, pending) > 0);
+const fullQty = (o: OdooSaleOrder, pending: InvoiceRequest[]): Record<number, number> =>
+  Object.fromEntries(pendingLines(o, pending).map(l => [l.id as number, lineRemainingQty(l, pending)]));
 
 export function RequestBadges({ requests }: { requests: InvoiceRequest[] | undefined }) {
   const pending = requests?.filter(r => r.status === 'pendiente') ?? [];
@@ -39,8 +41,9 @@ export function RequestBadges({ requests }: { requests: InvoiceRequest[] | undef
   );
 }
 
-function OrderRequestCard({ order, avail, choice, onType, onQty }: {
+function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty }: {
   order: OdooSaleOrder;
+  pendingForOrder: InvoiceRequest[];
   avail: Availability;
   choice: Choice;
   onType: (type: RequestType | null) => void;
@@ -73,9 +76,10 @@ function OrderRequestCard({ order, avail, choice, onType, onQty }: {
       </div>
       {choice.type === 'remision' && (
         <ul className="space-y-2">
-          {pendingLines(order).map(l => {
+          {pendingLines(order, pendingForOrder).map(l => {
             const id = l.id as number;
-            const pending = linePendingQty(l);
+            const pending = lineRemainingQty(l, pendingForOrder);
+            const alreadyAsked = linePendingQty(l) - pending;
             const qty = choice.lineQty[id] ?? 0;
             return (
               <li key={id} className="flex items-center justify-between gap-3 rounded-lg bg-background/50 p-3">
@@ -84,6 +88,9 @@ function OrderRequestCard({ order, avail, choice, onType, onQty }: {
                   <p className="text-sm text-muted-foreground">
                     Faltan <span className="font-mono-data">{pending}</span>, vas a pedir <span className="font-mono-data">{qty}</span>
                   </p>
+                  {alreadyAsked > 0 && (
+                    <p className="text-sm text-muted-foreground">Ya hay <span className="font-mono-data">{alreadyAsked}</span> pedidas en otra remisión.</p>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <Button variant="outline" className="size-11 p-0" aria-label={`Quitar una ${l.name}`}
@@ -107,17 +114,18 @@ function OrderRequestCard({ order, avail, choice, onType, onQty }: {
 function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
   const requests = useInvoiceRequests({ enabled: open });
   const submit = useSubmitInvoiceRequests();
-  const orderKey = orders.map(o => o.id).join(',');
   const [choices, setChoices] = useState<Record<number, Choice>>({});
   const [result, setResult] = useState<CreateInvoiceRequestsResult | null>(null);
 
+  // Se limpia al cerrar (no al abrir, para no parpadear con el resultado anterior) y no cuando
+  // el sondeo de Odoo cambia la lista: las elecciones de órdenes que siguen ahí se conservan.
   useEffect(() => {
-    if (!open) return;
+    if (open) return;
     setChoices({});
     setResult(null);
     submit.reset();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reinicio solo al abrir o cambiar de órdenes
-  }, [open, orderKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reinicio solo al cerrar
+  }, [open]);
 
   const pendingMap = useMemo(() => pendingRequestsByOrder(requests.data ?? EMPTY_STATE), [requests.data]);
   const avails = orders.map(o => requestAvailability(o, pendingMap.get(o.id) ?? []));
@@ -129,11 +137,11 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
   const sender = user?.email || user?.displayName;
 
   const setType = (o: OdooSaleOrder, type: RequestType | null) =>
-    setChoices(c => ({ ...c, [o.id]: { type, lineQty: type === 'remision' ? fullQty(o) : {} } }));
+    setChoices(c => ({ ...c, [o.id]: { type, lineQty: type === 'remision' ? fullQty(o, pendingMap.get(o.id) ?? []) : {} } }));
   const setAll = (type: RequestType) =>
     setChoices(c => {
       const next = { ...c };
-      orders.forEach((o, i) => { if (avails[i][type] === null) next[o.id] = { type, lineQty: type === 'remision' ? fullQty(o) : {} }; });
+      orders.forEach((o, i) => { if (avails[i][type] === null) next[o.id] = { type, lineQty: type === 'remision' ? fullQty(o, pendingMap.get(o.id) ?? []) : {} }; });
       return next;
     });
   const setQty = (o: OdooSaleOrder, lineId: number, qty: number) =>
@@ -186,7 +194,7 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
           </div>
         )}
         {orders.map((o, i) => (
-          <OrderRequestCard key={o.id} order={o} avail={avails[i]} choice={choiceOf(o)}
+          <OrderRequestCard key={o.id} order={o} pendingForOrder={pendingMap.get(o.id) ?? []} avail={avails[i]} choice={choiceOf(o)}
             onType={type => setType(o, type)} onQty={(lineId, qty) => setQty(o, lineId, qty)} />
         ))}
       </div>

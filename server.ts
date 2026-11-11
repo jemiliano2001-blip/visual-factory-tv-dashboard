@@ -268,7 +268,7 @@ app.post('/api/invoice-requests', async (req: Request, res: Response) => {
   if (!odooClient.isConfigured()) { res.status(503).json({ error: 'Odoo no configurado.' }); return; }
   let orders;
   try {
-    orders = (await odooClient.fetchInvoiceableOrdersCached()).orders;
+    orders = (await odooClient.fetchInvoiceableOrders()).orders; // sin caché: las cantidades deben ser las de ahora
   } catch {
     res.status(503).json({ error: 'No se pudo consultar Odoo; no se guardó nada.' });
     return;
