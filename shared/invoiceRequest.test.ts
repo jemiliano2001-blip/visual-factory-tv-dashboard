@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildRequestsEmail, buildMailEnvelope } from './invoiceRequest';
+import { buildRequestsEmail, buildMailEnvelope, shortenDescription } from './invoiceRequest';
 
 const req = (over: Record<string, unknown> = {}) => ({
   orderName: 'S02176', partnerName: 'Bosch <Qro>', customerReference: '20264321',
@@ -64,4 +64,23 @@ test('correo de solicitudes: OHD lleva la clave SAT por partida', () => {
   assert.match(mail.text, /Fixture — Clave SAT 23153000/);
   assert.match(mail.text, /2 Pza — Placa — Clave SAT 23153035/);
   assert.match(mail.html, /Clave SAT 23153035/);
+});
+
+test('shortenDescription: quita la lista de "Incluye", corta en palabra y deja lo corto intacto', () => {
+  const largo = 'Integración de luces de estado en línea SX en estación 10, 11 y 12 Fabricación de bases para luces indicadoras, cableado y programación de luces a secuencia de PLC y HMI. Incluye: * Luces de estado * Caja botonera';
+  const corto = shortenDescription(largo);
+  assert.ok(corto.length <= 91);
+  assert.ok(corto.endsWith('…'));
+  assert.ok(!/Incluye|Caja botonera/.test(corto));
+  assert.equal(corto, 'Integración de luces de estado en línea SX en estación 10, 11 y 12 Fabricación de bases…');
+  assert.equal(shortenDescription('Pin de remache WCD01-1745-102 (wescon)'), 'Pin de remache WCD01-1745-102 (wescon)');
+  assert.equal(shortenDescription('<p>Placa  de\n acero</p>'), 'Placa de acero');
+  assert.equal(shortenDescription('Incluye: tornillos'), 'Incluye: tornillos');
+});
+
+test('correo de solicitudes: la descripción larga sale resumida', () => {
+  const largo = 'Integración de luces de estado en línea SX en estación 10, 11 y 12 Fabricación de bases para luces indicadoras, cableado y programación de luces a secuencia de PLC y HMI. Incluye: * Luces de estado * Caja botonera';
+  const mail = buildRequestsEmail([req({ satKeys: [{ lineId: 1, name: largo, code: '32151900' }] })], actor);
+  assert.match(mail.text, /Fabricación de bases… — Clave SAT 32151900/);
+  assert.doesNotMatch(mail.text, /Caja botonera/);
 });

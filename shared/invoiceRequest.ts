@@ -9,6 +9,21 @@ const escapeHtml = (s: string) =>
 
 const fmtQty = (n: number) => String(Math.round(n * 100) / 100);
 
+const MAX_DESCRIPTION = 90;
+
+/**
+ * Descripción corta para el correo: sin listas ("Incluye: * …") ni HTML, en una línea y con tope
+ * de largo cortado en palabra. Solo afecta al correo; la solicitud guarda la descripción completa.
+ */
+export function shortenDescription(name: string, max = MAX_DESCRIPTION): string {
+  const flat = name.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  const head = flat.replace(/\s*\b(?:incluye|incluyen)\b.*$/i, '').replace(/\s+[*•].*$/, '').trim() || flat;
+  if (head.length <= max) return head.replace(/[\s,;:.-]+$/, '');
+  const cut = head.slice(0, max);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).replace(/[\s,;:.-]+$/, '')}…`;
+}
+
 /** Solicitud ya guardada (forma estructural de InvoiceRequest; shared no importa entre archivos). */
 export interface MailableRequest {
   orderName: string;
@@ -38,8 +53,8 @@ export function buildRequestsEmail(
     `${r.orderName} — ${r.partnerName}${r.customerReference ? ` (PO ${r.customerReference})` : ''}`;
   const sat = (code: string | undefined) => (code ? ` — Clave SAT ${code}` : '');
   const pieces = (r: MailableRequest) => r.lines?.length
-    ? r.lines.map(l => `${fmtQty(l.qty)}${l.unit ? ` ${l.unit}` : ''} — ${l.name}${sat(r.satKeys?.find(k => k.lineId === l.lineId)?.code)}`)
-    : (r.satKeys ?? []).map(k => `${k.name}${sat(k.code)}`);
+    ? r.lines.map(l => `${fmtQty(l.qty)}${l.unit ? ` ${l.unit}` : ''} — ${shortenDescription(l.name)}${sat(r.satKeys?.find(k => k.lineId === l.lineId)?.code)}`)
+    : (r.satKeys ?? []).map(k => `${shortenDescription(k.name)}${sat(k.code)}`);
   const groups = [['Facturas', facturas], ['Remisiones', remisiones]] as const;
 
   const text = [intro, ...groups.filter(([, rs]) => rs.length).map(([title, rs]) => [
