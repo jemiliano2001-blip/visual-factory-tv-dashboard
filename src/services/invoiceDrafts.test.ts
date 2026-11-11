@@ -99,3 +99,21 @@ test('OHD: los borradores llevan las claves escogidas', () => {
   assert.deepEqual(buildDrafts([{ orderId: 5, type: 'remision', lineQty: { 1: 2, 2: 0 }, sat }]),
     [{ orderId: 5, type: 'remision', lines: [{ lineId: 1, qty: 2 }], satKeys: [{ lineId: 1, code: '23153000' }] }]);
 });
+
+test('Fisher: la factura se pide por partida y cantidad', () => {
+  assert.deepEqual(buildDrafts([{ orderId: 1, type: 'factura', partial: true, lineQty: { 5: 2, 6: 0 } }]),
+    [{ orderId: 1, type: 'factura', lines: [{ lineId: 5, qty: 2 }] }]);
+  assert.deepEqual(buildDrafts([{ orderId: 1, type: 'factura', partial: true, lineQty: { 5: 0 } }]), []);
+  assert.deepEqual(buildDrafts([{ orderId: 1, type: 'factura', lineQty: {} }]), [{ orderId: 1, type: 'factura' }]);
+});
+
+test('Fisher: disponibilidad de factura según lo que queda por facturar', () => {
+  const lines = (invoiced: number) => [{ id: 5, qty: 4, delivered: 4, invoiced }];
+  assert.equal(requestAvailability({ partner_name: 'Fisher Controls', lines: lines(1) }, []).factura, null);
+  assert.equal(requestAvailability({ partner_name: 'Fisher Controls', lines: lines(4) }, []).factura, 'Ya está todo facturado o pedido');
+  const pend = { id: 'p', orderId: 1, orderName: 'S', partnerName: 'Fisher', customerReference: null, type: 'factura' as const, status: 'pendiente' as const,
+    requestedBy: { uid: 'u', email: null, name: 'Ana' }, requestedAt: '', lines: [{ lineId: 5, name: 'V', qty: 4, unit: null, invoicedAtRequest: 0 }] };
+  assert.equal(requestAvailability({ partner_name: 'Kohler', lines: lines(0) }, [pend]).factura, 'Ya está todo facturado o pedido');
+  // otros clientes: una factura pendiente sigue bloqueando
+  assert.match(requestAvailability({ partner_name: 'Bosch', lines: lines(0) }, [pend]).factura ?? '', /Ya la pidió Ana/);
+});

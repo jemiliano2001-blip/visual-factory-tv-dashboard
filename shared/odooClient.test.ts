@@ -45,7 +45,7 @@ type FixtureMove = {
   product_uom: [number, string]; origin_returned_move_id: [number, string] | false;
 };
 
-function transferClient(options: { moves?: FixtureMove[]; returns?: FixtureMove[]; failMoves?: boolean; note?: string } = {}) {
+function transferClient(options: { moves?: FixtureMove[]; returns?: FixtureMove[]; failMoves?: boolean; note?: string; invoiced?: unknown[] } = {}) {
   const calls: Array<{ model: string; args: unknown[]; kwargs: Record<string, unknown> }> = [];
   const client = new OdooClient({ url: 'http://odoo.test', db: 'db', username: 'u', password: 'p' });
   client.odooCall = async <T>(model: string, method: string, args: unknown[] = [], kwargs: Record<string, unknown> = {}): Promise<T> => {
@@ -58,8 +58,8 @@ function transferClient(options: { moves?: FixtureMove[]; returns?: FixtureMove[
       order_line: [5159, 5160], state: 'sale', user_id: false, note: options.note ?? false,
     }];
     else if (model === 'sale.order.line') result = [
-      { id: 5159, name: 'Navajas', display_type: false, product_uom_qty: 5, qty_delivered: 5, product_uom: [1, 'Pieza'] },
-      { id: 5160, name: 'Blade cutter', display_type: false, product_uom_qty: 5, qty_delivered: 5, product_uom: [26, 'Set'] },
+      { id: 5159, name: 'Navajas', display_type: false, product_uom_qty: 5, qty_delivered: 5, product_uom: [1, 'Pieza'], ...(options.invoiced ? { qty_invoiced: options.invoiced[0] } : {}) },
+      { id: 5160, name: 'Blade cutter', display_type: false, product_uom_qty: 5, qty_delivered: 5, product_uom: [26, 'Set'], ...(options.invoiced ? { qty_invoiced: options.invoiced[1] } : {}) },
     ];
     else if (model === 'stock.picking') result = [
       { name: '00309', origin: '2026/S01992', state: 'done', date_done: '2026-09-30' },
@@ -142,4 +142,11 @@ test('el compromiso sale del plazo de la nota; sin plazo usa la fecha de entrega
   assert.equal(withNote.orders[0].commitment_date, '2026-10-19 00:00:00'); // 28/09 + 15 días hábiles
   const without = await transferClient().client.fetchInvoiceableOrders();
   assert.equal(without.orders[0].commitment_date, '2026-10-05');
+});
+
+test('cada partida expone lo facturado en Odoo; ausente, no numérico o negativo = 0', async () => {
+  const lectura = async (invoiced?: unknown[]) => (await transferClient({ invoiced }).client.fetchInvoiceableOrders()).orders[0].lines.map(l => l.invoiced);
+  assert.deepEqual(await lectura([3, 1.5]), [3, 1.5]);
+  assert.deepEqual(await lectura(), [0, 0]);
+  assert.deepEqual(await lectura(['x', -2]), [0, 0]);
 });

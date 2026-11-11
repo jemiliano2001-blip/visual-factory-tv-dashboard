@@ -9,7 +9,7 @@ import { buildDrafts, missingSatCount, requestAvailability, suggestedSat, type O
 import { SAT_OHD_CATALOG, isOhdPartner, isSatOhdCode, suggestSatOhdCode } from '../../shared/satOhd';
 import { satChoicesFor, type SatCatalog } from '../../shared/satSearch';
 import { useSatCatalog } from '../hooks/useSatCatalog';
-import { clampQty, lineRemainingQty, linePendingQty, pendingRequestsByOrder, type InvoiceRequest, type RequestType } from '../../shared/invoiceRequests';
+import { allowsPartialInvoice, clampQty, lineInvoiceRemaining, lineRemainingQty, linePendingQty, pendingRequestsByOrder, type InvoiceRequest, type RequestType } from '../../shared/invoiceRequests';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
@@ -24,11 +24,16 @@ const TYPES: Array<{ type: RequestType; label: string }> = [
 const NO_CHOICE: Choice = { type: null, lineQty: {} };
 const EMPTY_STATE = { requests: [], updatedAt: '' };
 
-// Lo que aún se puede pedir: lo que falta entregar menos lo ya pedido en otras remisiones pendientes.
-const pendingLines = (o: OdooSaleOrder, pending: InvoiceRequest[]) =>
-  o.lines.filter(l => l.id !== undefined && lineRemainingQty(l, pending) > 0);
-const fullQty = (o: OdooSaleOrder, pending: InvoiceRequest[]): Record<number, number> =>
-  Object.fromEntries(pendingLines(o, pending).map(l => [l.id as number, lineRemainingQty(l, pending)]));
+// Se pide por partida y cantidad en remisión y, solo para Fisher y Kohler, también en factura.
+const byPieces = (o: OdooSaleOrder, type: RequestType | null) =>
+  type === 'remision' || (type === 'factura' && allowsPartialInvoice(o.partner_name));
+// Lo que aún se puede pedir: remisión = falta entregar menos lo ya pedido; factura = falta facturar menos lo ya pedido.
+const remainingOf = (l: OdooSaleOrder['lines'][number], type: RequestType, pending: InvoiceRequest[]) =>
+  type === 'remision' ? lineRemainingQty(l, pending) : lineInvoiceRemaining(l, pending);
+const pendingLines = (o: OdooSaleOrder, type: RequestType, pending: InvoiceRequest[]) =>
+  o.lines.filter(l => l.id !== undefined && remainingOf(l, type, pending) > 0);
+const fullQty = (o: OdooSaleOrder, type: RequestType, pending: InvoiceRequest[]): Record<number, number> =>
+  Object.fromEntries(pendingLines(o, type, pending).map(l => [l.id as number, remainingOf(l, type, pending)]));
 
 // Partidas que lleva una factura de OHD (todas las que tienen cantidad).
 const satLines = (o: OdooSaleOrder) => o.lines.filter(l => l.id !== undefined && l.qty > 0);
@@ -74,7 +79,7 @@ export function RequestBadges({ requests }: { requests: InvoiceRequest[] | undef
   );
 }
 
-function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty, onSat, catalog }: {
+function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty, onSat, onAll, catalog }: {
   order: OdooSaleOrder;
   pendingForOrder: InvoiceRequest[];
   avail: Availability;
@@ -82,6 +87,7 @@ function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty
   onType: (type: RequestType | null) => void;
   onQty: (lineId: number, qty: number) => void;
   onSat: (lineId: number, code: string) => void;
+  onAll: () => void;
   catalog: SatCatalog | null;
 }) {
   const reference = order.customer_reference?.trim();
@@ -120,12 +126,17 @@ function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty
           ))}
         </ul>
       )}
-      {choice.type === 'remision' && (
+      {choice.type !== null && byPieces(order, choice.type) && (
         <ul className="space-y-2">
-          {pendingLines(order, pendingForOrder).map(l => {
+          {choice.type === 'factura' && (
+            <li><Button variant="outline" size="lg" onClick={onAll}>Toda la orden</Button></li>
+          )}
+          {pendingLines(order, choice.type, pendingForOrder).map(l => {
             const id = l.id as number;
-            const pending = lineRemainingQty(l, pendingForOrder);
-            const alreadyAsked = linePendingQty(l) - pending;
+            const type = choice.type as RequestType;
+            const pending = remainingOf(l, type, pendingForOrder);
+            const total = type === 'remision' ? linePendingQty(l) : Math.max(0, l.qty - (l.invoiced ?? 0));
+            const alreadyAsked = total - pending;
             const qty = clampQty(choice.lineQty[id] ?? 0, pending);
             return (
               <li key={id} className="space-y-2 rounded-lg bg-background/50 p-3">
@@ -133,10 +144,10 @@ function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-foreground break-words">{l.name}</p>
                     <p className="text-sm text-muted-foreground">
-                      Faltan <span className="font-mono-data">{pending}</span>, vas a pedir <span className="font-mono-data">{qty}</span>
+                      Faltan{type === 'factura' ? ' por facturar' : ''} <span className="font-mono-data">{pending}</span>, vas a pedir <span className="font-mono-data">{qty}</span>
                     </p>
                     {alreadyAsked > 0 && (
-                      <p className="text-sm text-muted-foreground">Ya hay <span className="font-mono-data">{alreadyAsked}</span> pedidas en otra remisión.</p>
+                      <p className="text-sm text-muted-foreground">Ya hay <span className="font-mono-data">{alreadyAsked}</span> pedidas en otra {type === 'factura' ? 'factura' : 'remisión'}.</p>
                     )}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -184,19 +195,19 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
   // Lo marcado se acota a lo que se puede pedir *ahora* (otra persona pudo pedir o Odoo entregar con el diálogo abierto).
   const effective = orders.map((o): OrderChoice => {
     const c = choiceOf(o);
-    if (c.type !== 'remision') return { orderId: o.id, ...c };
+    if (c.type === null || !byPieces(o, c.type)) return { orderId: o.id, ...c };
     const pend = pendingMap.get(o.id) ?? [];
     const lineQty = Object.fromEntries(Object.entries(c.lineQty).map(([id, qty]) => {
       const line = o.lines.find(l => l.id === Number(id));
-      return [id, line ? clampQty(qty, lineRemainingQty(line, pend)) : 0];
+      return [id, line ? clampQty(qty, remainingOf(line, c.type as RequestType, pend)) : 0];
     }));
-    return { orderId: o.id, type: c.type, lineQty, sat: c.sat };
+    return { orderId: o.id, type: c.type, lineQty, sat: c.sat, partial: c.type === 'factura' };
   });
   const drafts = buildDrafts(effective);
   // OHD: cada partida que se pide necesita su clave SAT (el servidor también lo exige).
   const satMissing = orders.reduce((sum, o, i) => sum + missingSatCount(o, effective[i]), 0);
   // Remisiones marcadas con todas las cantidades en 0: buildDrafts las omite, así que se avisa antes de enviar.
-  const emptyRemisiones = orders.filter(o => choiceOf(o).type === 'remision').length - drafts.filter(d => d.type === 'remision').length;
+  const emptyRemisiones = orders.filter(o => byPieces(o, choiceOf(o).type)).length - drafts.filter(d => d.lines).length;
   const canSend = missing === 0 && satMissing === 0 && drafts.length > 0 && !submit.isPending && !requests.isLoading;
   const user = auth.currentUser;
   const sender = user?.email || user?.displayName;
@@ -204,7 +215,7 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
   // Al cambiar de tipo se conservan las claves SAT ya escogidas.
   const typed = (o: OdooSaleOrder, type: RequestType | null, prev: Choice | undefined): Choice => ({
     type,
-    lineQty: type === 'remision' ? fullQty(o, pendingMap.get(o.id) ?? []) : {},
+    lineQty: type !== null && byPieces(o, type) ? fullQty(o, type, pendingMap.get(o.id) ?? []) : {},
     sat: prev?.sat ?? suggestedSat(o),
   });
   const setType = (o: OdooSaleOrder, type: RequestType | null) =>
@@ -268,7 +279,7 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
         )}
         {orders.map((o, i) => (
           <OrderRequestCard key={o.id} order={o} pendingForOrder={pendingMap.get(o.id) ?? []} avail={avails[i]} choice={choiceOf(o)}
-            onType={type => setType(o, type)} onQty={(lineId, qty) => setQty(o, lineId, qty)} onSat={(lineId, code) => setSat(o, lineId, code)} catalog={satCatalog} />
+            onType={type => setType(o, type)} onQty={(lineId, qty) => setQty(o, lineId, qty)} onSat={(lineId, code) => setSat(o, lineId, code)} onAll={() => setType(o, 'factura')} catalog={satCatalog} />
         ))}
       </div>
       <div className="shrink-0 border-t border-border bg-popover p-4 space-y-2">
@@ -282,7 +293,7 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
         )}
         {emptyRemisiones > 0 && (
           <p className="text-sm text-warning">
-            <span className="font-mono-data">{emptyRemisiones}</span> {emptyRemisiones === 1 ? 'remisión tiene' : 'remisiones tienen'} todas las piezas en 0 y no se {emptyRemisiones === 1 ? 'enviará' : 'enviarán'}. Sube la cantidad para pedirla.
+            <span className="font-mono-data">{emptyRemisiones}</span> {emptyRemisiones === 1 ? 'solicitud tiene' : 'solicitudes tienen'} todas las piezas en 0 y no se {emptyRemisiones === 1 ? 'enviará' : 'enviarán'}. Sube la cantidad para pedirla.
           </p>
         )}
         <div className="grid grid-cols-2 gap-2">

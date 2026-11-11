@@ -20,6 +20,8 @@ interface RawLine {
   display_type: string | false;
   product_uom_qty: number;
   product_uom: [number, string] | false;
+  /** Cantidad ya facturada (solo lectura); puede faltar o venir mal. */
+  qty_invoiced?: unknown;
 }
 
 interface RawOrder {
@@ -74,7 +76,7 @@ export interface NormalizedInvoiceableOrder {
   salesperson: string | null;
   note: string | null;
   lines_count: number;
-  lines: Array<{ id: number; name: string; qty: number; delivered: number; unit: string }>;
+  lines: Array<{ id: number; name: string; qty: number; delivered: number; invoiced: number; unit: string }>;
   deliveries: Array<{ name: string; state: string; date_done: string | null }>;
   delivery_times: string | null;
   show_in_dashboard: boolean;
@@ -258,7 +260,7 @@ export class OdooClient {
     const linesMap = new Map<number, RawLine>();
     for (let i = 0; i < allLineIds.length; i += 500) {
       const batch = await this.odooCall<RawLine[]>('sale.order.line', 'read', [allLineIds.slice(i, i + 500)], {
-        fields: ['name', 'display_type', 'product_uom_qty', 'product_uom'],
+        fields: ['name', 'display_type', 'product_uom_qty', 'product_uom', 'qty_invoiced'],
       });
       batch.forEach(line => linesMap.set(line.id, line));
     }
@@ -399,6 +401,7 @@ export class OdooClient {
           name: line.name,
           qty: line.product_uom_qty,
           delivered: Math.max(0, movesBySaleLine.get(line.id) ?? 0),
+          invoiced: typeof line.qty_invoiced === 'number' && Number.isFinite(line.qty_invoiced) ? Math.max(0, line.qty_invoiced) : 0,
           unit: line.product_uom ? line.product_uom[1] : '',
         })),
         deliveries: (pickingsByOrder.get(order.id) ?? []).map(picking => ({

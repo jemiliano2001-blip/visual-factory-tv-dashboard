@@ -29,6 +29,8 @@ export interface OdooOrderLine {
   qty: number;
   /** Cantidad entregada */
   delivered: number;
+  /** Cantidad ya facturada en Odoo (qty_invoiced); 0 si no se sabe. Solo para factura parcial. */
+  invoiced?: number;
   /** Unidad de la partida; nunca agregar cantidades de unidades distintas. */
   unit?: string;
   // Precios omitidos a propósito: son confidenciales y el proxy no los envía.

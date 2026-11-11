@@ -95,3 +95,14 @@ test('correo: clave fuera de la lista lleva la marca; de la lista o sin inList n
   assert.match(fuera.html, /Clave SAT 23152206 \(fuera de la lista de OHD, validar\)/);
   for (const m of [mk(true), mk()]) assert.doesNotMatch(m.text, /fuera de la lista/);
 });
+
+test('correo: la factura con partidas se rotula parcial y lista sus piezas', () => {
+  const mail = buildRequestsEmail([
+    { orderName: 'S1', partnerName: 'Fisher Controls', customerReference: null, type: 'factura', lines: [{ lineId: 1, name: 'Válvula', qty: 4, unit: 'pza' }] },
+    { orderName: 'S2', partnerName: 'OHD', customerReference: null, type: 'factura' },
+  ], { email: null, name: 'Ana', uid: 'u' });
+  assert.match(mail.text, /S1 — Fisher Controls \(parcial\)/);
+  assert.match(mail.text, /4 pza — Válvula/);
+  assert.doesNotMatch(mail.text, /S2 — OHD \(parcial\)/);
+  assert.match(mail.html, /Fisher Controls \(parcial\)/);
+});

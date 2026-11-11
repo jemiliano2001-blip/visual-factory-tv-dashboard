@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isKnownSatCode } from './satCatalogServer';
 import {
+  allowsPartialInvoice,
+  lineInvoiceRemaining,
   MAX_DONE_KEPT,
   MAX_DRAFTS,
   actorLabel,
@@ -91,7 +93,7 @@ test('recorte por tamaño: descarta hechas viejas, nunca pendientes', () => {
 });
 
 test('crear factura: sin clave lines y datos copiados de orders', () => {
-  const r = createInvoiceRequests(empty, [{ orderId: 10, type: 'factura', lines: [{ lineId: 1, qty: 1 }] }], [order], ctx());
+  const r = createInvoiceRequests(empty, [{ orderId: 10, type: 'factura' }], [order], ctx());
   assert.equal(r.created.length, 1);
   const c = r.created[0];
   assert.ok(!('lines' in c));
@@ -206,7 +208,7 @@ test('clampQty y linePendingQty', () => {
 
 test('parseCreateRequestsBody', () => {
   const ok = parseCreateRequestsBody([
-    { orderId: 1, type: 'factura', lines: 'basura' },
+    { orderId: 1, type: 'factura' },
     { orderId: 2, type: 'remision', lines: [{ lineId: 3, qty: 1.5 }] },
   ]);
   assert.deepEqual(ok, [{ orderId: 1, type: 'factura' }, { orderId: 2, type: 'remision', lines: [{ lineId: 3, qty: 1.5 }] }]);
@@ -217,7 +219,7 @@ test('parseCreateRequestsBody', () => {
     Array.from({ length: MAX_DRAFTS + 1 }, () => ({ orderId: 1, type: 'factura' })),
     [{ orderId: 0, type: 'factura' }], [{ orderId: 1.5, type: 'factura' }], [{ orderId: '1', type: 'factura' }],
     [{ orderId: 1, type: 'otro' }], [null],
-    [{ orderId: 1, type: 'remision' }], [{ orderId: 1, type: 'remision', lines: [] }],
+    [{ orderId: 1, type: 'remision' }], [{ orderId: 1, type: 'remision', lines: [] }], [{ orderId: 1, type: 'factura', lines: 'basura' }],
     [{ orderId: 1, type: 'remision', lines: [{ lineId: 0, qty: 1 }] }],
     [{ orderId: 1, type: 'remision', lines: [{ lineId: 1, qty: 0 }] }],
     [{ orderId: 1, type: 'remision', lines: [{ lineId: 1, qty: Infinity }] }],
@@ -394,4 +396,88 @@ test('solicitudes guardadas sin inList se leen como true', () => {
 test('isKnownSatCode: reconoce una clave real y rechaza basura', () => {
   assert.equal(isKnownSatCode('23152206'), true);
   assert.equal(isKnownSatCode('abc'), false);
+});
+
+const fisher = (invoiced: number[] = [0, 0]): RequestableOrder => ({
+  id: 40, name: 'S00040', partner_name: 'Fisher Controls',
+  lines: [
+    { id: 51, name: 'Válvula', qty: 10, delivered: 10, invoiced: invoiced[0], unit: 'pza' },
+    { id: 52, name: 'Brida', qty: 4, delivered: 4, invoiced: invoiced[1] },
+  ],
+});
+const facturaFisher = (state: InvoiceRequestsState, lines: Array<{ lineId: number; qty: number }> | undefined, o = fisher()) =>
+  createInvoiceRequests(state, [{ orderId: 40, type: 'factura', ...(lines ? { lines } : {}) }], [o], ctx());
+
+test('allowsPartialInvoice: Fisher y Kohler sí, los demás no', () => {
+  for (const n of ['Fisher Controls', 'KOHLER']) assert.equal(allowsPartialInvoice(n), true);
+  for (const n of ['OHD', 'Bosch', 'Fisherman Co']) assert.equal(allowsPartialInvoice(n), false);
+});
+
+test('lineInvoiceRemaining: descuenta facturado y pendientes', () => {
+  const pend = req({ id: 'p', orderId: 40, type: 'factura', lines: [{ lineId: 51, name: 'V', qty: 4, unit: null, invoicedAtRequest: 3 }] });
+  assert.equal(lineInvoiceRemaining({ id: 51, qty: 10, invoiced: 3 }, [pend]), 3);
+});
+
+test('lineInvoiceRemaining: no descuenta dos veces lo que Odoo facturó después', () => {
+  const pend = req({ id: 'p', orderId: 40, type: 'factura', lines: [{ lineId: 51, name: 'V', qty: 4, unit: null, invoicedAtRequest: 3 }] });
+  assert.equal(lineInvoiceRemaining({ id: 51, qty: 10, invoiced: 7 }, [pend]), 3);
+});
+
+test('lineInvoiceRemaining: invoiced mayor que qty no da negativo', () => {
+  assert.equal(lineInvoiceRemaining({ id: 1, qty: 5, invoiced: 8 }, []), 0);
+});
+
+test('Fisher: facturas parciales sucesivas hasta agotar la partida', () => {
+  const a = facturaFisher(empty, [{ lineId: 51, qty: 4 }]);
+  assert.equal(a.created[0].lines?.[0].invoicedAtRequest, 0);
+  const b = facturaFisher(a.state, [{ lineId: 51, qty: 6 }]);
+  assert.equal(b.created.length, 1);
+  const c = facturaFisher(b.state, [{ lineId: 51, qty: 1 }]);
+  assert.equal(c.created.length, 0);
+});
+
+test('Fisher: factura sin partidas y cliente no elegible con partidas se rechazan', () => {
+  assert.match(facturaFisher(empty, undefined).skipped[0].reason, /al menos una pieza/);
+  const r = createInvoiceRequests(empty, [{ orderId: 10, type: 'factura', lines: [{ lineId: 1, qty: 1 }] }], [order], ctx());
+  assert.equal(r.skipped[0].reason, 'Este cliente solo factura la orden completa.');
+});
+
+test('Fisher: cantidad excedida, partida repetida e inexistente se rechazan', () => {
+  for (const lines of [[{ lineId: 51, qty: 11 }], [{ lineId: 51, qty: 1 }, { lineId: 51, qty: 1 }], [{ lineId: 99, qty: 1 }]]) {
+    assert.equal(facturaFisher(empty, lines).created.length, 0);
+  }
+});
+
+test('Fisher: nunca lleva claves SAT aunque las manden', () => {
+  const r = createInvoiceRequests(empty, [{ orderId: 40, type: 'factura', lines: [{ lineId: 51, qty: 1 }], satKeys: [{ lineId: 51, code: '23153035' }] }], [fisher()], ctx());
+  assert.equal(r.created.length, 1);
+  assert.equal('satKeys' in r.created[0], false);
+});
+
+test('Fisher: orden ya facturada por completo no admite factura', () => {
+  const r = facturaFisher(empty, [{ lineId: 51, qty: 1 }], fisher([10, 4]));
+  assert.match(r.skipped[0].reason, /toda facturada/);
+});
+
+test('Fisher: factura histórica sin partidas bloquea otra, pero se sigue leyendo', () => {
+  const old = { requests: [req({ id: 'old', orderId: 40, partnerName: 'Fisher' })], updatedAt: '' };
+  assert.equal(facturaFisher(old, [{ lineId: 51, qty: 1 }]).created.length, 0);
+  assert.equal(normalizeInvoiceRequests(old).requests.length, 1);
+});
+
+test('remisión de Fisher no se ve afectada por facturas pendientes', () => {
+  const a = facturaFisher(empty, [{ lineId: 51, qty: 10 }]);
+  const r = createInvoiceRequests(a.state, [{ orderId: 40, type: 'remision', lines: [{ lineId: 51, qty: 0.5 }] }], [{ ...fisher(), lines: [{ id: 51, name: 'V', qty: 10, delivered: 0 }] }], ctx());
+  assert.equal(r.created.length, 1);
+});
+
+test('parseCreateRequestsBody: factura con partidas', () => {
+  assert.deepEqual(parseCreateRequestsBody([{ orderId: 1, type: 'factura', lines: [{ lineId: 2, qty: 3, x: 1 }] }]),
+    [{ orderId: 1, type: 'factura', lines: [{ lineId: 2, qty: 3 }] }]);
+  assert.throws(() => parseCreateRequestsBody([{ orderId: 1, type: 'factura', lines: [] }]));
+});
+
+test('solicitud de factura parcial se guarda y se lee con invoicedAtRequest', () => {
+  const a = facturaFisher(empty, [{ lineId: 51, qty: 2 }], fisher([1, 0]));
+  assert.deepEqual(normalizeInvoiceRequests(a.state).requests[0].lines, a.created[0].lines);
 });

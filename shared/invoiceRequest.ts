@@ -50,7 +50,7 @@ export function buildRequestsEmail(
   const who = (actor.name || actor.email || actor.uid).replace(/\s+/g, ' ').trim().slice(0, 80);
   const intro = `Buen día, ${who} pide lo siguiente:`;
   const head = (r: MailableRequest) =>
-    `${r.orderName} — ${r.partnerName}${r.customerReference ? ` (PO ${r.customerReference})` : ''}`;
+    `${r.orderName} — ${r.partnerName}${r.customerReference ? ` (PO ${r.customerReference})` : ''}${r.type === 'factura' && r.lines?.length ? ' (parcial)' : ''}`;
   const sat = (k: { code: string; inList?: boolean } | undefined) =>
     (k ? ` — Clave SAT ${k.code}${k.inList === false ? ' (fuera de la lista de OHD, validar)' : ''}` : '');
   const pieces = (r: MailableRequest) => r.lines?.length

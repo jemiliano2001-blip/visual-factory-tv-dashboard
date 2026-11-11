@@ -7,7 +7,8 @@ import { isOhdPartner, isSatOhdCode } from './satOhd';
 export type RequestType = 'factura' | 'remision';
 export interface RequestActor { uid: string; email: string | null; name: string | null }
 /** `deliveredAtRequest`: piezas ya entregadas al pedir, para no descontar dos veces lo que Mari ya entregó. */
-export interface InvoiceRequestLine { lineId: number; name: string; qty: number; unit: string | null; deliveredAtRequest?: number }
+/** `invoicedAtRequest`: lo ya facturado en Odoo al pedir una factura parcial, por la misma razón. */
+export interface InvoiceRequestLine { lineId: number; name: string; qty: number; unit: string | null; deliveredAtRequest?: number; invoicedAtRequest?: number }
 /** Clave SAT confirmada por partida (solo OHD): en factura, todas las partidas; en remisión, las pedidas. */
 /** `inList`: la clave está en la lista de OHD (Mary); false = salió del catálogo SAT y Mary debe validarla. */
 export interface SatKey { lineId: number; name: string; code: string; inList: boolean }
@@ -32,7 +33,7 @@ export interface RequestableOrder {
   name: string;
   partner_name: string;
   customer_reference?: string | null;
-  lines: Array<{ id?: number; name: string; qty: number; delivered: number; unit?: string | null }>;
+  lines: Array<{ id?: number; name: string; qty: number; delivered: number; invoiced?: number; unit?: string | null }>;
 }
 export interface RequestDraft {
   orderId: number;
@@ -76,6 +77,29 @@ export function lineRemainingQty(line: { id?: number; qty: number; delivered: nu
   return round6(Math.max(0, linePendingQty(line) - requested));
 }
 
+/** Solo Fisher y Kohler piden factura parcial (por partida y cantidad); los demás facturan la orden completa. */
+export const allowsPartialInvoice = (partnerName: string): boolean => /\b(fisher|kohler)\b/i.test(partnerName);
+
+/**
+ * Lo que aún se puede pedir en una factura parcial: lo no facturado en Odoo menos lo ya pedido en
+ * facturas pendientes (descontando lo que Odoo facturó desde entonces). Una factura pendiente sin
+ * partidas (guardada antes de existir las parciales) cuenta como la orden entera pedida.
+ */
+export function lineInvoiceRemaining(line: { id?: number; qty: number; invoiced?: number }, pendingForOrder: InvoiceRequest[]): number {
+  const invoiced = Math.max(0, line.invoiced ?? 0);
+  let requested = 0;
+  for (const r of pendingForOrder) {
+    if (r.status !== 'pendiente' || r.type !== 'factura') continue;
+    if (!r.lines) return 0;
+    for (const l of r.lines) {
+      if (l.lineId !== line.id) continue;
+      const billed = l.invoicedAtRequest === undefined ? 0 : Math.max(0, invoiced - l.invoicedAtRequest);
+      requested += Math.max(0, l.qty - billed);
+    }
+  }
+  return round6(Math.max(0, line.qty - invoiced - requested));
+}
+
 export function clampQty(qty: number, max: number): number {
   if (!Number.isFinite(qty) || qty <= 0 || !(max > 0)) return 0;
   return round6(Math.min(qty, max));
@@ -106,13 +130,13 @@ function parseRequest(raw: unknown): InvoiceRequest | null {
     id: raw.id, orderId: raw.orderId, orderName: raw.orderName, partnerName: raw.partnerName,
     customerReference, type: raw.type, status: raw.status, requestedBy, requestedAt: raw.requestedAt,
   };
-  if (raw.type === 'remision') {
+  if (raw.type === 'remision' || (raw.type === 'factura' && raw.lines !== undefined)) {
     if (!Array.isArray(raw.lines) || raw.lines.length === 0) return null;
     const lines: InvoiceRequestLine[] = [];
     for (const l of raw.lines) {
       const unit = isRecord(l) ? strOrNull(l.unit) : undefined;
       if (!isRecord(l) || !isPosInt(l.lineId) || typeof l.name !== 'string' || !isPosNum(l.qty) || unit === undefined) return null;
-      lines.push({ lineId: l.lineId, name: l.name, qty: l.qty, unit, ...(isPosNum(l.deliveredAtRequest) || l.deliveredAtRequest === 0 ? { deliveredAtRequest: l.deliveredAtRequest as number } : {}) });
+      lines.push({ lineId: l.lineId, name: l.name, qty: l.qty, unit, ...(isPosNum(l.deliveredAtRequest) || l.deliveredAtRequest === 0 ? { deliveredAtRequest: l.deliveredAtRequest as number } : {}), ...(isPosNum(l.invoicedAtRequest) || l.invoicedAtRequest === 0 ? { invoicedAtRequest: l.invoicedAtRequest as number } : {}) });
     }
     out.lines = lines;
   }
@@ -173,14 +197,14 @@ export function parseCreateRequestsBody(body: unknown): RequestDraft[] {
     if (!isRecord(item)) throw new Error('Solicitud inválida.');
     if (!isPosInt(item.orderId)) throw new Error('orderId inválido.');
     const sat = parseSatKeysBody(item.satKeys);
-    if (item.type === 'factura') return { orderId: item.orderId, type: 'factura', ...sat };
-    if (item.type !== 'remision') throw new Error('Tipo de solicitud inválido.');
-    if (!Array.isArray(item.lines) || item.lines.length === 0) throw new Error('La remisión necesita al menos una pieza.');
+    if (item.type !== 'factura' && item.type !== 'remision') throw new Error('Tipo de solicitud inválido.');
+    if (item.type === 'factura' && item.lines === undefined) return { orderId: item.orderId, type: 'factura', ...sat };
+    if (!Array.isArray(item.lines) || item.lines.length === 0) throw new Error(item.type === 'factura' ? 'La factura parcial necesita al menos una pieza.' : 'La remisión necesita al menos una pieza.');
     const lines = item.lines.map(l => {
       if (!isRecord(l) || !isPosInt(l.lineId) || !isPosNum(l.qty)) throw new Error('Pieza inválida: lineId entero y cantidad mayor a 0.');
       return { lineId: l.lineId, qty: l.qty };
     });
-    return { orderId: item.orderId, type: 'remision', lines, ...sat };
+    return { orderId: item.orderId, type: item.type, lines, ...sat };
   });
 }
 
@@ -221,7 +245,30 @@ function buildRequest(draft: RequestDraft, order: RequestableOrder, pendingForOr
     customerReference: order.customer_reference ?? null, type: draft.type, status: 'pendiente',
     requestedBy: actor, requestedAt: now,
   };
-  if (draft.type === 'factura') return attachSatKeys(base, draft, order, isKnownSatCode);
+  if (draft.type === 'factura') {
+    if (!allowsPartialInvoice(order.partner_name)) {
+      if (draft.lines) return { reason: 'Este cliente solo factura la orden completa.' };
+      return attachSatKeys(base, draft, order, isKnownSatCode);
+    }
+    if (!order.lines.some(l => l.id !== undefined && lineInvoiceRemaining(l, pendingForOrder) > EPS)) {
+      return { reason: `La orden ${order.name} ya está toda facturada o pedida en otra factura.` };
+    }
+    if (!draft.lines || draft.lines.length === 0) return { reason: 'La factura necesita al menos una pieza.' };
+    const seen = new Set<number>();
+    const lines: InvoiceRequestLine[] = [];
+    for (const dl of draft.lines) {
+      const line = order.lines.find(l => l.id !== undefined && l.id === dl.lineId);
+      if (!line) return { reason: `La pieza ${dl.lineId} no existe en la orden ${order.name}.` };
+      if (seen.has(dl.lineId)) return { reason: `La pieza ${line.name} está repetida.` };
+      seen.add(dl.lineId);
+      const remaining = lineInvoiceRemaining(line, pendingForOrder);
+      if (dl.qty > remaining + EPS) return { reason: `La cantidad de ${line.name} excede lo que falta por facturar (${remaining}).` };
+      const qty = clampQty(dl.qty, remaining);
+      if (!(qty > 0)) return { reason: `La cantidad de ${line.name} debe ser mayor a 0.` };
+      lines.push({ lineId: dl.lineId, name: line.name, qty, unit: line.unit ?? null, invoicedAtRequest: Math.max(0, line.invoiced ?? 0) });
+    }
+    return { request: { ...base, lines } };
+  }
   if (!order.lines.some(l => l.id !== undefined && lineRemainingQty(l, pendingForOrder) > EPS)) {
     return { reason: `La orden ${order.name} no tiene piezas pendientes de entrega, o ya están pedidas en otra remisión.` };
   }
@@ -257,7 +304,7 @@ export function createInvoiceRequests(
     const order = orders.find(o => o.id === draft.orderId);
     const skip = (reason: string) => skipped.push({ orderId: draft.orderId, orderName: order?.name ?? null, reason });
     if (!order) { skip('La orden ya no está disponible en el catálogo.'); continue; }
-    if (draft.type === 'factura' && pendingFacturas.has(order.id)) { skip(`Ya hay una solicitud pendiente de factura para ${order.name}.`); continue; }
+    if (draft.type === 'factura' && !allowsPartialInvoice(order.partner_name) && pendingFacturas.has(order.id)) { skip(`Ya hay una solicitud pendiente de factura para ${order.name}.`); continue; }
     if (pendingCount >= MAX_PENDING) { skip('Hay demasiadas solicitudes pendientes; pide a facturación que marque las que ya están hechas.'); continue; }
     const pendingForOrder = [...pendingAll, ...created].filter(r => r.orderId === order.id);
     const result = buildRequest(draft, order, pendingForOrder, ctx.newId(), ctx.actor, ctx.now, ctx.isKnownSatCode);
