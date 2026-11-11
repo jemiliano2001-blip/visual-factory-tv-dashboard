@@ -5,7 +5,7 @@
  */
 import { useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import { ChevronDown, ChevronRight, Truck, Clock } from 'lucide-react';
+import { ChevronDown, ChevronRight, Truck, Clock, Mail } from 'lucide-react';
 import { OdooSaleOrder, OdooDelivery, parseOdooDate } from '../../services/odoo';
 import { formatPONumber } from '../../utils/formatters';
 import { Badge } from '../ui/badge';
@@ -13,6 +13,10 @@ import { DELIVERY_STATE_LABEL, DELIVERY_STATE_VARIANT } from './deliveryMeta';
 import CompanyBadge from '../CompanyBadge';
 import { getSmartCompanyName } from '../../utils/customerNames';
 import { OrderPoEngineer } from './OrdersTable';
+import { Checkbox } from '../ui/checkbox';
+import { Button } from '../ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { requestInvoices } from '../../services/invoiceRequest';
 
 interface DeliveriesTabProps {
   orders: OdooSaleOrder[];
@@ -47,6 +51,36 @@ export default function DeliveriesTab({ orders, getEngineerName }: DeliveriesTab
     Object.fromEntries(SECTIONS.map(s => [s.title, s.defaultCollapsed]))
   );
 
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Solo cuentan las SO que siguen visibles con los filtros actuales.
+  const selectedNames = useMemo(
+    () => [...new Set(rows.map(r => r.order.name))].filter(n => selected.has(n)),
+    [rows, selected],
+  );
+  const toggle = (name: string) => setSelected(prev => {
+    const next = new Set(prev);
+    if (!next.delete(name)) next.add(name);
+    return next;
+  });
+
+  const send = async () => {
+    setSending(true);
+    try {
+      const sent = await requestInvoices(selectedNames);
+      setFeedback({ ok: true, text: `Correo enviado a Mari: ${sent.join(', ')}` });
+      setSelected(new Set());
+      setConfirmOpen(false);
+    } catch (err) {
+      setFeedback({ ok: false, text: err instanceof Error ? err.message : 'No se pudo enviar el correo.' });
+    } finally {
+      setSending(false);
+    }
+  };
+
   if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-card py-24 text-center text-muted-foreground">
@@ -58,6 +92,34 @@ export default function DeliveriesTab({ orders, getEngineerName }: DeliveriesTab
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3">
+        <Button type="button" disabled={selectedNames.length === 0} onClick={() => { setFeedback(null); setConfirmOpen(true); }}>
+          <Mail className="size-4" aria-hidden="true" />
+          Pedir factura a Mari{selectedNames.length > 0 ? ` (${selectedNames.length})` : ''}
+        </Button>
+        <span className="text-sm text-muted-foreground">Marca las SO de las que quieres factura.</span>
+        {feedback && (
+          <span role="status" className={feedback.ok ? 'text-sm font-medium text-emerald-500' : 'text-sm font-medium text-destructive'}>
+            {feedback.text}
+          </span>
+        )}
+      </div>
+      <Dialog open={confirmOpen} onOpenChange={open => { if (!sending) setConfirmOpen(open); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Pedir factura a Mari?</DialogTitle>
+            <DialogDescription>
+              Se enviará un correo a Mari, con copia a tu correo, pidiendo factura de: {selectedNames.join(', ')}.
+              Incluye las piezas y las remisiones de cada SO.
+            </DialogDescription>
+          </DialogHeader>
+          {feedback && !feedback.ok && <p role="alert" className="text-sm font-medium text-destructive">{feedback.text}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={sending} onClick={() => setConfirmOpen(false)}>Cancelar</Button>
+            <Button type="button" disabled={sending} onClick={send}>{sending ? 'Enviando…' : 'Enviar correo'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {SECTIONS.map(section => {
         const sectionRows = rows.filter(r => section.states.includes(r.delivery.state));
         if (sectionRows.length === 0) return null;
@@ -77,6 +139,7 @@ export default function DeliveriesTab({ orders, getEngineerName }: DeliveriesTab
               <table className="w-full text-sm">
                 <thead className="text-xs font-medium text-muted-foreground">
                   <tr>
+                    <th className="w-8 px-4 py-2"><span className="sr-only">Pedir factura</span></th>
                     <th className="px-4 py-2 text-left font-medium">Remisión</th>
                     <th className="px-4 py-2 text-left font-medium">SO</th>
                     <th className="px-4 py-2 text-left font-medium">PO / Ingeniero</th>
@@ -90,6 +153,13 @@ export default function DeliveriesTab({ orders, getEngineerName }: DeliveriesTab
                     const d = parseOdooDate(r.delivery.date_done);
                     return (
                       <tr key={`${r.delivery.name}-${i}`} className="hover:bg-accent/20">
+                        <td className="px-4 py-2">
+                          <Checkbox
+                            checked={selected.has(r.order.name)}
+                            onCheckedChange={() => toggle(r.order.name)}
+                            aria-label={`Pedir factura de ${r.order.name}`}
+                          />
+                        </td>
                         <td className="whitespace-nowrap px-4 py-2 font-mono-data text-foreground/90">{r.delivery.name}</td>
                         <td className="whitespace-nowrap px-4 py-2 font-mono-data font-bold text-foreground">
                           {formatPONumber(r.order.name)}
