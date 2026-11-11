@@ -6,6 +6,7 @@ import express, { NextFunction, Request, Response } from 'express';
 import { OdooClient } from '../../shared/odooClient';
 import nodemailer from 'nodemailer';
 import { crearAuthApi } from '../../shared/firebaseTokenPolicy';
+import { crearVerificadorHub } from '../../shared/hubAccess';
 import { buildMailEnvelope, buildRequestsEmail } from '../../shared/invoiceRequest';
 import {
   applyOrderAssignmentsMutation, normalizeOrderAssignments, parseOrderAssignmentsPatch,
@@ -75,6 +76,26 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
 // reciben 403. Evita exponer los datos de Odoo (clientes, productos, cantidades,
 // notas) a cualquiera con la URL; la identidad queda en res.locals.actor.
 app.use('/api', crearAuthApi(verifyFirebaseToken));
+
+// Solo entran cuentas activas de SMV Hub (colección `usuarios`, mismo proyecto Firebase).
+const hubAccess = crearVerificadorHub(async uid => (await admin.firestore().doc(`usuarios/${uid}`).get()).data());
+app.use('/api', async (_req: Request, res: Response, next: NextFunction) => {
+  const actor = res.locals.actor as RequestActor | undefined;
+  if (!actor) { res.status(403).json({ error: 'Se requiere una cuenta de personal SMV.' }); return; }
+  try {
+    const access = await hubAccess(actor.uid, actor.email);
+    if (!access.allowed) {
+      res.status(403).json({ error: 'Tu cuenta no tiene acceso al dashboard. Pide a administración que te active en SMV Hub.' });
+      return;
+    }
+    // El nombre del operador vinculado en el Hub identifica a quien pide en solicitudes y correos.
+    if (access.name) res.locals.actor = { ...actor, name: access.name };
+    next();
+  } catch (err) {
+    console.error('verificación de acceso al Hub falló:', err);
+    res.status(503).json({ error: 'No se pudo verificar tu acceso. Intenta de nuevo en un momento.' });
+  }
+});
 
 // ─── Odoo (módulo compartido con server.ts) ───────────────────────────
 const odooClient = new OdooClient({
