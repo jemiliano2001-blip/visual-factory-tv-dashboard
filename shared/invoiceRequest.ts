@@ -50,3 +50,26 @@ export function buildRequestsEmail(
     '<p>Gracias.</p>'].join('');
   return { subject, text, html };
 }
+
+/**
+ * Remitente y destinatarios. Gmail solo deja enviar desde la cuenta autenticada, así que el
+ * correo sale con el nombre de quien pidió, con copia a esa persona y con "responder a" su
+ * correo: lo que conteste Mari le llega a ella, no a la cuenta del dashboard.
+ */
+export function buildMailEnvelope(
+  config: { user: string; to: string; cc?: string },
+  actor: { uid: string; name: string | null; email: string | null },
+) {
+  const label = (actor.name ?? '').replace(/["\\\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const person = actor.email?.trim() || '';
+  const cc: string[] = [];
+  for (const addr of [config.cc ?? '', person]) {
+    if (addr && !cc.some(c => c.toLowerCase() === addr.toLowerCase())) cc.push(addr);
+  }
+  return {
+    from: `"${label ? `${label} (Visual Factory)` : 'Visual Factory'}" <${config.user}>`,
+    to: config.to,
+    ...(cc.length ? { cc: cc.join(', ') } : {}),
+    ...(person ? { replyTo: person } : {}),
+  };
+}

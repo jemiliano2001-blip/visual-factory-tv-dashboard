@@ -6,7 +6,7 @@ import express, { NextFunction, Request, Response } from 'express';
 import { OdooClient } from '../../shared/odooClient';
 import nodemailer from 'nodemailer';
 import { crearAuthApi } from '../../shared/firebaseTokenPolicy';
-import { buildRequestsEmail } from '../../shared/invoiceRequest';
+import { buildMailEnvelope, buildRequestsEmail } from '../../shared/invoiceRequest';
 import {
   applyOrderAssignmentsMutation, normalizeOrderAssignments, parseOrderAssignmentsPatch,
 } from '../../shared/orderAssignments';
@@ -200,7 +200,7 @@ app.post('/api/invoice-requests', async (req: Request, res: Response) => {
         try {
           const transport = nodemailer.createTransport({ service: 'gmail', auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD } });
           await transport.sendMail({
-            from: GMAIL_USER, to: INVOICE_MAIL_TO, ...(INVOICE_MAIL_CC ? { cc: INVOICE_MAIL_CC } : {}),
+            ...buildMailEnvelope({ user: GMAIL_USER, to: INVOICE_MAIL_TO, cc: INVOICE_MAIL_CC || undefined }, actor),
             ...buildRequestsEmail(result.created, actor),
           });
           emailed = true;
