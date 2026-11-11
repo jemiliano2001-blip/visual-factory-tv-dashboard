@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { auth, isRealUser } from '../firebase';
-import { signInWithCustomToken, signInWithEmailAndPassword, onAuthStateChanged, type User } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithCustomToken, signInWithEmailAndPassword, signInWithPopup, onAuthStateChanged, type User } from 'firebase/auth';
 import { useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { Tv } from 'lucide-react';
 
@@ -76,6 +76,23 @@ export default function Login() {
     }
   };
 
+  const handleGoogle = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      await signInWithPopup(auth, new GoogleAuthProvider());
+      navigate(from, { replace: true });
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return;
+      setError(code === 'auth/unauthorized-domain'
+        ? 'Este sitio aún no está autorizado para entrar con Google.'
+        : 'No se pudo entrar con Google. Intenta de nuevo.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden">
       <div className="w-full max-w-md bg-card rounded-2xl p-10 shadow-card border border-border relative z-10">
@@ -130,6 +147,18 @@ export default function Login() {
             {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
           </button>
         </form>
+
+        <div className="my-6 flex items-center gap-3 text-xs text-muted-foreground">
+          <span className="h-px flex-1 bg-border" /> o <span className="h-px flex-1 bg-border" />
+        </div>
+        <button
+          type="button"
+          onClick={handleGoogle}
+          disabled={loading}
+          className="w-full min-h-11 py-3 bg-secondary hover:bg-secondary/80 text-foreground font-semibold rounded-2xl border border-input transition-all disabled:opacity-50"
+        >
+          Entrar con Google
+        </button>
 
       </div>
     </div>

@@ -259,7 +259,7 @@ export default function AdminPanel() {
             {error && !isLoading && (
               <div className="flex items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-destructive">
                 <WifiOff className="size-5 shrink-0" />
-                <span className="font-bold">SIN CONEXIÓN A ODOO — {error}</span>
+                <span className="font-bold">{error?.startsWith('Tu cuenta no tiene acceso') ? error : `SIN CONEXIÓN A ODOO — ${error}`}</span>
               </div>
             )}
 
