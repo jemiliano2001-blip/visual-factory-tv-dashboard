@@ -45,7 +45,7 @@ type FixtureMove = {
   product_uom: [number, string]; origin_returned_move_id: [number, string] | false;
 };
 
-function transferClient(options: { moves?: FixtureMove[]; returns?: FixtureMove[]; failMoves?: boolean } = {}) {
+function transferClient(options: { moves?: FixtureMove[]; returns?: FixtureMove[]; failMoves?: boolean; note?: string } = {}) {
   const calls: Array<{ model: string; args: unknown[]; kwargs: Record<string, unknown> }> = [];
   const client = new OdooClient({ url: 'http://odoo.test', db: 'db', username: 'u', password: 'p' });
   client.odooCall = async <T>(model: string, method: string, args: unknown[] = [], kwargs: Record<string, unknown> = {}): Promise<T> => {
@@ -55,7 +55,7 @@ function transferClient(options: { moves?: FixtureMove[]; returns?: FixtureMove[
     else if (model === 'sale.order') result = [{
       id: 3230, name: '2026/S01992', partner_id: [1, 'Cliente'], date_order: '2026-09-28',
       commitment_date: '2026-10-05', invoice_status: 'partially_invoiced', currency_id: [1, 'MXN'],
-      order_line: [5159, 5160], state: 'sale', user_id: false, note: false,
+      order_line: [5159, 5160], state: 'sale', user_id: false, note: options.note ?? false,
     }];
     else if (model === 'sale.order.line') result = [
       { id: 5159, name: 'Navajas', display_type: false, product_uom_qty: 5, qty_delivered: 5, product_uom: [1, 'Pieza'] },
@@ -135,4 +135,11 @@ test('una conversión completa no deja residuos binarios que aparenten piezas pe
     { id: 649, sale_line_id: [5159, 'Navajas'], quantity_done: 0.7, product_uom: [28, 'Decena'], origin_returned_move_id: false },
   ] });
   assert.equal((await client.fetchInvoiceableOrders()).orders[0].lines[0].delivered, 7);
+});
+
+test('el compromiso sale del plazo de la nota; sin plazo usa la fecha de entrega de Odoo', async () => {
+  const withNote = await transferClient({ note: '<p>TIEMPO DE ENTREGA 2 A 3 SEMANAS.</p>' }).client.fetchInvoiceableOrders();
+  assert.equal(withNote.orders[0].commitment_date, '2026-10-19 00:00:00'); // 28/09 + 15 días hábiles
+  const without = await transferClient().client.fetchInvoiceableOrders();
+  assert.equal(without.orders[0].commitment_date, '2026-10-05');
 });

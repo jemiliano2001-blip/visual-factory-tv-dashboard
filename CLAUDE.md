@@ -94,9 +94,13 @@ PO significa la referencia de compra del cliente (`client_order_ref` → `custom
 
 **Its env vars live in `functions/.env`, not the root `.env.local`.** `DISCORD_WEBHOOK_URL` (required), `DISCORD_WEBHOOK_URL_CRITICOS`/`DISCORD_WEBHOOK_URL_REPORTES` (optional, fall back to the main webhook), `DISCORD_ROLE_GENERAL`, `DISCORD_LARGE_ORDER_LINES`, `DASHBOARD_URL`, `STALL_THRESHOLD_DAYS`, and `NOTIFICATIONS_ENABLED` are only read by `functions/src/*.ts` — copy `functions/.env.example` to `functions/.env` to configure them for a Functions deploy. `server.ts` never touches these.
 
+## Fecha compromiso (desde la nota)
+
+El compromiso de cada orden sale del plazo escrito en su nota (`TIEMPO DE ENTREGA 2 A 3 SEMANAS`): fecha de la orden (`date_order`) + el plazo más largo, en días hábiles lun-vie (semana = 5, mes = 20; sin festivos). Se calcula en el servidor (`commitmentFromNote`, `shared/deliveryTerm.ts`, usado por `OdooClient`) y reemplaza el campo `commitment_date` que reciben TV, Admin, Stats, exportes y alertas de Discord, así todo coincide. Si la nota no trae plazo se usa la fecha de entrega de Odoo. El día hábil se cuenta en UTC.
+
 ## Admin: Agenda y estado en el link
 
-`/admin` guarda pestaña y filtros en la URL (`?tab=agenda&q=…&cliente=…&estado=…`) vía `src/services/adminFilters.ts` (los valores se validan; un link manipulado cae a los defaults). Al entrar sin parámetros se restaura el último filtro usado (localStorage `adminFilters`, sin la pestaña), y el botón "Copiar link" comparte la vista exacta. La pestaña **Agenda** (`AgendaTab` + `buildAgenda` en `src/services/agenda.ts`) agrupa las órdenes con piezas pendientes por fecha compromiso: Atrasadas (cerrada por defecto), Hoy, Mañana, cada día de los próximos 15 y Más adelante / Sin fecha. Usa solo `commitment_date`, no el plazo de la nota.
+`/admin` guarda pestaña y filtros en la URL (`?tab=agenda&q=…&cliente=…&estado=…`) vía `src/services/adminFilters.ts` (los valores se validan; un link manipulado cae a los defaults). Al entrar sin parámetros se restaura el último filtro usado (localStorage `adminFilters`, sin la pestaña), y el botón "Copiar link" comparte la vista exacta. La pestaña **Agenda** (`AgendaTab` + `buildAgenda` en `src/services/agenda.ts`) agrupa las órdenes con piezas pendientes por fecha compromiso: Atrasadas (cerrada por defecto), Hoy, Mañana, cada día de los próximos 15 y Más adelante / Sin fecha. Usa `commitment_date`, que ya viene calculado (ver abajo).
 
 ## Solicitudes de factura o remisión
 

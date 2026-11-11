@@ -1,3 +1,5 @@
+import { commitmentFromNote } from './deliveryTerm';
+
 export interface OdooClientConfig {
   url: string;
   db: string;
@@ -382,7 +384,8 @@ export class OdooClient {
         partner_name: order.partner_id ? order.partner_id[1] : 'Desconocido',
         main_product: lines[0]?.name ?? 'Sin descripción',
         date_order: order.date_order,
-        commitment_date: order.commitment_date || null,
+        // El compromiso sale del plazo escrito en la nota; sin plazo, la fecha de entrega de Odoo.
+        commitment_date: commitmentFromNote(typeof order.note === 'string' ? order.note : null, order.date_order) ?? (order.commitment_date || null),
         invoice_status: order.invoice_status,
         currency: order.currency_id ? order.currency_id[1] : 'MXN',
         qty_total: totalQty,
