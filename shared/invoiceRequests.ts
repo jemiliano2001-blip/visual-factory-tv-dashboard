@@ -9,7 +9,8 @@ export interface RequestActor { uid: string; email: string | null; name: string 
 /** `deliveredAtRequest`: piezas ya entregadas al pedir, para no descontar dos veces lo que Mari ya entregó. */
 export interface InvoiceRequestLine { lineId: number; name: string; qty: number; unit: string | null; deliveredAtRequest?: number }
 /** Clave SAT confirmada por partida (solo OHD): en factura, todas las partidas; en remisión, las pedidas. */
-export interface SatKey { lineId: number; name: string; code: string }
+/** `inList`: la clave está en la lista de OHD (Mary); false = salió del catálogo SAT y Mary debe validarla. */
+export interface SatKey { lineId: number; name: string; code: string; inList: boolean }
 export interface InvoiceRequest {
   id: string;
   orderId: number;
@@ -120,7 +121,7 @@ function parseRequest(raw: unknown): InvoiceRequest | null {
     const satKeys: SatKey[] = [];
     for (const k of raw.satKeys) {
       if (!isRecord(k) || !isPosInt(k.lineId) || typeof k.name !== 'string' || typeof k.code !== 'string') return null;
-      satKeys.push({ lineId: k.lineId, name: k.name, code: k.code });
+      satKeys.push({ lineId: k.lineId, name: k.name, code: k.code, inList: k.inList !== false });
     }
     out.satKeys = satKeys;
   }
@@ -195,7 +196,7 @@ function parseSatKeysBody(raw: unknown): { satKeys?: RequestDraft['satKeys'] } {
 }
 
 /** OHD exige una clave SAT del catálogo por cada partida que se pide; los demás clientes no la llevan. */
-function attachSatKeys(request: InvoiceRequest, draft: RequestDraft, order: RequestableOrder): DraftResult {
+function attachSatKeys(request: InvoiceRequest, draft: RequestDraft, order: RequestableOrder, isKnownSatCode?: (code: string) => boolean): DraftResult {
   if (!isOhdPartner(order.partner_name)) return { request };
   const needed = request.type === 'factura'
     ? order.lines.filter(l => l.id !== undefined && l.qty > 0).map(l => ({ lineId: l.id as number, name: l.name }))
@@ -204,21 +205,23 @@ function attachSatKeys(request: InvoiceRequest, draft: RequestDraft, order: Requ
   for (const { lineId, name } of needed) {
     const code = draft.satKeys?.find(k => k.lineId === lineId)?.code;
     if (!code) return { reason: `Falta la clave SAT de ${name}.` };
-    if (!isSatOhdCode(code)) return { reason: `La clave SAT ${code} de ${name} no está en el catálogo de OHD.` };
-    satKeys.push({ lineId, name, code });
+    const inList = isSatOhdCode(code);
+    if (!inList && !isKnownSatCode) return { reason: `La clave SAT ${code} de ${name} no está en el catálogo de OHD.` };
+    if (!inList && isKnownSatCode && !isKnownSatCode(code)) return { reason: `La clave SAT ${code} de ${name} no existe en el catálogo.` };
+    satKeys.push({ lineId, name, code, inList });
   }
   return { request: { ...request, satKeys } };
 }
 
 type DraftResult = { request: InvoiceRequest } | { reason: string };
 
-function buildRequest(draft: RequestDraft, order: RequestableOrder, pendingForOrder: InvoiceRequest[], id: string, actor: RequestActor, now: string): DraftResult {
+function buildRequest(draft: RequestDraft, order: RequestableOrder, pendingForOrder: InvoiceRequest[], id: string, actor: RequestActor, now: string, isKnownSatCode?: (code: string) => boolean): DraftResult {
   const base: InvoiceRequest = {
     id, orderId: order.id, orderName: order.name, partnerName: order.partner_name,
     customerReference: order.customer_reference ?? null, type: draft.type, status: 'pendiente',
     requestedBy: actor, requestedAt: now,
   };
-  if (draft.type === 'factura') return attachSatKeys(base, draft, order);
+  if (draft.type === 'factura') return attachSatKeys(base, draft, order, isKnownSatCode);
   if (!order.lines.some(l => l.id !== undefined && lineRemainingQty(l, pendingForOrder) > EPS)) {
     return { reason: `La orden ${order.name} no tiene piezas pendientes de entrega, o ya están pedidas en otra remisión.` };
   }
@@ -236,14 +239,14 @@ function buildRequest(draft: RequestDraft, order: RequestableOrder, pendingForOr
     if (!(qty > 0)) return { reason: `La cantidad de ${line.name} debe ser mayor a 0.` };
     lines.push({ lineId: dl.lineId, name: line.name, qty, unit: line.unit ?? null, deliveredAtRequest: line.delivered });
   }
-  return attachSatKeys({ ...base, lines }, draft, order);
+  return attachSatKeys({ ...base, lines }, draft, order, isKnownSatCode);
 }
 
 export function createInvoiceRequests(
   state: InvoiceRequestsState,
   drafts: RequestDraft[],
   orders: RequestableOrder[],
-  ctx: { actor: RequestActor; now: string; newId: () => string },
+  ctx: { actor: RequestActor; now: string; newId: () => string; isKnownSatCode?: (code: string) => boolean },
 ): { state: InvoiceRequestsState; created: InvoiceRequest[]; skipped: SkippedRequest[] } {
   const pendingAll = state.requests.filter(r => r.status === 'pendiente');
   const pendingFacturas = new Set(pendingAll.filter(r => r.type === 'factura').map(r => r.orderId));
@@ -257,7 +260,7 @@ export function createInvoiceRequests(
     if (draft.type === 'factura' && pendingFacturas.has(order.id)) { skip(`Ya hay una solicitud pendiente de factura para ${order.name}.`); continue; }
     if (pendingCount >= MAX_PENDING) { skip('Hay demasiadas solicitudes pendientes; pide a facturación que marque las que ya están hechas.'); continue; }
     const pendingForOrder = [...pendingAll, ...created].filter(r => r.orderId === order.id);
-    const result = buildRequest(draft, order, pendingForOrder, ctx.newId(), ctx.actor, ctx.now);
+    const result = buildRequest(draft, order, pendingForOrder, ctx.newId(), ctx.actor, ctx.now, ctx.isKnownSatCode);
     if ('reason' in result) { skip(result.reason); continue; }
     if (draft.type === 'factura') pendingFacturas.add(order.id);
     pendingCount += 1;

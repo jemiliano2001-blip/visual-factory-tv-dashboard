@@ -15,6 +15,7 @@ import {
 import {
   createInvoiceRequests, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody, type RequestActor,
 } from '../../shared/invoiceRequests';
+import { isKnownSatCode } from '../../shared/satCatalogServer';
 import {
   checkThresholds,
   checkEvents,
@@ -209,7 +210,7 @@ app.post('/api/invoice-requests', async (req: Request, res: Response) => {
   try {
     const result = await admin.firestore().runTransaction(async tx => {
       const current = normalizeInvoiceRequests((await tx.get(requestsDoc())).data());
-      const out = createInvoiceRequests(current, drafts, orders, { actor, now: new Date().toISOString(), newId: randomUUID });
+      const out = createInvoiceRequests(current, drafts, orders, { actor, now: new Date().toISOString(), newId: randomUUID, isKnownSatCode });
       if (out.created.length > 0) tx.set(requestsDoc(), out.state);
       return out;
     });

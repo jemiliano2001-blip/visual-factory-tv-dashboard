@@ -3,6 +3,7 @@
  * Fuente: "PRODUCTOS Y SERV. DE OHD (SAT).xlsx" (2026-11). Las palabras clave son las del
  * Excel; la sugerencia es solo una propuesta: el ingeniero la confirma o la cambia.
  */
+import { normalizeSatText } from './satText';
 
 export interface SatOhdKey { code: string; name: string; keywords: string[] }
 
@@ -76,22 +77,18 @@ export const isOhdPartner = (partnerName: string) => /\bohd\b|overhead door/i.te
 export const isSatOhdCode = (code: unknown): code is string => typeof code === 'string' && BY_CODE.has(code);
 export const satOhdName = (code: string) => BY_CODE.get(code)?.name ?? null;
 
-/** Mayúsculas, sin acentos y sin signos: "Fab. de interfaces" → " FAB DE INTERFACES ". */
-const normalize = (s: string) =>
-  ` ${s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()} `;
-
 /**
  * Clave sugerida para una descripción: la de la palabra clave más larga que aparezca al inicio
  * de una palabra ("PUNZON" encuentra "PUNZONES"). Si la más larga apunta a varias claves
  * (p. ej. "POLYTECH") o nada coincide, no sugiere: el ingeniero escoge.
  */
 export function suggestSatOhdCode(description: string): string | null {
-  const text = normalize(description);
+  const text = normalizeSatText(description);
   let best = 0;
   let codes = new Set<string>();
   for (const key of SAT_OHD_CATALOG) {
     for (const kw of key.keywords) {
-      const word = normalize(kw).trim();
+      const word = normalizeSatText(kw).trim();
       if (!text.includes(` ${word}`)) continue;
       if (word.length > best) { best = word.length; codes = new Set([key.code]); }
       else if (word.length === best) codes.add(key.code);

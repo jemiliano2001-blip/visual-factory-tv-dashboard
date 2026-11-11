@@ -23,6 +23,7 @@ import {
   createInvoiceRequests, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody,
   type InvoiceRequestsState, type RequestActor,
 } from './shared/invoiceRequests.ts';
+import { isKnownSatCode } from './shared/satCatalogServer.ts';
 
 // Carga .env.local primero (alta prioridad, no se sube a git),
 // luego .env como fallback — mismo orden que Vite en desarrollo local.
@@ -278,7 +279,7 @@ app.post('/api/invoice-requests', async (req: Request, res: Response) => {
   }
   // Sin await entre leer y escribir: otra petición no puede intercalarse.
   try {
-    const out = createInvoiceRequests(readRequests(), drafts, orders, { actor, now: new Date().toISOString(), newId: randomUUID });
+    const out = createInvoiceRequests(readRequests(), drafts, orders, { actor, now: new Date().toISOString(), newId: randomUUID, isKnownSatCode });
     if (out.created.length > 0) writeFileSync(REQUESTS_FILE, JSON.stringify(out.state, null, 2));
     res.json({ state: out.state, created: out.created, skipped: out.skipped, notified: false, emailed: false });
   } catch (err) {

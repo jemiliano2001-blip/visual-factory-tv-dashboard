@@ -32,7 +32,7 @@ export interface MailableRequest {
   type: 'factura' | 'remision';
   lines?: { lineId?: number; name: string; qty: number; unit: string | null }[];
   /** Solo OHD: clave SAT confirmada por partida. */
-  satKeys?: { lineId: number; name: string; code: string }[];
+  satKeys?: { lineId: number; name: string; code: string; inList?: boolean }[];
 }
 
 export function buildRequestsEmail(
@@ -51,10 +51,11 @@ export function buildRequestsEmail(
   const intro = `Buen día, ${who} pide lo siguiente:`;
   const head = (r: MailableRequest) =>
     `${r.orderName} — ${r.partnerName}${r.customerReference ? ` (PO ${r.customerReference})` : ''}`;
-  const sat = (code: string | undefined) => (code ? ` — Clave SAT ${code}` : '');
+  const sat = (k: { code: string; inList?: boolean } | undefined) =>
+    (k ? ` — Clave SAT ${k.code}${k.inList === false ? ' (fuera de la lista de OHD, validar)' : ''}` : '');
   const pieces = (r: MailableRequest) => r.lines?.length
-    ? r.lines.map(l => `${fmtQty(l.qty)}${l.unit ? ` ${l.unit}` : ''} — ${shortenDescription(l.name)}${sat(r.satKeys?.find(k => k.lineId === l.lineId)?.code)}`)
-    : (r.satKeys ?? []).map(k => `${shortenDescription(k.name)}${sat(k.code)}`);
+    ? r.lines.map(l => `${fmtQty(l.qty)}${l.unit ? ` ${l.unit}` : ''} — ${shortenDescription(l.name)}${sat(r.satKeys?.find(k => k.lineId === l.lineId))}`)
+    : (r.satKeys ?? []).map(k => `${shortenDescription(k.name)}${sat(k)}`);
   const groups = [['Facturas', facturas], ['Remisiones', remisiones]] as const;
 
   const text = [intro, ...groups.filter(([, rs]) => rs.length).map(([title, rs]) => [

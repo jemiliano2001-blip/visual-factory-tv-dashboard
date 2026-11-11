@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { isKnownSatCode } from './satCatalogServer';
 import {
   MAX_DONE_KEPT,
   MAX_DRAFTS,
@@ -322,15 +323,15 @@ const ohd: RequestableOrder = {
 test('OHD: factura guarda la clave SAT de todas las partidas', () => {
   const out = createInvoiceRequests(empty, [{ orderId: 20, type: 'factura', satKeys: [{ lineId: 31, code: '23153000' }, { lineId: 32, code: '23153035' }] }], [ohd], ctx());
   assert.deepEqual(out.created[0].satKeys, [
-    { lineId: 31, name: 'Fixture', code: '23153000' },
-    { lineId: 32, name: 'Placa', code: '23153035' },
+    { lineId: 31, name: 'Fixture', code: '23153000', inList: true },
+    { lineId: 32, name: 'Placa', code: '23153035', inList: true },
   ]);
   assert.deepEqual(normalizeInvoiceRequests(out.state).requests[0].satKeys, out.created[0].satKeys);
 });
 
 test('OHD: remisión pide clave solo de las piezas pedidas', () => {
   const out = createInvoiceRequests(empty, [{ orderId: 20, type: 'remision', lines: [{ lineId: 31, qty: 1 }], satKeys: [{ lineId: 31, code: '23153000' }] }], [ohd], ctx());
-  assert.deepEqual(out.created[0].satKeys, [{ lineId: 31, name: 'Fixture', code: '23153000' }]);
+  assert.deepEqual(out.created[0].satKeys, [{ lineId: 31, name: 'Fixture', code: '23153000', inList: true }]);
 });
 
 test('OHD: sin clave o con clave fuera del catálogo no se crea', () => {
@@ -351,4 +352,46 @@ test('parseCreateRequestsBody: claves SAT opcionales y validadas', () => {
     [{ orderId: 1, type: 'factura', satKeys: [{ lineId: 2, code: '23153035' }] }]);
   assert.throws(() => parseCreateRequestsBody([{ orderId: 1, type: 'factura', satKeys: 'x' }]), /Claves SAT/);
   assert.throws(() => parseCreateRequestsBody([{ orderId: 1, type: 'factura', satKeys: [{ lineId: 0, code: '1' }] }]), /Clave SAT inválida/);
+});
+
+const ctxSat = () => ({ ...ctx(), isKnownSatCode });
+const facturaOhd = (satKeys: Array<{ lineId: number; code: string }>) =>
+  createInvoiceRequests(empty, [{ orderId: 20, type: 'factura', satKeys }], [ohd], ctxSat());
+
+test('OHD: clave del catálogo fuera de la lista se guarda con inList false', () => {
+  const out = facturaOhd([{ lineId: 31, code: '23152206' }, { lineId: 32, code: '23153035' }]);
+  assert.deepEqual(out.created[0].satKeys, [
+    { lineId: 31, name: 'Fixture', code: '23152206', inList: false },
+    { lineId: 32, name: 'Placa', code: '23153035', inList: true },
+  ]);
+});
+
+test('OHD: clave inexistente se rechaza aunque haya catálogo', () => {
+  const out = facturaOhd([{ lineId: 31, code: '00000000' }, { lineId: 32, code: '23153035' }]);
+  assert.equal(out.created.length, 0);
+  assert.match(out.skipped[0].reason, /no existe en el catálogo/);
+});
+
+test('OHD: sin predicado solo acepta la lista de Mary', () => {
+  const out = createInvoiceRequests(empty, [{ orderId: 20, type: 'factura', satKeys: [{ lineId: 31, code: '23152206' }, { lineId: 32, code: '23153035' }] }], [ohd], ctx());
+  assert.match(out.skipped[0].reason, /no está en el catálogo de OHD/);
+});
+
+test('clave con espacios, minúsculas o 7 dígitos se rechaza', () => {
+  for (const code of [' 23153035', '2315303', '2315303A']) {
+    const out = facturaOhd([{ lineId: 31, code }, { lineId: 32, code: '23153035' }]);
+    assert.equal(out.created.length, 0, code);
+  }
+});
+
+test('solicitudes guardadas sin inList se leen como true', () => {
+  const out = facturaOhd([{ lineId: 31, code: '23153000' }, { lineId: 32, code: '23153035' }]);
+  const old = JSON.parse(JSON.stringify(out.state));
+  for (const k of old.requests[0].satKeys) delete k.inList;
+  assert.ok(normalizeInvoiceRequests(old).requests[0].satKeys?.every(k => k.inList === true));
+});
+
+test('isKnownSatCode: reconoce una clave real y rechaza basura', () => {
+  assert.equal(isKnownSatCode('23152206'), true);
+  assert.equal(isKnownSatCode('abc'), false);
 });

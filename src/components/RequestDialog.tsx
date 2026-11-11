@@ -6,7 +6,9 @@ import { useMobile } from '../hooks/useMobile';
 import { useInvoiceRequests, useSubmitInvoiceRequests } from '../hooks/useInvoiceRequests';
 import type { CreateInvoiceRequestsResult } from '../services/invoiceRequests';
 import { buildDrafts, missingSatCount, requestAvailability, suggestedSat, type OrderChoice } from '../services/invoiceDrafts';
-import { SAT_OHD_CATALOG, isOhdPartner, suggestSatOhdCode } from '../../shared/satOhd';
+import { SAT_OHD_CATALOG, isOhdPartner, isSatOhdCode, suggestSatOhdCode } from '../../shared/satOhd';
+import { satChoicesFor, type SatCatalog } from '../../shared/satSearch';
+import { useSatCatalog } from '../hooks/useSatCatalog';
 import { clampQty, lineRemainingQty, linePendingQty, pendingRequestsByOrder, type InvoiceRequest, type RequestType } from '../../shared/invoiceRequests';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -31,8 +33,9 @@ const fullQty = (o: OdooSaleOrder, pending: InvoiceRequest[]): Record<number, nu
 // Partidas que lleva una factura de OHD (todas las que tienen cantidad).
 const satLines = (o: OdooSaleOrder) => o.lines.filter(l => l.id !== undefined && l.qty > 0);
 
-function SatSelect({ lineName, value, onChange }: { lineName: string; value: string; onChange: (code: string) => void }) {
+function SatSelect({ lineName, value, onChange, catalog }: { lineName: string; value: string; onChange: (code: string) => void; catalog: SatCatalog | null }) {
   const suggested = value !== '' && value === suggestSatOhdCode(lineName);
+  const candidates = useMemo(() => satChoicesFor(lineName, catalog).candidates, [lineName, catalog]);
   return (
     <label className="block space-y-1">
       <span className="text-sm text-muted-foreground">Clave SAT{suggested ? ' (sugerida, revísala)' : ''}</span>
@@ -42,9 +45,17 @@ function SatSelect({ lineName, value, onChange }: { lineName: string; value: str
         className="h-11 w-full rounded-xl border border-input bg-popover px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
       >
         <option value="">Escoge la clave…</option>
-        {SAT_OHD_CATALOG.map(k => <option key={k.code} value={k.code}>{k.code} · {k.name}</option>)}
+        {candidates.length > 0 && (
+          <optgroup label="Sugeridas del catálogo SAT (fuera de la lista de OHD)">
+            {candidates.map(c => <option key={c.code} value={c.code}>{c.code} · {c.name}</option>)}
+          </optgroup>
+        )}
+        <optgroup label="Lista de OHD">
+          {SAT_OHD_CATALOG.map(k => <option key={k.code} value={k.code}>{k.code} · {k.name}</option>)}
+        </optgroup>
       </select>
       {value === '' && <span className="block text-sm text-warning">Falta escoger la clave SAT.</span>}
+      {value !== '' && !isSatOhdCode(value) && <span className="block text-sm text-warning">Fuera de la lista de OHD: Mary la validará.</span>}
     </label>
   );
 }
@@ -63,7 +74,7 @@ export function RequestBadges({ requests }: { requests: InvoiceRequest[] | undef
   );
 }
 
-function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty, onSat }: {
+function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty, onSat, catalog }: {
   order: OdooSaleOrder;
   pendingForOrder: InvoiceRequest[];
   avail: Availability;
@@ -71,6 +82,7 @@ function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty
   onType: (type: RequestType | null) => void;
   onQty: (lineId: number, qty: number) => void;
   onSat: (lineId: number, code: string) => void;
+  catalog: SatCatalog | null;
 }) {
   const reference = order.customer_reference?.trim();
   const ohd = isOhdPartner(order.partner_name);
@@ -103,7 +115,7 @@ function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty
           {satLines(order).map(l => (
             <li key={l.id} className="space-y-2 rounded-lg bg-background/50 p-3">
               <p className="text-sm font-medium text-foreground break-words">{l.name}</p>
-              <SatSelect lineName={l.name} value={choice.sat?.[l.id as number] ?? ''} onChange={code => onSat(l.id as number, code)} />
+              <SatSelect lineName={l.name} value={choice.sat?.[l.id as number] ?? ''} onChange={code => onSat(l.id as number, code)} catalog={catalog} />
             </li>
           ))}
         </ul>
@@ -138,7 +150,7 @@ function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty
                     </Button>
                   </div>
                 </div>
-                {ohd && qty > 0 && <SatSelect lineName={l.name} value={choice.sat?.[id] ?? ''} onChange={code => onSat(id, code)} />}
+                {ohd && qty > 0 && <SatSelect lineName={l.name} value={choice.sat?.[id] ?? ''} onChange={code => onSat(id, code)} catalog={catalog} />}
               </li>
             );
           })}
@@ -151,6 +163,7 @@ function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty
 function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
   const requests = useInvoiceRequests({ enabled: open });
   const submit = useSubmitInvoiceRequests();
+  const satCatalog = useSatCatalog(open && orders.some(o => isOhdPartner(o.partner_name)));
   const [choices, setChoices] = useState<Record<number, Choice>>({});
   const [result, setResult] = useState<CreateInvoiceRequestsResult | null>(null);
 
@@ -255,7 +268,7 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
         )}
         {orders.map((o, i) => (
           <OrderRequestCard key={o.id} order={o} pendingForOrder={pendingMap.get(o.id) ?? []} avail={avails[i]} choice={choiceOf(o)}
-            onType={type => setType(o, type)} onQty={(lineId, qty) => setQty(o, lineId, qty)} onSat={(lineId, code) => setSat(o, lineId, code)} />
+            onType={type => setType(o, type)} onQty={(lineId, qty) => setQty(o, lineId, qty)} onSat={(lineId, code) => setSat(o, lineId, code)} catalog={satCatalog} />
         ))}
       </div>
       <div className="shrink-0 border-t border-border bg-popover p-4 space-y-2">

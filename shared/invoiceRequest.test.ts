@@ -84,3 +84,14 @@ test('correo de solicitudes: la descripción larga sale resumida', () => {
   assert.match(mail.text, /Fabricación de bases… — Clave SAT 32151900/);
   assert.doesNotMatch(mail.text, /Caja botonera/);
 });
+
+test('correo: clave fuera de la lista lleva la marca; de la lista o sin inList no', () => {
+  const mk = (inList?: boolean) => buildRequestsEmail([{
+    orderName: 'S1', partnerName: 'OHD', customerReference: null, type: 'factura',
+    satKeys: [{ lineId: 1, name: 'Guarda', code: '23152206', ...(inList === undefined ? {} : { inList }) }],
+  }], { email: null, name: 'Ana', uid: 'u' });
+  const fuera = mk(false);
+  assert.match(fuera.text, /Clave SAT 23152206 \(fuera de la lista de OHD, validar\)/);
+  assert.match(fuera.html, /Clave SAT 23152206 \(fuera de la lista de OHD, validar\)/);
+  for (const m of [mk(true), mk()]) assert.doesNotMatch(m.text, /fuera de la lista/);
+});
