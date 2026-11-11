@@ -22,11 +22,9 @@ import {
 } from '../../shared/orderAssignments';
 import { auth } from '../firebase';
 import PendingTab from '../components/admin/PendingTab';
-import AgendaTab from '../components/admin/AgendaTab';
 import OrdersTable from '../components/admin/OrdersTable';
 import AdminToolbar from '../components/admin/AdminToolbar';
 import SelectionBar from '../components/admin/SelectionBar';
-import DeliveriesTab from '../components/admin/DeliveriesTab';
 import ConfigTab from '../components/admin/ConfigTab';
 import RequestsTab from '../components/admin/RequestsTab';
 import TruncatedNotice from '../components/admin/TruncatedNotice';
@@ -283,8 +281,6 @@ export default function AdminPanel() {
               <div className="mt-4">
                 {isLoading ? (
                   <LoadingState />
-                ) : view === 'agenda' ? (
-                  <AgendaTab orders={filteredOrders} getEngineerName={getEngineerName} />
                 ) : view === 'pending' ? (
                   <PendingTab orders={filteredOrders} getEngineerName={getEngineerName} />
                 ) : (
@@ -301,12 +297,6 @@ export default function AdminPanel() {
                   />
                 )}
               </div>
-              )}
-
-              {!filterEmpty && activeTab === 'deliveries' && (
-                <div className="mt-4">
-                  {isLoading ? <LoadingState /> : <DeliveriesTab orders={filteredOrders} getEngineerName={getEngineerName} />}
-                </div>
               )}
 
               {activeTab === 'requests' && <div className="mt-5"><RequestsTab /></div>}

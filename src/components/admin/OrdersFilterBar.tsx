@@ -1,6 +1,6 @@
 /**
  * Controles de filtro compartidos por las secciones de órdenes (Por compañía,
- * Pendientes, Agenda y Entregas): búsqueda de texto, cliente y estado.
+ * Pendientes): búsqueda de texto, cliente y estado.
  * AdminToolbar los coloca en una sola fila (o en un Drawer en móvil).
  */
 import { Input } from '../ui/input';

@@ -9,7 +9,7 @@ import {
 } from './adminFilters';
 import type { OrderStatusFilter } from '../components/admin/orderStatusMeta';
 
-export type AdminSectionId = 'company' | 'pending' | 'agenda' | 'deliveries' | 'requests' | 'config';
+export type AdminSectionId = 'company' | 'pending' | 'requests' | 'config';
 
 export interface AdminSection {
   id: AdminSectionId;
@@ -22,13 +22,11 @@ export interface AdminSection {
 export const ADMIN_SECTIONS: readonly AdminSection[] = [
   { id: 'company', label: 'Por compañía', shortLabel: 'Compañía', group: 'orders', hasToolbar: true },
   { id: 'pending', label: 'Pendientes', shortLabel: 'Pendientes', group: 'orders', hasToolbar: true },
-  { id: 'agenda', label: 'Agenda', shortLabel: 'Agenda', group: 'orders', hasToolbar: true },
-  { id: 'deliveries', label: 'Entregas', shortLabel: 'Entregas', group: 'orders', hasToolbar: true },
   { id: 'requests', label: 'Solicitudes', shortLabel: 'Solicitudes', group: 'orders', hasToolbar: false },
   { id: 'config', label: 'Configuración', shortLabel: 'Configuración', group: 'settings', hasToolbar: false },
 ];
 
-export const MOBILE_PRIMARY_SECTIONS: readonly AdminSectionId[] = ['company', 'pending', 'agenda', 'deliveries'];
+export const MOBILE_PRIMARY_SECTIONS: readonly AdminSectionId[] = ['company', 'pending', 'requests'];
 
 export function getSection(id: AdminSectionId): AdminSection {
   return ADMIN_SECTIONS.find(s => s.id === id) ?? ADMIN_SECTIONS[0];
@@ -39,12 +37,12 @@ export function isInMoreMenu(id: AdminSectionId): boolean {
 }
 
 export function sectionFromFilters(f: AdminFilters): AdminSectionId {
-  if (f.tab === 'deliveries' || f.tab === 'requests' || f.tab === 'config') return f.tab;
+  if (f.tab === 'requests' || f.tab === 'config') return f.tab;
   return f.view;
 }
 
 export function filtersForSection(id: AdminSectionId, f: AdminFilters): AdminFilters {
-  if (id === 'deliveries' || id === 'requests' || id === 'config') return { ...f, tab: id };
+  if (id === 'requests' || id === 'config') return { ...f, tab: id };
   return { ...f, tab: 'orders', view: id };
 }
 

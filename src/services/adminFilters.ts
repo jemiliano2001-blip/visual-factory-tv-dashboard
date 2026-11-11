@@ -5,10 +5,10 @@
  */
 import type { OrderStatusFilter } from '../components/admin/orderStatusMeta';
 
-export const ADMIN_TABS = ['orders', 'deliveries', 'requests', 'config'] as const;
+export const ADMIN_TABS = ['orders', 'requests', 'config'] as const;
 export type AdminTab = (typeof ADMIN_TABS)[number];
 
-export const ORDER_VIEWS = ['company', 'agenda', 'pending'] as const;
+export const ORDER_VIEWS = ['company', 'pending'] as const;
 export type OrderView = (typeof ORDER_VIEWS)[number];
 
 /** Valor de `engineer` para las órdenes sin ingeniero asignado. */
@@ -32,12 +32,12 @@ export const DEFAULT_ADMIN_FILTERS: AdminFilters = {
 export function parseAdminFilters(params: URLSearchParams): AdminFilters {
   const tab = params.get('tab');
   const status = params.get('estado');
-  // Links anteriores a las 3 pestañas: pending/agenda/report ahora son vistas de Órdenes.
-  const legacyView = tab === 'pending' || tab === 'agenda' ? tab : tab === 'report' ? 'company' : null;
+  // Links anteriores: pending/report eran pestañas y agenda se fundió con Pendientes (Entregas cae en Por compañía).
+  const legacyView = tab === 'pending' || tab === 'agenda' ? 'pending' : tab === 'report' ? 'company' : null;
   const view = params.get('vista');
   return {
     tab: ADMIN_TABS.find(t => t === tab) ?? (legacyView ? 'orders' : DEFAULT_ADMIN_FILTERS.tab),
-    view: ORDER_VIEWS.find(v => v === view) ?? legacyView ?? DEFAULT_ADMIN_FILTERS.view,
+    view: ORDER_VIEWS.find(v => v === view) ?? (view === 'agenda' ? 'pending' : null) ?? legacyView ?? DEFAULT_ADMIN_FILTERS.view,
     engineer: params.get('ing') ?? '',
     search: params.get('q') ?? '',
     client: params.get('cliente') ?? '',

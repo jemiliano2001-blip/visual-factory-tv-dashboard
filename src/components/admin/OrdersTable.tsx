@@ -42,7 +42,7 @@ interface OrdersTableProps {
   pendingByOrder?: Map<number, InvoiceRequest[]>;
 }
 
-/** PO de la compañía y SMV a cargo, para pintar bajo la SO en Pendientes, Agenda y Entregas. */
+/** PO de la compañía y SMV a cargo, para pintar bajo la SO en Pendientes. */
 export function OrderPoEngineer({ order, engineerName }: { order: OdooSaleOrder; engineerName?: string | null }) {
   const { poNumber } = extractOrderNoteMeta(order);
   return (

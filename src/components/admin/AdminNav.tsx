@@ -6,7 +6,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
-  BarChart3, Building2, CalendarDays, FileText, ListTodo, MoreHorizontal, Settings, Truck, Tv,
+  BarChart3, Building2, FileText, ListTodo, MoreHorizontal, Settings, Tv,
   type LucideIcon,
 } from 'lucide-react';
 import { parseAdminFilters, type AdminFilters } from '../../services/adminFilters';
@@ -18,7 +18,7 @@ import { useInvoiceRequests } from '../../hooks/useInvoiceRequests';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '../ui/drawer';
 
 const SECTION_ICON: Record<AdminSectionId, LucideIcon> = {
-  company: Building2, pending: ListTodo, agenda: CalendarDays, deliveries: Truck, requests: FileText, config: Settings,
+  company: Building2, pending: ListTodo, requests: FileText, config: Settings,
 };
 
 export function useAdminSection(): { onAdmin: boolean; filters: AdminFilters | null; section: AdminSectionId | null } {
