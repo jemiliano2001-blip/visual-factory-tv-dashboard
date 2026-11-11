@@ -27,6 +27,10 @@ import OrdersTable, { EngineerSelect } from '../components/admin/OrdersTable';
 import OrdersFilterBar from '../components/admin/OrdersFilterBar';
 import DeliveriesTab from '../components/admin/DeliveriesTab';
 import ConfigTab from '../components/admin/ConfigTab';
+import RequestsTab from '../components/admin/RequestsTab';
+import { RequestDialog } from '../components/RequestDialog';
+import { useInvoiceRequests } from '../hooks/useInvoiceRequests';
+import { pendingRequestsByOrder } from '../../shared/invoiceRequests';
 import OrderReportTab from '../components/admin/OrderReportTab';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -37,7 +41,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs'
 import { TooltipProvider } from '../components/ui/tooltip';
 import {
   Download, WifiOff, AlertTriangle, Loader2, RefreshCw, Table2, Settings, Truck, Users2,
-  Link2, Check, X, Printer, UserPlus,
+  Link2, Check, X, Printer, UserPlus, FileText,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -102,6 +106,20 @@ export default function AdminPanel() {
   }, [filters, params, setParams]);
   const [groupByClient, setGroupByClient] = useState(true);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [requestOpen, setRequestOpen] = useState(false);
+  const invoiceRequests = useInvoiceRequests();
+  const pendingByOrder = useMemo(
+    () => (invoiceRequests.data ? pendingRequestsByOrder(invoiceRequests.data) : undefined),
+    [invoiceRequests.data],
+  );
+  const pendingRequestCount = useMemo(
+    () => invoiceRequests.data?.requests.filter(r => r.status === 'pendiente').length ?? 0,
+    [invoiceRequests.data],
+  );
+  const selectedOrders = useMemo(
+    () => orders.filter(o => rowSelection[o.id]),
+    [orders, rowSelection],
+  );
 
   // ── Equipo de diseño / ingeniería ────────────────────────────────────────────
 
@@ -254,10 +272,11 @@ export default function AdminPanel() {
               <TabsList>
                 <TabsTrigger value="orders" className={TAB_CLASS}><Table2 /> Órdenes y Seguimiento</TabsTrigger>
                 <TabsTrigger value="deliveries" className={TAB_CLASS}><Truck /> Entregas (Remisiones)</TabsTrigger>
+                <TabsTrigger value="requests" className={TAB_CLASS}><FileText /> Solicitudes{pendingRequestCount > 0 ? ` (${pendingRequestCount})` : ''}</TabsTrigger>
                 <TabsTrigger value="config" className={TAB_CLASS}><Settings /> Configuración</TabsTrigger>
               </TabsList>
 
-              {activeTab !== 'config' && (
+              {(activeTab === 'orders' || activeTab === 'deliveries') && (
                 <div className="mt-5 space-y-3">
                   {/* Apartado por diseñador / ingeniero */}
                   <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filtrar por diseñador o ingeniero">
@@ -323,8 +342,12 @@ export default function AdminPanel() {
                   {selectedCount > 0 && activeTab === 'orders' && view === 'company' && (
                     <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-primary/30 bg-primary/10 p-3">
                       <span className="text-sm font-semibold text-foreground">
-                        Asignar seleccionadas ({selectedCount}) a:
+                        {selectedCount} {selectedCount === 1 ? 'orden seleccionada' : 'órdenes seleccionadas'}
                       </span>
+                      <Button type="button" className={BIG_BUTTON} onClick={() => setRequestOpen(true)} disabled={selectedOrders.length === 0}>
+                        <FileText /> Pedir factura o remisión
+                      </Button>
+                      <span className="text-sm text-muted-foreground">Asignar a:</span>
                       <EngineerSelect
                         engineers={team.engineers}
                         value={null}
@@ -388,12 +411,17 @@ export default function AdminPanel() {
                     engineers={team.engineers}
                     getEngineerId={getEngineerId}
                     onAssign={assignOrders}
+                    pendingByOrder={pendingByOrder}
                   />
                 )}
               </TabsContent>
 
               <TabsContent value="deliveries" className="mt-4">
                 {isLoading ? <LoadingState /> : <DeliveriesTab orders={filteredOrders} getEngineerName={getEngineerName} />}
+              </TabsContent>
+
+              <TabsContent value="requests" className="mt-5">
+                <RequestsTab />
               </TabsContent>
 
               <TabsContent value="config" className="mt-5">
@@ -407,6 +435,13 @@ export default function AdminPanel() {
             <OrderReportTab orders={filteredOrders} getEngineerName={getEngineerName} />
           </div>
         </div>
+
+        <RequestDialog
+          orders={selectedOrders}
+          open={requestOpen}
+          onClose={() => setRequestOpen(false)}
+          onSent={() => setRowSelection({})}
+        />
 
         <Dialog open={addOpen} onOpenChange={open => { setAddOpen(open); if (!open) setNewEngineer(''); }}>
           <DialogContent>

@@ -25,6 +25,8 @@ import CompanyBadge from '../CompanyBadge';
 import { getSmartCompanyName } from '../../utils/customerNames';
 import { extractOrderNoteMeta } from '../../services/orderNoteParser';
 import type { EngineerRosterItem } from '../../../shared/orderAssignments';
+import type { InvoiceRequest } from '../../../shared/invoiceRequests';
+import { RequestBadges } from '../RequestDialog';
 
 interface OrdersTableProps {
   orders: OdooSaleOrder[];
@@ -35,6 +37,8 @@ interface OrdersTableProps {
   getEngineerId: (order: OdooSaleOrder) => string | null;
   /** Asigna (o desasigna con null) las SO indicadas por nombre. */
   onAssign: (orderKeys: string[], engineerId: string | null) => void;
+  /** Solicitudes de factura/remisión pendientes por id de orden. */
+  pendingByOrder?: Map<number, InvoiceRequest[]>;
 }
 
 const UNASSIGNED = '__unassigned__';
@@ -75,7 +79,7 @@ export function EngineerSelect({ engineers, value, onChange, ariaLabel, classNam
 const columnHelper = createColumnHelper<OdooSaleOrder>();
 
 export default function OrdersTable({
-  orders, groupByClient, rowSelection, onRowSelectionChange, engineers, getEngineerId, onAssign,
+  orders, groupByClient, rowSelection, onRowSelectionChange, engineers, getEngineerId, onAssign, pendingByOrder,
 }: OrdersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'commitment_date', desc: false }]);
   const [expanded, setExpanded] = useState<ExpandedState>({});
@@ -117,7 +121,7 @@ export default function OrdersTable({
         <Checkbox
           checked={row.getIsSelected()}
           onCheckedChange={v => row.toggleSelected(!!v)}
-          aria-label="Seleccionar fila"
+          aria-label={`Seleccionar la orden ${row.original.name}`}
         />
       ),
     }),
@@ -144,6 +148,7 @@ export default function OrdersTable({
         return (
           <div>
             <span className="font-mono-data text-sm font-bold text-foreground">{row.original.name}</span>
+            <RequestBadges requests={pendingByOrder?.get(row.original.id)} />
             <div className="font-mono-data text-xs tabular-nums text-muted-foreground">{created ? format(created, 'dd/MM/yyyy') : '—'}</div>
           </div>
         );
@@ -242,7 +247,7 @@ export default function OrdersTable({
         (parseOdooDate(a.original.commitment_date)?.getTime() ?? Infinity) -
         (parseOdooDate(b.original.commitment_date)?.getTime() ?? Infinity),
     }),
-  ], [groupByClient, engineers, getEngineerId, onAssign]);
+  ], [groupByClient, engineers, getEngineerId, onAssign, pendingByOrder]);
 
   const table = useReactTable({
     data,

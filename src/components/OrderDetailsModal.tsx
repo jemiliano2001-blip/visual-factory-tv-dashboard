@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { OdooSaleOrder, parseOdooDate, getOrderPriority } from '../services/odoo';
 import { format } from 'date-fns';
 import {
@@ -11,6 +11,11 @@ import {
 import { Calendar, User, Package, FileText, CheckCircle2, Clock, X } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { useMobile } from '../hooks/useMobile';
+import { auth } from '../firebase';
+import { useInvoiceRequests } from '../hooks/useInvoiceRequests';
+import { pendingRequestsByOrder } from '../../shared/invoiceRequests';
+import { RequestDialog, RequestBadges } from './RequestDialog';
+import { Button } from './ui/button';
 import {
   Drawer,
   DrawerContent,
@@ -40,8 +45,24 @@ const PRIORITY_LABELS: Record<string, string> = {
 
 export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isOpen, onClose }) => {
   const isMobile = useMobile();
+  const [requestOpen, setRequestOpen] = useState(false);
+  // La TV pública entra con sesión anónima: el servidor la rechaza, así que no ofrece pedir.
+  const canRequest = !!auth.currentUser && !auth.currentUser.isAnonymous;
+  const invoiceRequests = useInvoiceRequests({ enabled: isOpen && canRequest });
 
   if (!order) return null;
+
+  const pendingRequests = invoiceRequests.data ? pendingRequestsByOrder(invoiceRequests.data).get(order.id) : undefined;
+  const requestFooter = canRequest && (
+    <div className="shrink-0 border-t border-border p-4">
+      <Button type="button" size="lg" className="w-full" onClick={() => setRequestOpen(true)}>
+        Pedir factura o remisión
+      </Button>
+    </div>
+  );
+  const requestDialog = (
+    <RequestDialog orders={[order]} open={requestOpen} onClose={() => setRequestOpen(false)} />
+  );
 
   const orderDate = parseOdooDate(order.date_order);
   const commitmentDate = parseOdooDate(order.commitment_date);
@@ -63,13 +84,15 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
         <p className="text-sm sm:text-base md:text-lg font-medium text-secondary-foreground mt-0.5 truncate" title={order.partner_name}>
           {getSmartCompanyName(order.partner_name, 'header')}
         </p>
+        <RequestBadges requests={pendingRequests} />
       </div>
     </div>
   );
 
   if (isMobile) {
     return (
-      <Drawer open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <>
+      <Drawer open={isOpen && !requestOpen} onOpenChange={(open) => !open && onClose()}>
         <DrawerContent className="z-[70] max-h-[92dvh] flex flex-col bg-popover/95 border-border rounded-t-2xl">
           {/* Top glow line */}
 
@@ -198,13 +221,17 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
               </div>
             )}
           </div>
+          {requestFooter}
         </DrawerContent>
       </Drawer>
+      {requestDialog}
+      </>
     );
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <>
+    <Dialog open={isOpen && !requestOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-4xl w-[95vw] sm:w-full max-h-[90vh] flex flex-col border-border bg-popover/95 backdrop-blur-3xl shadow-2xl p-0 overflow-hidden rounded-2xl">
         {/* Glow effect at the top */}
 
@@ -338,8 +365,11 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
             </div>
           )}
         </div>
+        {requestFooter}
       </DialogContent>
     </Dialog>
+    {requestDialog}
+    </>
   );
 };
 

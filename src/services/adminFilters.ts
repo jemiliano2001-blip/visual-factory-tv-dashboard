@@ -5,7 +5,7 @@
  */
 import type { OrderStatusFilter } from '../components/admin/orderStatusMeta';
 
-export const ADMIN_TABS = ['orders', 'deliveries', 'config'] as const;
+export const ADMIN_TABS = ['orders', 'deliveries', 'requests', 'config'] as const;
 export type AdminTab = (typeof ADMIN_TABS)[number];
 
 export const ORDER_VIEWS = ['company', 'agenda', 'pending'] as const;

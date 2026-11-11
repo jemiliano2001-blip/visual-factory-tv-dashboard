@@ -34,3 +34,8 @@ test('serializa solo lo que difiere del valor por defecto', () => {
   assert.equal(qs.has('cliente'), false);
   assert.equal(serializeAdminFilters({ ...DEFAULT_ADMIN_FILTERS, view: 'agenda' }).toString(), 'vista=agenda');
 });
+
+test('la pestaña de solicitudes viaja en el link', () => {
+  assert.equal(parseAdminFilters(new URLSearchParams('tab=requests')).tab, 'requests');
+  assert.equal(serializeAdminFilters({ ...DEFAULT_ADMIN_FILTERS, tab: 'requests' }).get('tab'), 'requests');
+});
