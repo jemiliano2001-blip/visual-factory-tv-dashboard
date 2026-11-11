@@ -311,7 +311,7 @@ export default function AdminPanel() {
 
               {activeTab === 'requests' && <div className="mt-5"><RequestsTab /></div>}
 
-              {activeTab === 'config' && <div className="mt-5"><ConfigTab companyNames={uniqueClients} /></div>}
+              {activeTab === 'config' && <div className="mt-5"><ConfigTab orders={orders} /></div>}
             </div>
           </div>
 

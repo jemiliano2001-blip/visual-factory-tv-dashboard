@@ -203,6 +203,11 @@ function readAssignments(): OrderAssignmentsPayload {
   }
 }
 
+// El servidor local no lee el Hub ni Firebase Auth: la lista de acceso solo existe en producción.
+app.get('/api/team-access', (_req: Request, res: Response) => {
+  res.json({ available: false, members: [] });
+});
+
 app.get('/api/order-assignments', (_req: Request, res: Response) => {
   try {
     res.json(readAssignments());

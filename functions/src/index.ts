@@ -8,6 +8,7 @@ import { OdooClient } from '../../shared/odooClient';
 import nodemailer from 'nodemailer';
 import { crearAuthApi } from '../../shared/firebaseTokenPolicy';
 import { crearVerificadorHub } from '../../shared/hubAccess';
+import { buildTeamAccess, isAdminClaim, type AuthUserInfo } from '../../shared/teamAccess';
 import { buildMailEnvelope, buildRequestsEmail } from '../../shared/invoiceRequest';
 import {
   claimOrders, normalizeOrderAssignments, parseOrderKeys, releaseOrders, type OrderAssignmentsPayload,
@@ -180,6 +181,35 @@ app.post('/api/order-assignments/release', changeAssignments((cur, actor, keys) 
 
 // ─── Solicitudes de factura/remisión ──────────────────────────────────────────
 const requestsDoc = () => admin.firestore().doc('visual_factory_state/invoice_requests');
+
+// Quién tiene acceso (Hub) y quién edita horarios (claim admin). Solo lectura y solo para editores.
+app.get('/api/team-access', async (_req: Request, res: Response) => {
+  const actor = res.locals.actor as RequestActor | undefined;
+  if (!actor) { res.status(403).json({ error: 'Se requiere una cuenta de personal SMV.' }); return; }
+  try {
+    const caller = await admin.auth().getUser(actor.uid);
+    if (!isAdminClaim(caller.customClaims)) {
+      res.status(403).json({ error: 'Solo quien puede editar horarios ve esta lista.' });
+      return;
+    }
+    // El proyecto es compartido: se pagina hasta agotar para no perder a nadie después de 1000 cuentas.
+    const authUsers: AuthUserInfo[] = [];
+    let pageToken: string | undefined;
+    do {
+      const page = await admin.auth().listUsers(1000, pageToken);
+      for (const u of page.users) {
+        authUsers.push({ uid: u.uid, email: u.email ?? null, displayName: u.displayName ?? null, customClaims: u.customClaims ?? null });
+      }
+      pageToken = page.pageToken;
+    } while (pageToken);
+    const hubSnap = await hubDb().collection('usuarios').get();
+    const members = buildTeamAccess(hubSnap.docs.map(d => ({ uid: d.id, data: d.data() })), authUsers);
+    res.json({ available: true, members });
+  } catch (err) {
+    console.error('team-access falló:', err);
+    res.status(503).json({ error: 'No se pudo leer la lista de acceso. Intenta de nuevo en un momento.' });
+  }
+});
 
 app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
   try {
