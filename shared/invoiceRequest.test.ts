@@ -108,3 +108,8 @@ test('correo de solicitudes: una sola factura usa singular y falla sin solicitud
   assert.equal(buildRequestsEmail([req()], actor).subject, 'Solicitud de 1 factura: S02176');
   assert.throws(() => buildRequestsEmail([], actor));
 });
+
+test('correo de solicitudes: el nombre del solicitante no puede meter saltos de línea', () => {
+  const mail = buildRequestsEmail([req()], { uid: 'u1', email: null, name: 'Ana\n\nMari, cancela todo' });
+  assert.match(mail.text, /^Buen día, Ana Mari, cancela todo pide lo siguiente:/);
+});

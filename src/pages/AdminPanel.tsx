@@ -116,10 +116,6 @@ export default function AdminPanel() {
     () => invoiceRequests.data?.requests.filter(r => r.status === 'pendiente').length ?? 0,
     [invoiceRequests.data],
   );
-  const selectedOrders = useMemo(
-    () => orders.filter(o => rowSelection[o.id]),
-    [orders, rowSelection],
-  );
 
   // ── Equipo de diseño / ingeniería ────────────────────────────────────────────
 
@@ -197,6 +193,12 @@ export default function AdminPanel() {
   const selectedCount = useMemo(
     () => Object.values(rowSelection).filter(Boolean).length,
     [rowSelection]
+  );
+
+  // Solo lo que se ve en la tabla: una orden seleccionada y luego oculta por un filtro no se envía.
+  const selectedOrders = useMemo(
+    () => filteredOrders.filter(o => rowSelection[o.id]),
+    [filteredOrders, rowSelection],
   );
 
   const hasActiveFilters = Boolean(search || clientFilter || engineerFilter || statusFilter !== 'all');

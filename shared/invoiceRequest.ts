@@ -94,7 +94,7 @@ export function buildRequestsEmail(
     remisiones.length ? `${remisiones.length} ${remisiones.length > 1 ? 'remisiones' : 'remisión'}` : '',
   ].filter(Boolean).join(' y ');
   const subject = `Solicitud de ${counts}: ${[...new Set(requests.map(r => r.orderName))].join(', ')}`;
-  const who = actor.name || actor.email || actor.uid;
+  const who = (actor.name || actor.email || actor.uid).replace(/\s+/g, ' ').trim().slice(0, 80);
   const intro = `Buen día, ${who} pide lo siguiente:`;
   const head = (r: MailableRequest) =>
     `${r.orderName} — ${r.partnerName}${r.customerReference ? ` (Compra ${r.customerReference})` : ''}`;
