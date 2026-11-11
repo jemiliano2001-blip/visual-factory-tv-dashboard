@@ -80,7 +80,7 @@ function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty
             const id = l.id as number;
             const pending = lineRemainingQty(l, pendingForOrder);
             const alreadyAsked = linePendingQty(l) - pending;
-            const qty = choice.lineQty[id] ?? 0;
+            const qty = clampQty(choice.lineQty[id] ?? 0, pending);
             return (
               <li key={id} className="flex items-center justify-between gap-3 rounded-lg bg-background/50 p-3">
                 <div className="min-w-0">
@@ -131,7 +131,17 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
   const avails = orders.map(o => requestAvailability(o, pendingMap.get(o.id) ?? []));
   const choiceOf = (o: OdooSaleOrder) => choices[o.id] ?? NO_CHOICE;
   const missing = orders.filter((o, i) => choiceOf(o).type === null && (avails[i].factura === null || avails[i].remision === null)).length;
-  const drafts = buildDrafts(orders.map(o => ({ orderId: o.id, ...choiceOf(o) })));
+  // Lo marcado se acota a lo que se puede pedir *ahora* (otra persona pudo pedir o Odoo entregar con el diálogo abierto).
+  const drafts = buildDrafts(orders.map(o => {
+    const c = choiceOf(o);
+    if (c.type !== 'remision') return { orderId: o.id, ...c };
+    const pend = pendingMap.get(o.id) ?? [];
+    const lineQty = Object.fromEntries(Object.entries(c.lineQty).map(([id, qty]) => {
+      const line = o.lines.find(l => l.id === Number(id));
+      return [id, line ? clampQty(qty, lineRemainingQty(line, pend)) : 0];
+    }));
+    return { orderId: o.id, type: c.type, lineQty };
+  }));
   const canSend = missing === 0 && drafts.length > 0 && !submit.isPending && !requests.isLoading;
   const user = auth.currentUser;
   const sender = user?.email || user?.displayName;

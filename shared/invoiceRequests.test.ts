@@ -106,9 +106,9 @@ test('crear factura: sin clave lines y datos copiados de orders', () => {
 
 test('crear remisión: copia nombre y unidad, unit null si falta', () => {
   const r = createInvoiceRequests(empty, [{ orderId: 10, type: 'remision', lines: [{ lineId: 1, qty: 3 }] }], [order], ctx());
-  assert.deepEqual(r.created[0].lines, [{ lineId: 1, name: 'Placa', qty: 3, unit: 'pza' }]);
+  assert.deepEqual(r.created[0].lines, [{ lineId: 1, name: 'Placa', qty: 3, unit: 'pza', deliveredAtRequest: 2 }]);
   const r2 = createInvoiceRequests(empty, [{ orderId: 11, type: 'remision', lines: [{ lineId: 7, qty: 1 }] }], [order2], ctx());
-  assert.deepEqual(r2.created[0].lines, [{ lineId: 7, name: 'X', qty: 1, unit: null }]);
+  assert.deepEqual(r2.created[0].lines, [{ lineId: 7, name: 'X', qty: 1, unit: null, deliveredAtRequest: 0 }]);
   assert.equal(r2.created[0].customerReference, null);
 });
 
@@ -292,4 +292,21 @@ test('tope de solicitudes pendientes', () => {
   const r = createInvoiceRequests({ requests: many, updatedAt: '' }, [{ orderId: 10, type: 'factura' }], [order], ctx());
   assert.equal(r.created.length, 0);
   assert.match(r.skipped[0].reason, /demasiadas/);
+});
+
+test('remisión ya entregada en Odoo deja de descontarse de lo que se puede pedir', () => {
+  // Faltan 3 (qty 5, entregadas 2). Se piden 2 con 2 ya entregadas al pedir.
+  const first = createInvoiceRequests(empty, [{ orderId: 10, type: 'remision', lines: [{ lineId: 1, qty: 2 }] }], [order], ctx());
+  assert.equal(first.created[0].lines?.[0].deliveredAtRequest, 2);
+  const line = { id: 1, qty: 5, delivered: 2 };
+  assert.equal(lineRemainingQty(line, first.state.requests), 1); // aún sin entregar: 3 - 2
+  // Mari entrega esas 2: delivered 4. Faltan 1, y lo pedido ya quedó cubierto.
+  assert.equal(lineRemainingQty({ ...line, delivered: 4 }, first.state.requests), 1);
+  // Entrega parcial (1 de 2): faltan 2, de los cuales 1 sigue pedido.
+  assert.equal(lineRemainingQty({ ...line, delivered: 3 }, first.state.requests), 1);
+});
+
+test('solicitudes guardadas sin deliveredAtRequest descuentan todo (conservador)', () => {
+  const line = { id: 1, qty: 5, delivered: 4 };
+  assert.equal(lineRemainingQty(line, [pendRemision(1)]), 0);
 });

@@ -5,7 +5,8 @@
 
 export type RequestType = 'factura' | 'remision';
 export interface RequestActor { uid: string; email: string | null; name: string | null }
-export interface InvoiceRequestLine { lineId: number; name: string; qty: number; unit: string | null }
+/** `deliveredAtRequest`: piezas ya entregadas al pedir, para no descontar dos veces lo que Mari ya entregó. */
+export interface InvoiceRequestLine { lineId: number; name: string; qty: number; unit: string | null; deliveredAtRequest?: number }
 export interface InvoiceRequest {
   id: string;
   orderId: number;
@@ -56,7 +57,11 @@ export function lineRemainingQty(line: { id?: number; qty: number; delivered: nu
   let requested = 0;
   for (const r of pendingForOrder) {
     if (r.status !== 'pendiente' || r.type !== 'remision') continue;
-    for (const l of r.lines ?? []) if (l.lineId === line.id) requested += l.qty;
+    for (const l of r.lines ?? []) {
+      if (l.lineId !== line.id) continue;
+      const shipped = l.deliveredAtRequest === undefined ? 0 : Math.max(0, line.delivered - l.deliveredAtRequest);
+      requested += Math.max(0, l.qty - shipped);
+    }
   }
   return round6(Math.max(0, linePendingQty(line) - requested));
 }
@@ -97,7 +102,7 @@ function parseRequest(raw: unknown): InvoiceRequest | null {
     for (const l of raw.lines) {
       const unit = isRecord(l) ? strOrNull(l.unit) : undefined;
       if (!isRecord(l) || !isPosInt(l.lineId) || typeof l.name !== 'string' || !isPosNum(l.qty) || unit === undefined) return null;
-      lines.push({ lineId: l.lineId, name: l.name, qty: l.qty, unit });
+      lines.push({ lineId: l.lineId, name: l.name, qty: l.qty, unit, ...(isPosNum(l.deliveredAtRequest) || l.deliveredAtRequest === 0 ? { deliveredAtRequest: l.deliveredAtRequest as number } : {}) });
     }
     out.lines = lines;
   }
@@ -183,7 +188,7 @@ function buildRequest(draft: RequestDraft, order: RequestableOrder, pendingForOr
     if (dl.qty > remaining + EPS) return { reason: `La cantidad de ${line.name} excede lo que falta por pedir (${remaining}).` };
     const qty = clampQty(dl.qty, remaining);
     if (!(qty > 0)) return { reason: `La cantidad de ${line.name} debe ser mayor a 0.` };
-    lines.push({ lineId: dl.lineId, name: line.name, qty, unit: line.unit ?? null });
+    lines.push({ lineId: dl.lineId, name: line.name, qty, unit: line.unit ?? null, deliveredAtRequest: line.delivered });
   }
   return { request: { ...base, lines } };
 }
@@ -203,8 +208,8 @@ export function createInvoiceRequests(
     const order = orders.find(o => o.id === draft.orderId);
     const skip = (reason: string) => skipped.push({ orderId: draft.orderId, orderName: order?.name ?? null, reason });
     if (!order) { skip('La orden ya no está disponible en el catálogo.'); continue; }
-    if (pendingCount >= MAX_PENDING) { skip('Hay demasiadas solicitudes pendientes; pide a facturación que marque las que ya están hechas.'); continue; }
     if (draft.type === 'factura' && pendingFacturas.has(order.id)) { skip(`Ya hay una solicitud pendiente de factura para ${order.name}.`); continue; }
+    if (pendingCount >= MAX_PENDING) { skip('Hay demasiadas solicitudes pendientes; pide a facturación que marque las que ya están hechas.'); continue; }
     const pendingForOrder = [...pendingAll, ...created].filter(r => r.orderId === order.id);
     const result = buildRequest(draft, order, pendingForOrder, ctx.newId(), ctx.actor, ctx.now);
     if ('reason' in result) { skip(result.reason); continue; }

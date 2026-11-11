@@ -2,7 +2,7 @@
  * Convierte lo elegido en el diálogo de solicitudes en los borradores que
  * espera POST /api/invoice-requests. Sin imports de firebase (se prueba en Node).
  */
-import { actorLabel, lineRemainingQty, type InvoiceRequest, type RequestDraft, type RequestType } from '../../shared/invoiceRequests';
+import { actorLabel, linePendingQty, lineRemainingQty, type InvoiceRequest, type RequestDraft, type RequestType } from '../../shared/invoiceRequests';
 
 export interface OrderChoice { orderId: number; type: RequestType | null; lineQty: Record<number, number> }
 
@@ -32,7 +32,7 @@ export function requestAvailability(
   // Una remisión pendiente no bloquea otra: se pueden pedir remisiones sucesivas hasta cubrir lo que falta.
   const remision = order.lines.some(l => l.id !== undefined && lineRemainingQty(l, pending) > 0)
     ? null
-    : order.lines.some(l => l.id !== undefined && l.qty - l.delivered > 0)
+    : order.lines.some(l => l.id !== undefined && linePendingQty(l) > 0)
       ? 'Ya pidieron todas las piezas que faltan'
       : 'No hay piezas pendientes de entregar';
   return { factura: already('factura'), remision };
