@@ -28,6 +28,7 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import CompanyBadge from '../components/CompanyBadge';
 import TruncatedNotice from '../components/admin/TruncatedNotice';
+import { loadErrorLabel } from '../services/orderLoadError';
 import { getSmartCompanyName } from '../utils/customerNames';
 import { UNASSIGNED_ENGINEER } from '../services/adminFilters';
 
@@ -119,7 +120,7 @@ export default function StatsDashboard() {
       { key: 'late-7', label: 'Atraso reciente (1–7 días)', count: late1to7, color: 'bg-amber-400', hex: '#fbbf24', filter: 'overdue' },
       { key: 'late-30', label: 'Atraso medio (8–30 días)', count: late8to30, color: 'bg-orange-500', hex: '#f97316', filter: 'overdue' },
       { key: 'late-chronic', label: 'Atraso crítico (> 30 días)', count: lateOver30, color: 'bg-destructive', hex: '#ef4444', filter: 'overdue' },
-      { key: 'none', label: 'Sin fecha compromiso', count: statusCounts.none, color: 'bg-muted-foreground', hex: '#71717a', filter: 'all' },
+      { key: 'none', label: 'Sin fecha compromiso', count: statusCounts.none, color: 'bg-muted-foreground', hex: '#71717a', filter: 'none' },
     ];
   }, [orders, statusCounts]);
 
@@ -277,7 +278,7 @@ export default function StatsDashboard() {
         {error && !isLoading && (
           <div className="flex items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-destructive">
             <WifiOff className="size-5 shrink-0" />
-            <span className="font-bold">{error?.startsWith('Tu cuenta no tiene acceso') ? error : `SIN CONEXIÓN A ODOO — ${error}`}</span>
+            <span className="font-bold">{loadErrorLabel(error)}</span>
           </div>
         )}
 

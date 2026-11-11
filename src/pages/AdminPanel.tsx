@@ -30,6 +30,7 @@ import DeliveriesTab from '../components/admin/DeliveriesTab';
 import ConfigTab from '../components/admin/ConfigTab';
 import RequestsTab from '../components/admin/RequestsTab';
 import TruncatedNotice from '../components/admin/TruncatedNotice';
+import { loadErrorLabel } from '../services/orderLoadError';
 import { RequestDialog } from '../components/RequestDialog';
 import { useInvoiceRequests } from '../hooks/useInvoiceRequests';
 import { pendingRequestsByOrder } from '../../shared/invoiceRequests';
@@ -204,7 +205,8 @@ export default function AdminPanel() {
     () => filteredOrders.filter(o => rowSelection[o.id]),
     [filteredOrders, rowSelection],
   );
-  const selectedCount = selectedOrders.length;
+  // La selección solo existe en Órdenes → Por Compañía; en otra pestaña o vista no cuenta.
+  const selectedCount = activeTab === 'orders' && view === 'company' ? selectedOrders.length : 0;
 
   const hasActiveFilters = Boolean(search || clientFilter || engineerFilter || statusFilter !== 'all');
   const clearFilters = () => updateFilters({ search: '', client: '', engineer: '', status: 'all' });
@@ -259,7 +261,7 @@ export default function AdminPanel() {
             {error && !isLoading && (
               <div className="flex items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-destructive">
                 <WifiOff className="size-5 shrink-0" />
-                <span className="font-bold">{error?.startsWith('Tu cuenta no tiene acceso') ? error : `SIN CONEXIÓN A ODOO — ${error}`}</span>
+                <span className="font-bold">{loadErrorLabel(error)}</span>
               </div>
             )}
 

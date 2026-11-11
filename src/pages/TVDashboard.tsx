@@ -281,10 +281,10 @@ export default function TVDashboard() {
     if (currentPageIndex >= pages.length && pages.length > 0) setCurrentPageIndex(0);
   }, [pages.length, currentPageIndex]);
 
-  // Al cambiar el filtro de cliente o la búsqueda, volver a la primera página.
+  // Al cambiar el filtro de cliente, de estado o la búsqueda, volver a la primera página.
   useEffect(() => {
     setCurrentPageIndex(0);
-  }, [clientFilter, textFilter]);
+  }, [clientFilter, textFilter, statusFilter]);
 
   const currentPage = pages.length > 0 ? pages[currentPageIndex] : null;
   const currentHeaderCompany = isTVMode
@@ -298,7 +298,10 @@ export default function TVDashboard() {
   const currentCompanyDeliverySchedule = isTVMode && currentPage?.type === 'company'
     ? getEffectiveDeliverySchedule(currentPage.company, currentPage.orders, companyConfigs)
     : null;
-  const currentPageOrders = currentPage?.type === 'company'
+  // En escritorio se ven todos los clientes a la vez: los contadores del header cuentan todo lo visible.
+  const currentPageOrders = !isTVMode
+    ? filteredOdooOrders
+    : currentPage?.type === 'company'
     ? currentPage.orders
     : currentPage?.type === 'shared'
       ? currentPage.segments.flatMap(segment => segment.orders)

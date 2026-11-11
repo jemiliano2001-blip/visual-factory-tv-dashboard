@@ -1,5 +1,5 @@
 import React, { useEffect, useState, lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { MotionConfig } from 'framer-motion';
 import { onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { auth } from './firebase';
@@ -126,6 +126,9 @@ export default function App() {
                       <StatsDashboard />
                     </ProtectedRoute>
                   } />
+
+                  {/* Ruta desconocida: en vez de una pantalla en blanco, de vuelta a Órdenes. */}
+                  <Route path="*" element={<Navigate to="/admin" replace />} />
                 </Route>
               </Routes>
             </Suspense>

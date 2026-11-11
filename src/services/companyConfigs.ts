@@ -129,6 +129,14 @@ export const getCompanyConfigByName = async (companyName: string): Promise<Compa
   }
 };
 
+/** Firestore rechaza la escritura a quien no tiene el claim `admin`: se dice tal cual, sin culpar a la sesión. */
+const writeError = (error: unknown, action: 'crear' | 'actualizar' | 'eliminar') =>
+  new Error(
+    (error as { code?: string } | null)?.code === 'permission-denied'
+      ? `Tu cuenta no tiene permiso para ${action} horarios. Pide a un administrador que te lo active.`
+      : `No se pudo ${action} la configuración. Verifica tu sesión e intenta de nuevo.`,
+  );
+
 export const createCompanyConfig = async (config: Omit<CompanyConfig, 'id' | 'updatedAt'>) => {
   try {
     if (await hasStoredDuplicate(config.company_name)) {
@@ -141,7 +149,7 @@ export const createCompanyConfig = async (config: Omit<CompanyConfig, 'id' | 'up
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, COLLECTION_NAME);
     if (error instanceof Error && error.message.includes('Ya existe')) throw error;
-    throw new Error('No se pudo crear la configuración. Verifica tu sesión e intenta de nuevo.');
+    throw writeError(error, 'crear');
   }
 };
 
@@ -160,7 +168,7 @@ export const updateCompanyConfig = async (id: string, config: Partial<Omit<Compa
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `${COLLECTION_NAME}/${id}`);
     if (error instanceof Error && error.message.includes('Ya existe')) throw error;
-    throw new Error('No se pudo actualizar la configuración. Verifica tu sesión e intenta de nuevo.');
+    throw writeError(error, 'actualizar');
   }
 };
 
@@ -170,6 +178,6 @@ export const deleteCompanyConfig = async (id: string) => {
     return await deleteDoc(docRef);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `${COLLECTION_NAME}/${id}`);
-    throw new Error('No se pudo eliminar la configuración. Verifica tu sesión e intenta de nuevo.');
+    throw writeError(error, 'eliminar');
   }
 };

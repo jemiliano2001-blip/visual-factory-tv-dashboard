@@ -16,6 +16,7 @@ const STATUS_OPTIONS: ReadonlyArray<{ value: OrderStatusFilter; label: string }>
   { value: 'overdue', label: 'Atrasadas' },
   { value: 'warning', label: 'Por vencer' },
   { value: 'on-time', label: 'En tiempo' },
+  { value: 'none', label: 'Sin fecha' },
 ];
 
 interface OrdersFilterBarProps {
