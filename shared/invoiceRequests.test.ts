@@ -310,3 +310,45 @@ test('solicitudes guardadas sin deliveredAtRequest descuentan todo (conservador)
   const line = { id: 1, qty: 5, delivered: 4 };
   assert.equal(lineRemainingQty(line, [pendRemision(1)]), 0);
 });
+
+const ohd: RequestableOrder = {
+  id: 20, name: 'S00020', partner_name: 'OHD OPERATORS DE MEXICO',
+  lines: [
+    { id: 31, name: 'Fixture', qty: 2, delivered: 0, unit: 'pza' },
+    { id: 32, name: 'Placa', qty: 1, delivered: 1 },
+  ],
+};
+
+test('OHD: factura guarda la clave SAT de todas las partidas', () => {
+  const out = createInvoiceRequests(empty, [{ orderId: 20, type: 'factura', satKeys: [{ lineId: 31, code: '23153000' }, { lineId: 32, code: '23153035' }] }], [ohd], ctx());
+  assert.deepEqual(out.created[0].satKeys, [
+    { lineId: 31, name: 'Fixture', code: '23153000' },
+    { lineId: 32, name: 'Placa', code: '23153035' },
+  ]);
+  assert.deepEqual(normalizeInvoiceRequests(out.state).requests[0].satKeys, out.created[0].satKeys);
+});
+
+test('OHD: remisión pide clave solo de las piezas pedidas', () => {
+  const out = createInvoiceRequests(empty, [{ orderId: 20, type: 'remision', lines: [{ lineId: 31, qty: 1 }], satKeys: [{ lineId: 31, code: '23153000' }] }], [ohd], ctx());
+  assert.deepEqual(out.created[0].satKeys, [{ lineId: 31, name: 'Fixture', code: '23153000' }]);
+});
+
+test('OHD: sin clave o con clave fuera del catálogo no se crea', () => {
+  const sinClave = createInvoiceRequests(empty, [{ orderId: 20, type: 'factura', satKeys: [{ lineId: 31, code: '23153000' }] }], [ohd], ctx());
+  assert.equal(sinClave.created.length, 0);
+  assert.match(sinClave.skipped[0].reason, /Falta la clave SAT de Placa/);
+  const mala = createInvoiceRequests(empty, [{ orderId: 20, type: 'remision', lines: [{ lineId: 31, qty: 1 }], satKeys: [{ lineId: 31, code: '12345678' }] }], [ohd], ctx());
+  assert.match(mala.skipped[0].reason, /no está en el catálogo de OHD/);
+});
+
+test('otros clientes no llevan clave SAT aunque la manden', () => {
+  const out = createInvoiceRequests(empty, [{ orderId: 10, type: 'factura', satKeys: [{ lineId: 1, code: '23153035' }] }], [order], ctx());
+  assert.equal('satKeys' in out.created[0], false);
+});
+
+test('parseCreateRequestsBody: claves SAT opcionales y validadas', () => {
+  assert.deepEqual(parseCreateRequestsBody([{ orderId: 1, type: 'factura', satKeys: [{ lineId: 2, code: '23153035', extra: 1 }] }]),
+    [{ orderId: 1, type: 'factura', satKeys: [{ lineId: 2, code: '23153035' }] }]);
+  assert.throws(() => parseCreateRequestsBody([{ orderId: 1, type: 'factura', satKeys: 'x' }]), /Claves SAT/);
+  assert.throws(() => parseCreateRequestsBody([{ orderId: 1, type: 'factura', satKeys: [{ lineId: 0, code: '1' }] }]), /Clave SAT inválida/);
+});

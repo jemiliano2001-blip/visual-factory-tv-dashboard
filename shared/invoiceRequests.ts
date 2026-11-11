@@ -1,12 +1,15 @@
 /**
  * Solicitudes de factura/remisión sobre órdenes de venta. Lógica pura, sin
- * imports (la consumen server.ts y las Functions en commonjs).
+ * imports salvo otra lógica pura de shared (la consumen server.ts y las Functions en commonjs).
  */
+import { isOhdPartner, isSatOhdCode } from './satOhd';
 
 export type RequestType = 'factura' | 'remision';
 export interface RequestActor { uid: string; email: string | null; name: string | null }
 /** `deliveredAtRequest`: piezas ya entregadas al pedir, para no descontar dos veces lo que Mari ya entregó. */
 export interface InvoiceRequestLine { lineId: number; name: string; qty: number; unit: string | null; deliveredAtRequest?: number }
+/** Clave SAT confirmada por partida (solo OHD): en factura, todas las partidas; en remisión, las pedidas. */
+export interface SatKey { lineId: number; name: string; code: string }
 export interface InvoiceRequest {
   id: string;
   orderId: number;
@@ -15,6 +18,7 @@ export interface InvoiceRequest {
   customerReference: string | null;
   type: RequestType;
   lines?: InvoiceRequestLine[];
+  satKeys?: SatKey[];
   status: 'pendiente' | 'hecha';
   requestedBy: RequestActor;
   requestedAt: string;
@@ -29,7 +33,12 @@ export interface RequestableOrder {
   customer_reference?: string | null;
   lines: Array<{ id?: number; name: string; qty: number; delivered: number; unit?: string | null }>;
 }
-export interface RequestDraft { orderId: number; type: RequestType; lines?: Array<{ lineId: number; qty: number }> }
+export interface RequestDraft {
+  orderId: number;
+  type: RequestType;
+  lines?: Array<{ lineId: number; qty: number }>;
+  satKeys?: Array<{ lineId: number; code: string }>;
+}
 export interface SkippedRequest { orderId: number; orderName: string | null; reason: string }
 
 export const MAX_DONE_KEPT = 200;
@@ -106,6 +115,15 @@ function parseRequest(raw: unknown): InvoiceRequest | null {
     }
     out.lines = lines;
   }
+  if (raw.satKeys !== undefined) {
+    if (!Array.isArray(raw.satKeys)) return null;
+    const satKeys: SatKey[] = [];
+    for (const k of raw.satKeys) {
+      if (!isRecord(k) || !isPosInt(k.lineId) || typeof k.name !== 'string' || typeof k.code !== 'string') return null;
+      satKeys.push({ lineId: k.lineId, name: k.name, code: k.code });
+    }
+    out.satKeys = satKeys;
+  }
   if (raw.status === 'hecha') {
     const doneBy = parseActor(raw.doneBy);
     if (!doneBy || typeof raw.doneAt !== 'string') return null;
@@ -153,15 +171,43 @@ export function parseCreateRequestsBody(body: unknown): RequestDraft[] {
   return list.map((item): RequestDraft => {
     if (!isRecord(item)) throw new Error('Solicitud inválida.');
     if (!isPosInt(item.orderId)) throw new Error('orderId inválido.');
-    if (item.type === 'factura') return { orderId: item.orderId, type: 'factura' };
+    const sat = parseSatKeysBody(item.satKeys);
+    if (item.type === 'factura') return { orderId: item.orderId, type: 'factura', ...sat };
     if (item.type !== 'remision') throw new Error('Tipo de solicitud inválido.');
     if (!Array.isArray(item.lines) || item.lines.length === 0) throw new Error('La remisión necesita al menos una pieza.');
     const lines = item.lines.map(l => {
       if (!isRecord(l) || !isPosInt(l.lineId) || !isPosNum(l.qty)) throw new Error('Pieza inválida: lineId entero y cantidad mayor a 0.');
       return { lineId: l.lineId, qty: l.qty };
     });
-    return { orderId: item.orderId, type: 'remision', lines };
+    return { orderId: item.orderId, type: 'remision', lines, ...sat };
   });
+}
+
+function parseSatKeysBody(raw: unknown): { satKeys?: RequestDraft['satKeys'] } {
+  if (raw === undefined) return {};
+  if (!Array.isArray(raw) || raw.length > 500) throw new Error('Claves SAT inválidas.');
+  return {
+    satKeys: raw.map(k => {
+      if (!isRecord(k) || !isPosInt(k.lineId) || typeof k.code !== 'string') throw new Error('Clave SAT inválida: lineId entero y clave.');
+      return { lineId: k.lineId, code: k.code };
+    }),
+  };
+}
+
+/** OHD exige una clave SAT del catálogo por cada partida que se pide; los demás clientes no la llevan. */
+function attachSatKeys(request: InvoiceRequest, draft: RequestDraft, order: RequestableOrder): DraftResult {
+  if (!isOhdPartner(order.partner_name)) return { request };
+  const needed = request.type === 'factura'
+    ? order.lines.filter(l => l.id !== undefined && l.qty > 0).map(l => ({ lineId: l.id as number, name: l.name }))
+    : (request.lines ?? []).map(l => ({ lineId: l.lineId, name: l.name }));
+  const satKeys: SatKey[] = [];
+  for (const { lineId, name } of needed) {
+    const code = draft.satKeys?.find(k => k.lineId === lineId)?.code;
+    if (!code) return { reason: `Falta la clave SAT de ${name}.` };
+    if (!isSatOhdCode(code)) return { reason: `La clave SAT ${code} de ${name} no está en el catálogo de OHD.` };
+    satKeys.push({ lineId, name, code });
+  }
+  return { request: { ...request, satKeys } };
 }
 
 type DraftResult = { request: InvoiceRequest } | { reason: string };
@@ -172,7 +218,7 @@ function buildRequest(draft: RequestDraft, order: RequestableOrder, pendingForOr
     customerReference: order.customer_reference ?? null, type: draft.type, status: 'pendiente',
     requestedBy: actor, requestedAt: now,
   };
-  if (draft.type === 'factura') return { request: base };
+  if (draft.type === 'factura') return attachSatKeys(base, draft, order);
   if (!order.lines.some(l => l.id !== undefined && lineRemainingQty(l, pendingForOrder) > EPS)) {
     return { reason: `La orden ${order.name} no tiene piezas pendientes de entrega, o ya están pedidas en otra remisión.` };
   }
@@ -190,7 +236,7 @@ function buildRequest(draft: RequestDraft, order: RequestableOrder, pendingForOr
     if (!(qty > 0)) return { reason: `La cantidad de ${line.name} debe ser mayor a 0.` };
     lines.push({ lineId: dl.lineId, name: line.name, qty, unit: line.unit ?? null, deliveredAtRequest: line.delivered });
   }
-  return { request: { ...base, lines } };
+  return attachSatKeys({ ...base, lines }, draft, order);
 }
 
 export function createInvoiceRequests(

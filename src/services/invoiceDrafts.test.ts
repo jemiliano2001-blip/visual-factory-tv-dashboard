@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildDrafts, requestAvailability } from './invoiceDrafts';
+import { buildDrafts, missingSatCount, requestAvailability, suggestedSat } from './invoiceDrafts';
 import type { InvoiceRequest } from '../../shared/invoiceRequests';
 
 test('factura no lleva la clave lines', () => {
@@ -68,4 +68,34 @@ test('requestAvailability: remisión con pendientes pero sin id', () => {
 test('requestAvailability: solicitante por nombre, email y uid', () => {
   assert.equal(requestAvailability(order, [req('factura', { uid: 'u2', email: 'b@x.com', name: null })]).factura, 'Ya la pidió b@x.com');
   assert.equal(requestAvailability(order, [req('factura', { uid: 'u3', email: null, name: null })]).factura, 'Ya la pidió u3');
+});
+
+const ohdOrder = {
+  partner_name: 'OHD OPERATORS DE MEXICO',
+  lines: [
+    { id: 1, name: 'Fixture estación 2', qty: 2 },
+    { id: 2, name: 'Buje bronce', qty: 1 },
+    { id: 3, name: 'Nota', qty: 0 },
+  ],
+};
+
+test('OHD: sugiere clave por descripción y deja vacía la que no reconoce', () => {
+  assert.deepEqual(suggestedSat(ohdOrder), { 1: '23153000', 2: '' });
+  assert.equal(suggestedSat({ ...ohdOrder, partner_name: 'Bosch' }), undefined);
+});
+
+test('OHD: cuenta las partidas sin clave según lo que se pide', () => {
+  const sat = { 1: '23153000', 2: '' };
+  assert.equal(missingSatCount(ohdOrder, { type: 'factura', lineQty: {}, sat }), 1);
+  assert.equal(missingSatCount(ohdOrder, { type: 'remision', lineQty: { 1: 1, 2: 0 }, sat }), 0);
+  assert.equal(missingSatCount(ohdOrder, { type: null, lineQty: {}, sat }), 0);
+  assert.equal(missingSatCount({ ...ohdOrder, partner_name: 'Bosch' }, { type: 'factura', lineQty: {} }), 0);
+});
+
+test('OHD: los borradores llevan las claves escogidas', () => {
+  const sat = { 1: '23153000', 2: '31391500' };
+  assert.deepEqual(buildDrafts([{ orderId: 5, type: 'factura', lineQty: {}, sat }]),
+    [{ orderId: 5, type: 'factura', satKeys: [{ lineId: 1, code: '23153000' }, { lineId: 2, code: '31391500' }] }]);
+  assert.deepEqual(buildDrafts([{ orderId: 5, type: 'remision', lineQty: { 1: 2, 2: 0 }, sat }]),
+    [{ orderId: 5, type: 'remision', lines: [{ lineId: 1, qty: 2 }], satKeys: [{ lineId: 1, code: '23153000' }] }]);
 });

@@ -15,7 +15,9 @@ export interface MailableRequest {
   partnerName: string;
   customerReference: string | null;
   type: 'factura' | 'remision';
-  lines?: { name: string; qty: number; unit: string | null }[];
+  lines?: { lineId?: number; name: string; qty: number; unit: string | null }[];
+  /** Solo OHD: clave SAT confirmada por partida. */
+  satKeys?: { lineId: number; name: string; code: string }[];
 }
 
 export function buildRequestsEmail(
@@ -34,8 +36,10 @@ export function buildRequestsEmail(
   const intro = `Buen día, ${who} pide lo siguiente:`;
   const head = (r: MailableRequest) =>
     `${r.orderName} — ${r.partnerName}${r.customerReference ? ` (PO ${r.customerReference})` : ''}`;
-  const pieces = (r: MailableRequest) =>
-    (r.lines ?? []).map(l => `${fmtQty(l.qty)}${l.unit ? ` ${l.unit}` : ''} — ${l.name}`);
+  const sat = (code: string | undefined) => (code ? ` — Clave SAT ${code}` : '');
+  const pieces = (r: MailableRequest) => r.lines?.length
+    ? r.lines.map(l => `${fmtQty(l.qty)}${l.unit ? ` ${l.unit}` : ''} — ${l.name}${sat(r.satKeys?.find(k => k.lineId === l.lineId)?.code)}`)
+    : (r.satKeys ?? []).map(k => `${k.name}${sat(k.code)}`);
   const groups = [['Facturas', facturas], ['Remisiones', remisiones]] as const;
 
   const text = [intro, ...groups.filter(([, rs]) => rs.length).map(([title, rs]) => [

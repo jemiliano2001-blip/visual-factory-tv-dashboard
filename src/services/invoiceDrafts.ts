@@ -3,21 +3,43 @@
  * espera POST /api/invoice-requests. Sin imports de firebase (se prueba en Node).
  */
 import { actorLabel, linePendingQty, lineRemainingQty, type InvoiceRequest, type RequestDraft, type RequestType } from '../../shared/invoiceRequests';
+import { isOhdPartner, suggestSatOhdCode } from '../../shared/satOhd';
 
-export interface OrderChoice { orderId: number; type: RequestType | null; lineQty: Record<number, number> }
+/** `sat`: clave SAT por partida (solo OHD); '' = falta escogerla. */
+export interface OrderChoice { orderId: number; type: RequestType | null; lineQty: Record<number, number>; sat?: Record<number, string> }
+
+type SatOrder = { partner_name: string; lines: Array<{ id?: number; name: string; qty: number }> };
 
 export function buildDrafts(choices: OrderChoice[]): RequestDraft[] {
   const drafts: RequestDraft[] = [];
-  for (const { orderId, type, lineQty } of choices) {
-    if (type === 'factura') drafts.push({ orderId, type });
+  for (const { orderId, type, lineQty, sat } of choices) {
+    const satKeys = (ids: number[]) => (sat ? { satKeys: ids.flatMap(id => (sat[id] ? [{ lineId: id, code: sat[id] }] : [])) } : {});
+    if (type === 'factura') drafts.push({ orderId, type, ...satKeys(Object.keys(sat ?? {}).map(Number)) });
     else if (type === 'remision') {
       const lines = Object.entries(lineQty)
         .map(([lineId, qty]) => ({ lineId: Number(lineId), qty }))
         .filter(l => l.qty > 0);
-      if (lines.length > 0) drafts.push({ orderId, type, lines });
+      if (lines.length > 0) drafts.push({ orderId, type, lines, ...satKeys(lines.map(l => l.lineId)) });
     }
   }
   return drafts;
+}
+
+/** Claves SAT iniciales de una orden de OHD (sugeridas por la descripción); undefined si no es OHD. */
+export function suggestedSat(order: SatOrder): Record<number, string> | undefined {
+  if (!isOhdPartner(order.partner_name)) return undefined;
+  return Object.fromEntries(order.lines
+    .filter(l => l.id !== undefined && l.qty > 0)
+    .map(l => [l.id as number, suggestSatOhdCode(l.name) ?? '']));
+}
+
+/** Partidas de OHD que se van a pedir y aún no tienen clave SAT. */
+export function missingSatCount(order: SatOrder, choice: Omit<OrderChoice, 'orderId'>): number {
+  if (!isOhdPartner(order.partner_name) || choice.type === null) return 0;
+  const ids = choice.type === 'factura'
+    ? order.lines.filter(l => l.id !== undefined && l.qty > 0).map(l => l.id as number)
+    : Object.entries(choice.lineQty).filter(([, qty]) => qty > 0).map(([id]) => Number(id));
+  return ids.filter(id => !choice.sat?.[id]).length;
 }
 
 /** null = se puede pedir; si no, el motivo en español. `pending` son las pendientes de ESA orden. */

@@ -5,7 +5,8 @@ import { auth } from '../firebase';
 import { useMobile } from '../hooks/useMobile';
 import { useInvoiceRequests, useSubmitInvoiceRequests } from '../hooks/useInvoiceRequests';
 import type { CreateInvoiceRequestsResult } from '../services/invoiceRequests';
-import { buildDrafts, requestAvailability, type OrderChoice } from '../services/invoiceDrafts';
+import { buildDrafts, missingSatCount, requestAvailability, suggestedSat, type OrderChoice } from '../services/invoiceDrafts';
+import { SAT_OHD_CATALOG, isOhdPartner, suggestSatOhdCode } from '../../shared/satOhd';
 import { clampQty, lineRemainingQty, linePendingQty, pendingRequestsByOrder, type InvoiceRequest, type RequestType } from '../../shared/invoiceRequests';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -27,6 +28,27 @@ const pendingLines = (o: OdooSaleOrder, pending: InvoiceRequest[]) =>
 const fullQty = (o: OdooSaleOrder, pending: InvoiceRequest[]): Record<number, number> =>
   Object.fromEntries(pendingLines(o, pending).map(l => [l.id as number, lineRemainingQty(l, pending)]));
 
+// Partidas que lleva una factura de OHD (todas las que tienen cantidad).
+const satLines = (o: OdooSaleOrder) => o.lines.filter(l => l.id !== undefined && l.qty > 0);
+
+function SatSelect({ lineName, value, onChange }: { lineName: string; value: string; onChange: (code: string) => void }) {
+  const suggested = value !== '' && value === suggestSatOhdCode(lineName);
+  return (
+    <label className="block space-y-1">
+      <span className="text-sm text-muted-foreground">Clave SAT{suggested ? ' (sugerida, revísala)' : ''}</span>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="h-11 w-full rounded-xl border border-input bg-popover px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+      >
+        <option value="">Escoge la clave…</option>
+        {SAT_OHD_CATALOG.map(k => <option key={k.code} value={k.code}>{k.code} · {k.name}</option>)}
+      </select>
+      {value === '' && <span className="block text-sm text-warning">Falta escoger la clave SAT.</span>}
+    </label>
+  );
+}
+
 export function RequestBadges({ requests }: { requests: InvoiceRequest[] | undefined }) {
   const pending = requests?.filter(r => r.status === 'pendiente') ?? [];
   if (pending.length === 0) return null;
@@ -41,15 +63,17 @@ export function RequestBadges({ requests }: { requests: InvoiceRequest[] | undef
   );
 }
 
-function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty }: {
+function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty, onSat }: {
   order: OdooSaleOrder;
   pendingForOrder: InvoiceRequest[];
   avail: Availability;
   choice: Choice;
   onType: (type: RequestType | null) => void;
   onQty: (lineId: number, qty: number) => void;
+  onSat: (lineId: number, code: string) => void;
 }) {
   const reference = order.customer_reference?.trim();
+  const ohd = isOhdPartner(order.partner_name);
   return (
     <section className="rounded-xl border border-border bg-card p-4 space-y-3">
       <div>
@@ -74,6 +98,16 @@ function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty
           </div>
         ))}
       </div>
+      {choice.type === 'factura' && ohd && (
+        <ul className="space-y-2">
+          {satLines(order).map(l => (
+            <li key={l.id} className="space-y-2 rounded-lg bg-background/50 p-3">
+              <p className="text-sm font-medium text-foreground break-words">{l.name}</p>
+              <SatSelect lineName={l.name} value={choice.sat?.[l.id as number] ?? ''} onChange={code => onSat(l.id as number, code)} />
+            </li>
+          ))}
+        </ul>
+      )}
       {choice.type === 'remision' && (
         <ul className="space-y-2">
           {pendingLines(order, pendingForOrder).map(l => {
@@ -82,26 +116,29 @@ function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty
             const alreadyAsked = linePendingQty(l) - pending;
             const qty = clampQty(choice.lineQty[id] ?? 0, pending);
             return (
-              <li key={id} className="flex items-center justify-between gap-3 rounded-lg bg-background/50 p-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground break-words">{l.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    Faltan <span className="font-mono-data">{pending}</span>, vas a pedir <span className="font-mono-data">{qty}</span>
-                  </p>
-                  {alreadyAsked > 0 && (
-                    <p className="text-sm text-muted-foreground">Ya hay <span className="font-mono-data">{alreadyAsked}</span> pedidas en otra remisión.</p>
-                  )}
+              <li key={id} className="space-y-2 rounded-lg bg-background/50 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground break-words">{l.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Faltan <span className="font-mono-data">{pending}</span>, vas a pedir <span className="font-mono-data">{qty}</span>
+                    </p>
+                    {alreadyAsked > 0 && (
+                      <p className="text-sm text-muted-foreground">Ya hay <span className="font-mono-data">{alreadyAsked}</span> pedidas en otra remisión.</p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button variant="outline" className="size-11 p-0" aria-label={`Quitar una ${l.name}`}
+                      disabled={qty <= 0} onClick={() => onQty(id, clampQty(qty - 1, pending))}>
+                      <Minus className="size-5" />
+                    </Button>
+                    <Button variant="outline" className="size-11 p-0" aria-label={`Agregar una ${l.name}`}
+                      disabled={qty >= pending} onClick={() => onQty(id, clampQty(qty + 1, pending))}>
+                      <Plus className="size-5" />
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button variant="outline" className="size-11 p-0" aria-label={`Quitar una ${l.name}`}
-                    disabled={qty <= 0} onClick={() => onQty(id, clampQty(qty - 1, pending))}>
-                    <Minus className="size-5" />
-                  </Button>
-                  <Button variant="outline" className="size-11 p-0" aria-label={`Agregar una ${l.name}`}
-                    disabled={qty >= pending} onClick={() => onQty(id, clampQty(qty + 1, pending))}>
-                    <Plus className="size-5" />
-                  </Button>
-                </div>
+                {ohd && qty > 0 && <SatSelect lineName={l.name} value={choice.sat?.[id] ?? ''} onChange={code => onSat(id, code)} />}
               </li>
             );
           })}
@@ -132,7 +169,7 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
   const choiceOf = (o: OdooSaleOrder) => choices[o.id] ?? NO_CHOICE;
   const missing = orders.filter((o, i) => choiceOf(o).type === null && (avails[i].factura === null || avails[i].remision === null)).length;
   // Lo marcado se acota a lo que se puede pedir *ahora* (otra persona pudo pedir o Odoo entregar con el diálogo abierto).
-  const drafts = buildDrafts(orders.map(o => {
+  const effective = orders.map((o): OrderChoice => {
     const c = choiceOf(o);
     if (c.type !== 'remision') return { orderId: o.id, ...c };
     const pend = pendingMap.get(o.id) ?? [];
@@ -140,22 +177,33 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
       const line = o.lines.find(l => l.id === Number(id));
       return [id, line ? clampQty(qty, lineRemainingQty(line, pend)) : 0];
     }));
-    return { orderId: o.id, type: c.type, lineQty };
-  }));
+    return { orderId: o.id, type: c.type, lineQty, sat: c.sat };
+  });
+  const drafts = buildDrafts(effective);
+  // OHD: cada partida que se pide necesita su clave SAT (el servidor también lo exige).
+  const satMissing = orders.reduce((sum, o, i) => sum + missingSatCount(o, effective[i]), 0);
   // Remisiones marcadas con todas las cantidades en 0: buildDrafts las omite, así que se avisa antes de enviar.
   const emptyRemisiones = orders.filter(o => choiceOf(o).type === 'remision').length - drafts.filter(d => d.type === 'remision').length;
-  const canSend = missing === 0 && drafts.length > 0 && !submit.isPending && !requests.isLoading;
+  const canSend = missing === 0 && satMissing === 0 && drafts.length > 0 && !submit.isPending && !requests.isLoading;
   const user = auth.currentUser;
   const sender = user?.email || user?.displayName;
 
+  // Al cambiar de tipo se conservan las claves SAT ya escogidas.
+  const typed = (o: OdooSaleOrder, type: RequestType | null, prev: Choice | undefined): Choice => ({
+    type,
+    lineQty: type === 'remision' ? fullQty(o, pendingMap.get(o.id) ?? []) : {},
+    sat: prev?.sat ?? suggestedSat(o),
+  });
   const setType = (o: OdooSaleOrder, type: RequestType | null) =>
-    setChoices(c => ({ ...c, [o.id]: { type, lineQty: type === 'remision' ? fullQty(o, pendingMap.get(o.id) ?? []) : {} } }));
+    setChoices(c => ({ ...c, [o.id]: typed(o, type, c[o.id]) }));
   const setAll = (type: RequestType) =>
     setChoices(c => {
       const next = { ...c };
-      orders.forEach((o, i) => { if (avails[i][type] === null) next[o.id] = { type, lineQty: type === 'remision' ? fullQty(o, pendingMap.get(o.id) ?? []) : {} }; });
+      orders.forEach((o, i) => { if (avails[i][type] === null) next[o.id] = typed(o, type, c[o.id]); });
       return next;
     });
+  const setSat = (o: OdooSaleOrder, lineId: number, code: string) =>
+    setChoices(c => ({ ...c, [o.id]: { ...(c[o.id] ?? NO_CHOICE), sat: { ...c[o.id]?.sat, [lineId]: code } } }));
   const setQty = (o: OdooSaleOrder, lineId: number, qty: number) =>
     setChoices(c => ({ ...c, [o.id]: { ...choiceOf(o), lineQty: { ...choiceOf(o).lineQty, [lineId]: qty } } }));
   const send = () => { submit.mutateAsync(drafts).then(setResult).catch(() => undefined); };
@@ -207,7 +255,7 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
         )}
         {orders.map((o, i) => (
           <OrderRequestCard key={o.id} order={o} pendingForOrder={pendingMap.get(o.id) ?? []} avail={avails[i]} choice={choiceOf(o)}
-            onType={type => setType(o, type)} onQty={(lineId, qty) => setQty(o, lineId, qty)} />
+            onType={type => setType(o, type)} onQty={(lineId, qty) => setQty(o, lineId, qty)} onSat={(lineId, code) => setSat(o, lineId, code)} />
         ))}
       </div>
       <div className="shrink-0 border-t border-border bg-popover p-4 space-y-2">
@@ -215,6 +263,9 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
         {sender && <p className="text-sm text-muted-foreground">Se enviará a nombre de {sender}</p>}
         {missing > 0 && (
           <p className="text-sm text-foreground">Falta escoger en <span className="font-mono-data">{missing}</span> {missing === 1 ? 'orden' : 'órdenes'}</p>
+        )}
+        {satMissing > 0 && (
+          <p className="text-sm text-foreground">Falta la clave SAT en <span className="font-mono-data">{satMissing}</span> {satMissing === 1 ? 'partida' : 'partidas'} de OHD</p>
         )}
         {emptyRemisiones > 0 && (
           <p className="text-sm text-warning">

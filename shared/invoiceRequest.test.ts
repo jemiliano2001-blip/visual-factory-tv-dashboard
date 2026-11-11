@@ -55,3 +55,13 @@ test('sobre del correo: sin correo del solicitante o repetido en la copia', () =
   assert.equal(dup.from, '"Lo re na (Visual Factory)" <dash@gmail.com>');
   assert.equal(buildMailEnvelope(base, { uid: 'u', name: null, email: 'a@x.com' }).cc, 'a@x.com');
 });
+
+test('correo de solicitudes: OHD lleva la clave SAT por partida', () => {
+  const mail = buildRequestsEmail([
+    req({ partnerName: 'OHD OPERATORS', satKeys: [{ lineId: 1, name: 'Fixture', code: '23153000' }] }),
+    req({ orderName: 'S02177', type: 'remision', lines: [{ lineId: 5, name: 'Placa', qty: 2, unit: 'Pza' }], satKeys: [{ lineId: 5, name: 'Placa', code: '23153035' }] }),
+  ], actor);
+  assert.match(mail.text, /Fixture — Clave SAT 23153000/);
+  assert.match(mail.text, /2 Pza — Placa — Clave SAT 23153035/);
+  assert.match(mail.html, /Clave SAT 23153035/);
+});
