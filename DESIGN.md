@@ -46,8 +46,10 @@ delivered and a progress color painted the whole wall cyan.
 - The tier, color and label come from one pure function, `getCardPresentation()`
   (`src/services/cardPresentation.ts`, tested). The footer legend mirrors it.
 - Thresholds (7 and 30 days) were picked from the real distribution (14 / 33 / 33 cards).
-- **No glow, no backdrop blur on cards** — solid `bg-card`. Color appears only in the
-  left accent stripe, border tint, progress bar and the timing label.
+- **No glow, no backdrop blur on cards.** On TV/desktop the card is dark translucent
+  (`bg-black/60`, no `backdrop-filter`) over the aurora background; on mobile it stays solid
+  `bg-card`. Urgency color appears only in the left accent stripe, border tint, progress
+  bar and the timing label — the aurora behind is decoration and never encodes status.
 
 ## Typography
 - **Display/Brand:** `Syne` — distinctive, used sparingly (header / brand only). Never
@@ -73,7 +75,13 @@ delivered and a progress color painted the whole wall cyan.
 ## Color
 - **Approach:** Two axes that both mean something — **progress** (the card status color)
   and **priority** (the badge). Color is never random, but the board is deliberately vivid.
-- **Background (OLED):** `#0a0a0f`. Surfaces elevate by level: card `#121218`,
+- **TV background (2026-11-12):** pure black `#000000` plus the aurora layer
+  (`GeminiOledBackground`): a top light curtain and two blurred waves that drift behind the
+  grid, with a vignette. Three modes cycled from the header palette button and stored in
+  localStorage (`src/services/auroraMode.ts`): `gemini-flow` (default), `gemini-reactive`
+  (faster + crimson when more than half of the visible orders are overdue) and
+  `oled-minimal` (top curtain only). Animation is transform-only. Not rendered on mobile.
+- **Background (Admin / Stats / mobile):** `#0a0a0f`. Surfaces elevate by level: card `#121218`,
   popover `#16161d`, secondary `#1b1b22`, muted `#18181f`, accent `#20202a`.
 - **Foreground:** `#f4f4f5`; muted text `#9ca3af`.
 - **Primary (brand/action — indigo, the only brand accent):** `#6366f1`,
@@ -92,7 +100,8 @@ delivered and a progress color painted the whole wall cyan.
   light mode and none is planned.
 
 ### Decoration rules (legibility first)
-- **Cards are solid.** No glow blob, no `backdrop-filter`. Chrome (header, control bar,
+- **Cards never blur.** No glow blob, no `backdrop-filter` (translucent black over the
+  aurora on TV/desktop, solid on mobile; a 1 px top highlight is the only gradient). Chrome (header, control bar,
   overlays) may still use `glass-panel`. Never let decoration outshine the SO number / %.
 - **Still avoid true slop:** no full-card gradient fills, no gradient CTAs,
   no centered-everything, no uniform bubble-radius on everything. The urgency palette
@@ -142,4 +151,5 @@ delivered and a progress color painted the whole wall cyan.
 | 2026-10-02 | **Card color = urgency (days late), not progress; cards lose glow/blur; footer legend rewritten** | Live Odoo data: 122/124 visible orders at 0 % delivered (progress color = one flat cyan wall) and 85/124 overdue (one saturated *Vencida* badge). Replaced by a graded ramp by days late (≤7 amber / 8–30 orange / >30 red), a timing label ("Atraso 35 d"), the commitment date in the free card space, and a pulse only for newly late orders. Supersedes the 2026-06-30 progress-color decision at the user's request; progress stays visible in the % and bar. |
 | 2026-10-23 | **TV cards fit their measured size; legibility floor on the grid** | Toni: dead space inside cards and text unreadable at 3-4 m (the TV ran at 60-70 % zoom to fit more cards). Type was chosen by page flags (`cols >= 4` ⇒ dense 12-14 px even on 360×240 cards) and a second line was drawn cut in half. Now `getCardFit()` sizes per card ("letra primero", whole rows only) and `computeTVGrid()` enforces a 340×185 floor ("Balance": 1920×1080 → 20 cards at 24 px SO, chosen over 25 at 18 px). Also fixed: the grid area was having header/footer subtracted twice. |
 | 2026-11-11 | **Admin shell by sections: sidebar + mobile bottom bar, one-row toolbar, fixed selection bar** | Admin stacked up to 5 control rows above the first order, the sidebar never showed which tab you were on, and mobile had no designed layout. Tabs and view chips became sidebar sections (mobile: 4 fixed destinations + "Más"); filters collapsed into one row with removable chips; bulk actions moved to a fixed bottom bar. URL contract unchanged. |
+| 2026-11-12 | **Fondo negro OLED con aurora multicolor en la TV; tarjetas translúcidas sin blur** | Pedido de Emiliano. Reemplaza la luz ambiente roja (que ya dependía de las vencidas) por tres focos animados y tres modos en el botón de paleta. Se descartó `backdrop-blur` en tarjetas: las olas ya van difuminadas a 140 px, así que no cambiaba lo que se ve y obligaba a recalcular 15-20 tarjetas por cuadro en una pantalla 24/7. El modo reactivo mide las vencidas sobre todas las órdenes visibles, no por página, para que la velocidad no salte en cada rotación. Excepción aprobada a "no gradients" y a "tarjetas sólidas". |
 | 2026-11-11 | **Badges en frase normal en Admin/Stats; la TV conserva mayúsculas mono. "Asignármela" pasa a botón ghost** | Las etiquetas en MAYÚSCULAS son patrón de plantilla en herramientas de trabajo; a 3-4 m de la TV sí ayudan, así que `OdooOrderCard` las agrega por su cuenta. La acción repetida por fila no debe competir con la acción primaria: un solo acento. |

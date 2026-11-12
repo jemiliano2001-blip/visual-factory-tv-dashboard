@@ -8,6 +8,7 @@ import { ViewMode } from './OdooOrderCard';
 import CompanyBadge from './CompanyBadge';
 import { getSmartCompanyName } from '../utils/customerNames';
 import DashboardClock from './DashboardClock';
+import { AURORA_LABEL, type AuroraMode } from '../services/auroraMode';
 
 // ─── Breadcrumbs ────────────────────────────────────────────────────────────────
 
@@ -46,8 +47,8 @@ interface DashboardHeaderProps {
   // View controls
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  showAmbient: boolean;
-  onToggleAmbient: () => void;
+  auroraMode: AuroraMode;
+  onCycleAurora: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   // Filtro de estado
@@ -82,8 +83,8 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   onRefresh,
   viewMode,
   onViewModeChange,
-  showAmbient,
-  onToggleAmbient,
+  auroraMode,
+  onCycleAurora,
   isFullscreen,
   onToggleFullscreen,
   statusFilter,
@@ -111,7 +112,11 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 
   return (
     <header
-      className="flex justify-between items-center mb-2 lg:mb-4 pt-2 lg:pt-6 pb-2 lg:pb-3 sticky top-0 z-[60] bg-background flex-shrink-0"
+      className={`flex justify-between items-center mb-2 lg:mb-4 pt-2 lg:pt-6 pb-2 lg:pb-3 sticky top-0 z-[60] flex-shrink-0 ${
+        // TV: nada pasa por debajo, la cortina de luz se ve a través. Escritorio: cristal
+        // para que las tarjetas no se lean bajo el header al hacer scroll. Móvil: sólido.
+        isTVMode ? '' : 'bg-background md:bg-background/70 md:backdrop-blur-xl'
+      }`}
       style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
     >
       {/* La pantalla TV prioriza el cliente visible; la marca queda para vistas sin empresa. */}
@@ -217,7 +222,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         {/* Controles de escritorio — ocultos en móvil */}
         <div className="hidden md:flex items-center gap-2">
           <div className="w-px h-6" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
-          {iconBtn(onToggleAmbient, showAmbient, 'Alternar luz ambiente', <Palette className="w-4 h-4" />)}
+          {iconBtn(onCycleAurora, auroraMode !== 'oled-minimal', `Fondo: ${AURORA_LABEL[auroraMode]} (clic para cambiar)`, <Palette className="w-4 h-4" />)}
           {iconBtn(onToggleFullscreen, isFullscreen, isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa', isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />)}
           {iconBtn(() => onViewModeChange(isTVMode ? 'desktop' : 'tv'), isTVMode, isTVMode ? 'Modo Escritorio' : 'Modo TV', <Monitor className="w-4 h-4" />)}
           <div className="w-px h-6 ml-1" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />

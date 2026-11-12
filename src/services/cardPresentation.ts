@@ -28,37 +28,37 @@ const LATE_DAYS = 30;
 const VISUAL: Record<UrgencyTone, Pick<CardPresentation, 'accentClass' | 'borderClass' | 'progressClass' | 'statusTextClass'>> = {
   severe: {
     accentClass: 'bg-red-500',
-    borderClass: 'bg-card border-red-500/40 hover:border-red-400/60',
+    borderClass: 'border-red-500/40 hover:border-red-400/60',
     progressClass: 'bg-red-500',
     statusTextClass: 'text-red-400',
   },
   late: {
     accentClass: 'bg-orange-500',
-    borderClass: 'bg-card border-orange-500/35 hover:border-orange-400/55',
+    borderClass: 'border-orange-500/35 hover:border-orange-400/55',
     progressClass: 'bg-orange-500',
     statusTextClass: 'text-orange-400',
   },
   recent: {
     accentClass: 'bg-amber-400',
-    borderClass: 'bg-card border-amber-400/35 hover:border-amber-300/55',
+    borderClass: 'border-amber-400/35 hover:border-amber-300/55',
     progressClass: 'bg-amber-400',
     statusTextClass: 'text-amber-300',
   },
   onTime: {
     accentClass: 'bg-cyan-500/80',
-    borderClass: 'bg-card border-border hover:border-cyan-400/30',
+    borderClass: 'border-border hover:border-cyan-400/30',
     progressClass: 'bg-cyan-400',
     statusTextClass: 'text-cyan-400',
   },
   none: {
     accentClass: 'bg-zinc-500/60',
-    borderClass: 'bg-card border-border hover:border-zinc-400/30',
+    borderClass: 'border-border hover:border-zinc-400/30',
     progressClass: 'bg-zinc-400',
     statusTextClass: 'text-zinc-400',
   },
   delivered: {
     accentClass: 'bg-fuchsia-400',
-    borderClass: 'bg-card border-fuchsia-400/30 hover:border-fuchsia-300/50',
+    borderClass: 'border-fuchsia-400/30 hover:border-fuchsia-300/50',
     progressClass: 'bg-fuchsia-400',
     statusTextClass: 'text-fuchsia-400',
   },

@@ -31,6 +31,8 @@ import { buildTVPages, type TVPage } from '../utils/tvPagePacking';
 import { getCenteredLastRowStart } from '../utils/tvGridLayout';
 import { INITIAL_ROTATION_PAUSED, shouldAutoRotate } from '../services/rotationPolicy';
 import { computeTVGrid } from '../services/tvGrid';
+import GeminiOledBackground from '../components/GeminiOledBackground';
+import { type AuroraMode, isAuroraUrgent, nextAuroraMode, normalizeAuroraMode } from '../services/auroraMode';
 
 // ─── TVDashboard principal ─────────────────────────────────────────────────────
 
@@ -103,7 +105,8 @@ export default function TVDashboard() {
   // ── Configs + UI ─────────────────────────────────────────────────────────────
   const navigate = useNavigate();
   const [companyConfigs, setCompanyConfigs] = useState<CompanyConfig[]>([]);
-  const [showAmbient, setShowAmbient]     = useState(true);
+  const [storedAuroraMode, setAuroraMode] = usePersistedState<AuroraMode>('vftv:tv:aurora', 'gemini-flow');
+  const auroraMode = normalizeAuroraMode(storedAuroraMode);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [selectedOrder, setSelectedOrder]   = useState<OdooSaleOrder | null>(null);
   const [viewMode, setViewMode]             = usePersistedState<ViewMode>('vftv:tv:viewMode', 'tv');
@@ -308,13 +311,11 @@ export default function TVDashboard() {
       ? currentPage.segments.flatMap(segment => segment.orders)
       : [];
   const currentPageOverdueCount = currentPageOrders.filter(isOrderOverdue).length;
-  const ambientOrders = isTVMode ? currentPageOrders : filteredOdooOrders;
-  const ambientOverdueShare = ambientOrders.length > 0
-    ? (isTVMode ? currentPageOverdueCount : ambientOrders.filter(isOrderOverdue).length) / ambientOrders.length
+  // Sobre todas las órdenes visibles, no solo la página actual: si dependiera de la
+  // página, la aurora cambiaría de velocidad (con salto) en cada rotación de 10 s.
+  const ambientOverdueShare = filteredOdooOrders.length > 0
+    ? filteredOdooOrders.filter(isOrderOverdue).length / filteredOdooOrders.length
     : 0;
-  const ambientTint = ambientOverdueShare > 0
-    ? `rgba(239, 68, 68, ${(0.05 + 0.13 * ambientOverdueShare).toFixed(3)})`
-    : 'rgba(99, 102, 241, 0.07)';
   const currentPageCriticalCount = currentPageOrders.filter(order => {
     const priority = getOrderPriority(order);
     return priority === 'critical' || priority === 'high';
@@ -338,17 +339,14 @@ export default function TVDashboard() {
       className={`bg-background text-foreground px-4 lg:px-6 font-sans transition-all duration-700 relative custom-scrollbar ${
         isTVMode ? 'tv-viewport' : 'desktop-viewport'
       } ${isFullscreen ? 'w-full h-full' : ''}`}
+      // Fuera de móvil el fondo es negro OLED puro: footer y anillos de foco lo heredan del token.
+      style={isMobile ? undefined : ({ '--color-background': '#000000' } as React.CSSProperties)}
     >
-      {/* Luz ambiente: se enrojece según la proporción de órdenes vencidas en pantalla,
-          así la TV comunica urgencia incluso sin leer tarjetas. Alternable desde el header. */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[55%] transition-opacity duration-700"
-        style={{
-          opacity: showAmbient ? 1 : 0,
-          background: `radial-gradient(ellipse 70% 100% at 50% 0%, ${ambientTint} 0%, transparent 70%)`,
-        }}
-      />
+      {/* Fondo aurora (no en móvil). En modo reactivo se acelera y mete carmesí si más
+          de la mitad de lo visible está vencido. El modo se alterna desde el header. */}
+      {!isMobile && (
+        <GeminiOledBackground mode={auroraMode} urgent={isAuroraUrgent(auroraMode, ambientOverdueShare)} />
+      )}
 
       {/* ── Header ─────────────────────────────────────────────────────────────── */}
       <DashboardHeader
@@ -373,8 +371,8 @@ export default function TVDashboard() {
         onRefresh={loadOdooOrders}
         viewMode={effectiveViewMode}
         onViewModeChange={setViewMode}
-        showAmbient={showAmbient}
-        onToggleAmbient={() => setShowAmbient(v => !v)}
+        auroraMode={auroraMode}
+        onCycleAurora={() => setAuroraMode(nextAuroraMode(auroraMode))}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
         statusFilter={statusFilter}

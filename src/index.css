@@ -129,6 +129,22 @@
     scrollbar-gutter: stable;
   }
 
+  /* ── Fondo aurora (GeminiOledBackground): solo transform, sin repintar ── */
+  .aurora-blob {
+    position: absolute;
+    overflow: hidden;
+    border-radius: 9999px;
+    will-change: transform;
+    animation: var(--aurora-move) var(--aurora-speed) ease-in-out infinite alternate;
+  }
+  .aurora-blob > span {
+    display: block;
+    height: 100%;
+    width: 200%;
+    will-change: transform;
+    animation: aurora-slide calc(var(--aurora-speed) * 2) linear infinite;
+  }
+
   /* Utility: hide scrollbar visually on all platforms */
   .no-scrollbar {
     scrollbar-width: none;
@@ -137,6 +153,22 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+}
+
+@keyframes aurora-slide {
+  to { transform: translate3d(-50%, 0, 0); }
+}
+@keyframes aurora-sway {
+  from { transform: translate3d(-7%, 0, 0); }
+  to { transform: translate3d(7%, 0, 0); }
+}
+@keyframes aurora-ltr {
+  from { transform: translate3d(-25vw, 0, 0); }
+  to { transform: translate3d(70vw, 0, 0); }
+}
+@keyframes aurora-rtl {
+  from { transform: translate3d(25vw, 0, 0); }
+  to { transform: translate3d(-70vw, 0, 0); }
 }
 
 @media print {

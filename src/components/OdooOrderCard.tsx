@@ -161,9 +161,13 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       id={`so-${order.name.replace(/\//g, '-')}`}
       onClick={onClick}
       aria-label={cardLabel}
-      className={`group flex w-full flex-col rounded-2xl border text-left relative overflow-hidden h-full ${cardSize} ${presentation.borderClass} ${onClick ? 'cursor-pointer active:scale-[0.98]' : 'cursor-default'} focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
+      className={`group flex w-full flex-col rounded-2xl border text-left relative overflow-hidden h-full ${isMobile ? 'bg-card' : 'bg-black/60'} ${cardSize} ${presentation.borderClass} ${onClick ? 'cursor-pointer active:scale-[0.98]' : 'cursor-default'} focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
     >
       <span className={`absolute left-0 top-0 bottom-0 ${isDense ? 'w-1' : 'w-1.5'} ${presentation.accentClass}`} aria-hidden="true" />
+      {/* Brillo especular del cristal: sobre la aurora, no en móvil (tarjeta sólida) */}
+      {!isMobile && (
+        <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-white/20 to-transparent" aria-hidden="true" />
+      )}
 
       <div className="relative z-10 flex items-start justify-between gap-2">
         <div className="min-w-0">
