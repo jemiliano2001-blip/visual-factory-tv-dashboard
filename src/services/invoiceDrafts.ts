@@ -5,25 +5,33 @@
 import { actorLabel, allowsPartialInvoice, linePendingQty, lineInvoiceRemaining, lineRemainingQty, type InvoiceRequest, type RequestDraft, type RequestType } from '../../shared/invoiceRequests';
 import { isOhdPartner, suggestSatOhdCode } from '../../shared/satOhd';
 
-/** `sat`: clave SAT por partida (solo OHD); '' = falta escogerla. `partial`: factura por partida y cantidad (Fisher y Kohler). */
-export interface OrderChoice { orderId: number; type: RequestType | null; lineQty: Record<number, number>; sat?: Record<number, string>; partial?: boolean }
+/** `sat`: clave SAT por partida (solo OHD); '' = sin clave. `note`: nota para Mary. `partial`: factura por partida (Fisher/Kohler). */
+export interface OrderChoice {
+  orderId: number;
+  type: RequestType | null;
+  lineQty: Record<number, number>;
+  sat?: Record<number, string>;
+  partial?: boolean;
+  note?: string;
+}
 
 type SatOrder = { partner_name: string; lines: Array<{ id?: number; name: string; qty: number }> };
 
 export function buildDrafts(choices: OrderChoice[]): RequestDraft[] {
   const drafts: RequestDraft[] = [];
-  for (const { orderId, type, lineQty, sat, partial } of choices) {
+  for (const { orderId, type, lineQty, sat, partial, note } of choices) {
     const piezas = () => Object.entries(lineQty)
       .map(([lineId, qty]) => ({ lineId: Number(lineId), qty }))
       .filter(l => l.qty > 0);
     const satKeys = (ids: number[]) => (sat ? { satKeys: ids.flatMap(id => (sat[id] ? [{ lineId: id, code: sat[id] }] : [])) } : {});
+    const withNote = note?.trim() ? { note: note.trim() } : {};
     if (type === 'factura' && partial) {
       const lines = piezas();
-      if (lines.length > 0) drafts.push({ orderId, type, lines });
-    } else if (type === 'factura') drafts.push({ orderId, type, ...satKeys(Object.keys(sat ?? {}).map(Number)) });
+      if (lines.length > 0) drafts.push({ orderId, type, lines, ...withNote });
+    } else if (type === 'factura') drafts.push({ orderId, type, ...satKeys(Object.keys(sat ?? {}).map(Number)), ...withNote });
     else if (type === 'remision') {
       const lines = piezas();
-      if (lines.length > 0) drafts.push({ orderId, type, lines, ...satKeys(lines.map(l => l.lineId)) });
+      if (lines.length > 0) drafts.push({ orderId, type, lines, ...satKeys(lines.map(l => l.lineId)), ...withNote });
     }
   }
   return drafts;
@@ -37,7 +45,10 @@ export function suggestedSat(order: SatOrder): Record<number, string> | undefine
     .map(l => [l.id as number, suggestSatOhdCode(l.name) ?? '']));
 }
 
-/** Partidas de OHD que se van a pedir y aún no tienen clave SAT. */
+/**
+ * Partidas de OHD sin clave (informativo; ya no bloquea el envío).
+ * @deprecated el diálogo no usa esto como gate; se conserva para tests/diagnóstico.
+ */
 export function missingSatCount(order: SatOrder, choice: Omit<OrderChoice, 'orderId'>): number {
   if (!isOhdPartner(order.partner_name) || choice.type === null) return 0;
   const ids = choice.type === 'factura'
@@ -55,11 +66,9 @@ export function requestAvailability(
     const r = pending.find(p => p.type === type);
     return r ? `Ya la pidió ${actorLabel(r.requestedBy)}` : null;
   };
-  // Fisher y Kohler: facturas parciales sucesivas mientras quede algo por facturar.
   const factura = order.partner_name && allowsPartialInvoice(order.partner_name)
     ? order.lines.some(l => l.id !== undefined && lineInvoiceRemaining(l, pending) > 0) ? null : 'Ya está todo facturado o pedido'
     : already('factura');
-  // Una remisión pendiente no bloquea otra: se pueden pedir remisiones sucesivas hasta cubrir lo que falta.
   const remision = order.lines.some(l => l.id !== undefined && lineRemainingQty(l, pending) > 0)
     ? null
     : order.lines.some(l => l.id !== undefined && linePendingQty(l) > 0)

@@ -31,8 +31,9 @@ export interface MailableRequest {
   customerReference: string | null;
   type: 'factura' | 'remision';
   lines?: { lineId?: number; name: string; qty: number; unit: string | null }[];
-  /** Solo OHD: clave SAT confirmada por partida. */
-  satKeys?: { lineId: number; name: string; code: string; inList?: boolean }[];
+  /** Solo OHD: clave SAT por partida; `code: null` = sin clave. */
+  satKeys?: { lineId: number; name: string; code: string | null; inList?: boolean }[];
+  note?: string;
 }
 
 export function buildRequestsEmail(
@@ -51,21 +52,30 @@ export function buildRequestsEmail(
   const intro = `Buen día, ${who} pide lo siguiente:`;
   const head = (r: MailableRequest) =>
     `${r.orderName} — ${r.partnerName}${r.customerReference ? ` (PO ${r.customerReference})` : ''}${r.type === 'factura' && r.lines?.length ? ' (parcial)' : ''}`;
-  const sat = (k: { code: string; inList?: boolean } | undefined) =>
-    (k ? ` — Clave SAT ${k.code}${k.inList === false ? ' (fuera de la lista de OHD, validar)' : ''}` : '');
+  const sat = (k: { code: string | null; inList?: boolean } | undefined) => {
+    if (!k) return '';
+    if (k.code === null) return ' — Sin clave SAT — Mary elige/valida';
+    return ` — Clave SAT ${k.code}${k.inList === false ? ' (fuera de la lista de OHD, validar)' : ''}`;
+  };
   const pieces = (r: MailableRequest) => r.lines?.length
     ? r.lines.map(l => `${fmtQty(l.qty)}${l.unit ? ` ${l.unit}` : ''} — ${shortenDescription(l.name)}${sat(r.satKeys?.find(k => k.lineId === l.lineId))}`)
     : (r.satKeys ?? []).map(k => `${shortenDescription(k.name)}${sat(k)}`);
+  const noteLine = (r: MailableRequest) => (r.note ? `  Nota: ${r.note}` : '');
   const groups = [['Facturas', facturas], ['Remisiones', remisiones]] as const;
 
   const text = [intro, ...groups.filter(([, rs]) => rs.length).map(([title, rs]) => [
     '', `${title}:`,
-    ...rs.map(r => [`  ${head(r)}`, ...pieces(r).map(l => `    • ${l}`)].join('\n')),
+    ...rs.map(r => [
+      `  ${head(r)}`,
+      ...(r.note ? [noteLine(r)] : []),
+      ...pieces(r).map(l => `    • ${l}`),
+    ].join('\n')),
   ].join('\n')), '', 'Gracias.'].join('\n');
 
   const html = [`<p>${escapeHtml(intro)}</p>`, ...groups.filter(([, rs]) => rs.length).map(([title, rs]) =>
     `<h3>${title}</h3>` + rs.map(r =>
       `<p><strong>${escapeHtml(head(r))}</strong></p>` +
+      (r.note ? `<p>Nota: ${escapeHtml(r.note)}</p>` : '') +
       (pieces(r).length ? `<ul>${pieces(r).map(l => `<li>${escapeHtml(l)}</li>`).join('')}</ul>` : '')).join('')),
     '<p>Gracias.</p>'].join('');
   return { subject, text, html };

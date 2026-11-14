@@ -5,11 +5,11 @@ import { auth } from '../firebase';
 import { useMobile } from '../hooks/useMobile';
 import { useInvoiceRequests, useSubmitInvoiceRequests } from '../hooks/useInvoiceRequests';
 import type { CreateInvoiceRequestsResult } from '../services/invoiceRequests';
-import { buildDrafts, missingSatCount, requestAvailability, suggestedSat, type OrderChoice } from '../services/invoiceDrafts';
-import { SAT_OHD_CATALOG, isOhdPartner, isSatOhdCode, suggestSatOhdCode } from '../../shared/satOhd';
+import { buildDrafts, requestAvailability, suggestedSat, type OrderChoice } from '../services/invoiceDrafts';
+import { SAT_OHD_CATALOG, isOhdPartner, isSatOhdCode } from '../../shared/satOhd';
 import { satChoicesFor, type SatCatalog } from '../../shared/satSearch';
 import { useSatCatalog } from '../hooks/useSatCatalog';
-import { allowsPartialInvoice, clampQty, lineInvoiceRemaining, lineRemainingQty, linePendingQty, pendingRequestsByOrder, type InvoiceRequest, type RequestType } from '../../shared/invoiceRequests';
+import { allowsPartialInvoice, clampQty, lineInvoiceRemaining, lineRemainingQty, linePendingQty, MAX_REQUEST_NOTE, pendingRequestsByOrder, type InvoiceRequest, type RequestType } from '../../shared/invoiceRequests';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
@@ -39,27 +39,34 @@ const fullQty = (o: OdooSaleOrder, type: RequestType, pending: InvoiceRequest[])
 const satLines = (o: OdooSaleOrder) => o.lines.filter(l => l.id !== undefined && l.qty > 0);
 
 function SatSelect({ lineName, value, onChange, catalog }: { lineName: string; value: string; onChange: (code: string) => void; catalog: SatCatalog | null }) {
-  const suggested = value !== '' && value === suggestSatOhdCode(lineName);
-  const candidates = useMemo(() => satChoicesFor(lineName, catalog).candidates, [lineName, catalog]);
+  const choices = useMemo(() => satChoicesFor(lineName, catalog), [lineName, catalog]);
+  const suggested = value !== '' && value === (choices.suggested ?? '');
+  const maryCodes = new Set(choices.maryCandidates.map(c => c.code));
+  const restMary = SAT_OHD_CATALOG.filter(k => !maryCodes.has(k.code));
   return (
     <label className="block space-y-1">
-      <span className="text-sm text-muted-foreground">Clave SAT{suggested ? ' (sugerida, revísala)' : ''}</span>
+      <span className="text-sm text-muted-foreground">Clave SAT (opcional){suggested ? ' — sugerida, revísala' : ''}</span>
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
         className="h-11 w-full rounded-xl border border-input bg-popover px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
       >
         <option value="">Escoge la clave…</option>
-        {candidates.length > 0 && (
-          <optgroup label="Sugeridas del catálogo SAT (fuera de la lista de OHD)">
-            {candidates.map(c => <option key={c.code} value={c.code}>{c.code} · {c.name}</option>)}
+        {choices.maryCandidates.length > 0 && (
+          <optgroup label="Sugeridas (lista OHD)">
+            {choices.maryCandidates.map(c => <option key={c.code} value={c.code}>{c.code} · {c.name}</option>)}
           </optgroup>
         )}
         <optgroup label="Lista de OHD">
-          {SAT_OHD_CATALOG.map(k => <option key={k.code} value={k.code}>{k.code} · {k.name}</option>)}
+          {restMary.map(k => <option key={k.code} value={k.code}>{k.code} · {k.name}</option>)}
         </optgroup>
+        {choices.officialCandidates.length > 0 && (
+          <optgroup label="Otras del catálogo SAT">
+            {choices.officialCandidates.map(c => <option key={c.code} value={c.code}>{c.code} · {c.name}</option>)}
+          </optgroup>
+        )}
       </select>
-      {value === '' && <span className="block text-sm text-warning">Falta escoger la clave SAT.</span>}
+      {value === '' && <span className="block text-sm text-muted-foreground">Sin clave: Mary la completará.</span>}
       {value !== '' && !isSatOhdCode(value) && <span className="block text-sm text-warning">Fuera de la lista de OHD: Mary la validará.</span>}
     </label>
   );
@@ -79,7 +86,7 @@ export function RequestBadges({ requests }: { requests: InvoiceRequest[] | undef
   );
 }
 
-function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty, onSat, onAll, catalog }: {
+function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty, onSat, onNote, onAll, catalog }: {
   order: OdooSaleOrder;
   pendingForOrder: InvoiceRequest[];
   avail: Availability;
@@ -87,11 +94,17 @@ function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty
   onType: (type: RequestType | null) => void;
   onQty: (lineId: number, qty: number) => void;
   onSat: (lineId: number, code: string) => void;
+  onNote: (note: string) => void;
   onAll: () => void;
   catalog: SatCatalog | null;
 }) {
   const reference = order.customer_reference?.trim();
   const ohd = isOhdPartner(order.partner_name);
+  const canAsk = choice.type !== null && (
+    !byPieces(order, choice.type)
+      ? true
+      : Object.values(choice.lineQty).some(q => q > 0)
+  );
   return (
     <section className="rounded-xl border border-border bg-card p-4 space-y-3">
       <div>
@@ -167,6 +180,19 @@ function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty
           })}
         </ul>
       )}
+      {canAsk && (
+        <label className="block space-y-1">
+          <span className="text-sm text-muted-foreground">Nota para Mary (opcional)</span>
+          <textarea
+            value={choice.note ?? ''}
+            maxLength={MAX_REQUEST_NOTE}
+            rows={3}
+            onChange={e => onNote(e.target.value)}
+            placeholder="Sale en el correo"
+            className="w-full rounded-xl border border-input bg-popover px-3 py-2 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+          />
+        </label>
+      )}
     </section>
   );
 }
@@ -201,14 +227,12 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
       const line = o.lines.find(l => l.id === Number(id));
       return [id, line ? clampQty(qty, remainingOf(line, c.type as RequestType, pend)) : 0];
     }));
-    return { orderId: o.id, type: c.type, lineQty, sat: c.sat, partial: c.type === 'factura' };
+    return { orderId: o.id, type: c.type, lineQty, sat: c.sat, partial: c.type === 'factura', note: c.note };
   });
   const drafts = buildDrafts(effective);
-  // OHD: cada partida que se pide necesita su clave SAT (el servidor también lo exige).
-  const satMissing = orders.reduce((sum, o, i) => sum + missingSatCount(o, effective[i]), 0);
   // Remisiones marcadas con todas las cantidades en 0: buildDrafts las omite, así que se avisa antes de enviar.
   const emptyRemisiones = orders.filter(o => byPieces(o, choiceOf(o).type)).length - drafts.filter(d => d.lines).length;
-  const canSend = missing === 0 && satMissing === 0 && drafts.length > 0 && !submit.isPending && !requests.isLoading;
+  const canSend = missing === 0 && drafts.length > 0 && !submit.isPending && !requests.isLoading;
   const user = auth.currentUser;
   const sender = user?.email || user?.displayName;
 
@@ -228,6 +252,8 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
     });
   const setSat = (o: OdooSaleOrder, lineId: number, code: string) =>
     setChoices(c => ({ ...c, [o.id]: { ...(c[o.id] ?? NO_CHOICE), sat: { ...c[o.id]?.sat, [lineId]: code } } }));
+  const setNote = (o: OdooSaleOrder, note: string) =>
+    setChoices(c => ({ ...c, [o.id]: { ...choiceOf(o), note } }));
   const setQty = (o: OdooSaleOrder, lineId: number, qty: number) =>
     setChoices(c => ({ ...c, [o.id]: { ...choiceOf(o), lineQty: { ...choiceOf(o).lineQty, [lineId]: qty } } }));
   const send = () => { submit.mutateAsync(drafts).then(setResult).catch(() => undefined); };
@@ -279,7 +305,8 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
         )}
         {orders.map((o, i) => (
           <OrderRequestCard key={o.id} order={o} pendingForOrder={pendingMap.get(o.id) ?? []} avail={avails[i]} choice={choiceOf(o)}
-            onType={type => setType(o, type)} onQty={(lineId, qty) => setQty(o, lineId, qty)} onSat={(lineId, code) => setSat(o, lineId, code)} onAll={() => setType(o, 'factura')} catalog={satCatalog} />
+            onType={type => setType(o, type)} onQty={(lineId, qty) => setQty(o, lineId, qty)} onSat={(lineId, code) => setSat(o, lineId, code)}
+            onNote={note => setNote(o, note)} onAll={() => setType(o, 'factura')} catalog={satCatalog} />
         ))}
       </div>
       <div className="shrink-0 border-t border-border bg-popover p-4 space-y-2">
@@ -287,9 +314,6 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
         {sender && <p className="text-sm text-muted-foreground">Se enviará a nombre de {sender}</p>}
         {missing > 0 && (
           <p className="text-sm text-foreground">Falta escoger en <span className="font-mono-data">{missing}</span> {missing === 1 ? 'orden' : 'órdenes'}</p>
-        )}
-        {satMissing > 0 && (
-          <p className="text-sm text-foreground">Falta la clave SAT en <span className="font-mono-data">{satMissing}</span> {satMissing === 1 ? 'partida' : 'partidas'} de OHD</p>
         )}
         {emptyRemisiones > 0 && (
           <p className="text-sm text-warning">

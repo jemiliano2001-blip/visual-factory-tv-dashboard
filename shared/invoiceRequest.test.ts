@@ -96,6 +96,18 @@ test('correo: clave fuera de la lista lleva la marca; de la lista o sin inList n
   for (const m of [mk(true), mk()]) assert.doesNotMatch(m.text, /fuera de la lista/);
 });
 
+test('correo: sin clave SAT y con nota para Mary', () => {
+  const mail = buildRequestsEmail([{
+    orderName: 'S1', partnerName: 'OHD', customerReference: null, type: 'factura',
+    note: 'Parcial: solo tanque A',
+    satKeys: [{ lineId: 1, name: 'Retrabajo de tanques', code: null, inList: false }],
+  }], { email: null, name: 'Ana', uid: 'u' });
+  assert.match(mail.text, /Nota: Parcial: solo tanque A/);
+  assert.match(mail.text, /Sin clave SAT — Mary elige\/valida/);
+  assert.match(mail.html, /Nota: Parcial: solo tanque A/);
+  assert.doesNotMatch(mail.text, /fuera de la lista/);
+});
+
 test('correo: la factura con partidas se rotula parcial y lista sus piezas', () => {
   const mail = buildRequestsEmail([
     { orderName: 'S1', partnerName: 'Fisher Controls', customerReference: null, type: 'factura', lines: [{ lineId: 1, name: 'Válvula', qty: 4, unit: 'pza' }] },

@@ -57,7 +57,7 @@ export const SAT_OHD_CATALOG: SatOhdKey[] = [
   { code: '43211900', name: 'Monitores y pantallas de computador', keywords: [] },
   { code: '56111707', name: 'Repisas no modulares', keywords: ['REPISA'] },
   { code: '72151802', name: 'Servicio de refacción y reparación de componentes de maquinaria', keywords: ['POLYTECH', 'REPARACION'] },
-  { code: '73152100', name: 'Servicios de mantenimiento y reparación de equipo de manufactura', keywords: ['CAMBIO DE ESTRIADO', 'CAMBIO DE CABLEADO', 'RETRABAJO DE SPROKET', 'MANTENIMIENTO'] },
+  { code: '73152100', name: 'Servicios de mantenimiento y reparación de equipo de manufactura', keywords: ['CAMBIO DE ESTRIADO', 'CAMBIO DE CABLEADO', 'RETRABAJO DE SPROKET', 'RETRABAJO', 'MANTENIMIENTO'] },
   { code: '73152101', name: 'Servicio de mantenimiento de equipo industrial', keywords: ['REP DE ESTACION', 'KOHLER'] },
   { code: '73152102', name: 'Servicio de reparación de equipo industrial', keywords: [] },
   { code: '73152103', name: 'Servicios de mantenimiento de equipos de ingeniería', keywords: [] },
@@ -77,22 +77,77 @@ export const isOhdPartner = (partnerName: string) => /\bohd\b|overhead door/i.te
 export const isSatOhdCode = (code: unknown): code is string => typeof code === 'string' && BY_CODE.has(code);
 export const satOhdName = (code: string) => BY_CODE.get(code)?.name ?? null;
 
-/**
- * Clave sugerida para una descripción: la de la palabra clave más larga que aparezca al inicio
- * de una palabra ("PUNZON" encuentra "PUNZONES"). Si la más larga apunta a varias claves
- * (p. ej. "POLYTECH") o nada coincide, no sugiere: el ingeniero escoge.
- */
-export function suggestSatOhdCode(description: string): string | null {
-  const text = normalizeSatText(description);
-  let best = 0;
-  let codes = new Set<string>();
-  for (const key of SAT_OHD_CATALOG) {
-    for (const kw of key.keywords) {
-      const word = normalizeSatText(kw).trim();
-      if (!text.includes(` ${word}`)) continue;
-      if (word.length > best) { best = word.length; codes = new Set([key.code]); }
-      else if (word.length === best) codes.add(key.code);
+export interface SatRanked { code: string; name: string; score: number; source: 'mary' }
+
+/** Keywords cortas (TOPE=4, PLACA=5) deben contar; el margen evita empates. */
+export const MARY_MIN_SCORE = 4;
+export const MARY_CLEAR_MARGIN = 3;
+
+const STOP = new Set(('DE DEL LA LAS LOS EL CON SIN POR PARA UNA UNO UNOS UNAS EN Y O A AL SE QUE INCLUYE ' +
+  'PZA PIEZA PIEZAS FAB DIS DISENO').split(' '));
+const GENERIC = new Set(('MAQUINA EQUIPO EQUIPOS SERVICIO SERVICIOS HERRAMIENTA HERRAMIENTAS ACCESORIO ' +
+  'ACCESORIOS COMPONENTE COMPONENTES SISTEMA SISTEMAS DISPOSITIVO DISPOSITIVOS SUMINISTRO SUMINISTROS').split(' '));
+const stem = (w: string) => (w.length > 4 ? w.replace(/(ES|S)$/, '') : w);
+const words = (text: string) => normalizeSatText(text).split(' ')
+  .filter(w => w.length >= 3 && !/\d/.test(w) && !STOP.has(w)).map(stem);
+const isGeneric = (w: string) => GENERIC.has(w) || [...GENERIC].some(g => stem(g) === w);
+
+function scoreMaryName(description: string, name: string): number {
+  const q = words(description).slice(0, 30);
+  if (q.length === 0) return 0;
+  const qSet = new Set(q);
+  const entry = words(name);
+  let score = 0;
+  let specific = 0;
+  let unmatched = 0;
+  for (const w of new Set(entry)) {
+    if (!qSet.has(w)) { unmatched++; continue; }
+    if (isGeneric(w)) score += 2; else { score += 10; specific++; }
+  }
+  if (specific === 0) return 0;
+  for (let k = 0; k < q.length - 1; k++) {
+    for (let i = 0; i < entry.length - 1; i++) {
+      if (entry[i] === q[k] && entry[i + 1] === q[k + 1]) { score += 15; break; }
     }
   }
-  return codes.size === 1 ? [...codes][0] : null;
+  return Math.round((score - 0.5 * unmatched) * 10) / 10;
+}
+
+function keywordBonus(description: string, keywords: string[]): number {
+  const text = normalizeSatText(description);
+  let best = 0;
+  for (const kw of keywords) {
+    const word = normalizeSatText(kw).trim();
+    if (!word || !text.includes(` ${word}`)) continue;
+    const multi = word.includes(' ') ? 5 : 0;
+    best = Math.max(best, word.length + multi);
+  }
+  return best;
+}
+
+/**
+ * Candidatas de la lista Mary (nombre + keywords), solo con score ≥ MARY_MIN_SCORE.
+ * Tie-break: score desc, name length asc, code asc.
+ */
+export function rankMaryCandidates(description: string, limit = 5): SatRanked[] {
+  const found: SatRanked[] = [];
+  for (const key of SAT_OHD_CATALOG) {
+    const score = scoreMaryName(description, key.name) + keywordBonus(description, key.keywords);
+    if (score < MARY_MIN_SCORE) continue;
+    found.push({ code: key.code, name: key.name, score, source: 'mary' });
+  }
+  found.sort((a, b) => b.score - a.score || a.name.length - b.name.length || (a.code < b.code ? -1 : 1));
+  return found.slice(0, limit);
+}
+
+/**
+ * Clave sugerida de Mary solo si hay margen claro vs la 2ª. Empates / ambigüedad → null
+ * (las candidatas se listan vía rankMaryCandidates / satChoicesFor).
+ */
+export function suggestSatOhdCode(description: string): string | null {
+  const ranked = rankMaryCandidates(description, 5);
+  if (ranked.length === 0) return null;
+  if (ranked.length === 1) return ranked[0].code;
+  if (ranked[0].score - ranked[1].score >= MARY_CLEAR_MARGIN) return ranked[0].code;
+  return null;
 }

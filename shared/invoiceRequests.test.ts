@@ -336,12 +336,25 @@ test('OHD: remisión pide clave solo de las piezas pedidas', () => {
   assert.deepEqual(out.created[0].satKeys, [{ lineId: 31, name: 'Fixture', code: '23153000', inList: true }]);
 });
 
-test('OHD: sin clave o con clave fuera del catálogo no se crea', () => {
+test('OHD: sin clave se crea con code null; clave inventada se salta', () => {
   const sinClave = createInvoiceRequests(empty, [{ orderId: 20, type: 'factura', satKeys: [{ lineId: 31, code: '23153000' }] }], [ohd], ctx());
-  assert.equal(sinClave.created.length, 0);
-  assert.match(sinClave.skipped[0].reason, /Falta la clave SAT de Placa/);
+  assert.equal(sinClave.created.length, 1);
+  assert.deepEqual(sinClave.created[0].satKeys, [
+    { lineId: 31, name: 'Fixture', code: '23153000', inList: true },
+    { lineId: 32, name: 'Placa', code: null, inList: false },
+  ]);
   const mala = createInvoiceRequests(empty, [{ orderId: 20, type: 'remision', lines: [{ lineId: 31, qty: 1 }], satKeys: [{ lineId: 31, code: '12345678' }] }], [ohd], ctx());
   assert.match(mala.skipped[0].reason, /no está en el catálogo de OHD/);
+});
+
+test('OHD: nota se guarda y nota larga va a skipped', () => {
+  const ok = createInvoiceRequests(empty, [{ orderId: 20, type: 'factura', note: '  Parcial hoy  ', satKeys: [{ lineId: 31, code: '23153000' }, { lineId: 32, code: '23153035' }] }], [ohd], ctx());
+  assert.equal(ok.created[0].note, 'Parcial hoy');
+  assert.deepEqual(normalizeInvoiceRequests(ok.state).requests[0].note, 'Parcial hoy');
+  const long = 'x'.repeat(501);
+  const bad = createInvoiceRequests(empty, [{ orderId: 20, type: 'factura', note: long, satKeys: [{ lineId: 31, code: '23153000' }, { lineId: 32, code: '23153035' }] }], [ohd], ctx());
+  assert.equal(bad.created.length, 0);
+  assert.match(bad.skipped[0].reason, /nota/i);
 });
 
 test('otros clientes no llevan clave SAT aunque la manden', () => {

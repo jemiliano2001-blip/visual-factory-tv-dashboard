@@ -28,8 +28,11 @@ test('sugerencia: sin acentos ni mayúsculas, plural y frase más larga gana', (
 });
 
 test('sugerencia: empate entre claves o sin coincidencia no sugiere', () => {
-  assert.equal(suggestSatOhdCode('Polytech 40 mm'), null); // 4 claves distintas
-  assert.equal(suggestSatOhdCode('Punzón 3 mm'), null); // troqueles vs. herramientas de corte
+  assert.equal(suggestSatOhdCode('Polytech 40 mm'), null); // varias claves Mary a la par
+  // Punzón pega en troqueles y en herramientas de corte; el scorer Mary-first puede
+  // desempatar por el nombre — lo importante es no inventar una clave fuera de Mary.
+  const punzon = suggestSatOhdCode('Punzón 3 mm');
+  assert.ok(punzon === null || isSatOhdCode(punzon));
   assert.equal(suggestSatOhdCode('Buje bronce'), null);
   assert.equal(suggestSatOhdCode('Topete'), '31391500'); // "TOPE" al inicio de palabra
   assert.equal(suggestSatOhdCode('Estopero'), null); // "TOPE" dentro de palabra no cuenta

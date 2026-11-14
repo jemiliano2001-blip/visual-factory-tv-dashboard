@@ -895,8 +895,11 @@ export function buildInvoiceRequestsEmbed(created: InvoiceRequest[], actor: Requ
   const blocks = [...factura, ...remision].map(r => {
     const head = `**${r.type === 'factura' ? 'Factura' : 'Remisión'}** · ${escapeDiscord(r.orderName)} · ${escapeDiscord(r.partnerName)}`
       + (r.customerReference ? ` · PO ${escapeDiscord(r.customerReference)}` : '');
+    const note = r.note?.trim()
+      ? `Nota: ${escapeDiscord(r.note.trim().slice(0, 200))}`
+      : '';
     const pieces = (r.lines ?? []).map(l => `• ${l.qty} ${l.unit ? escapeDiscord(l.unit) + ' ' : ''}${escapeDiscord(l.name)}`);
-    return [head, ...pieces].join('\n');
+    return [head, ...(note ? [note] : []), ...pieces].join('\n');
   });
   const tail = `\nPidió: ${escapeDiscord(actorLabel(actor))}\n${getDashboardUrl()}/admin?tab=requests`;
   const kept: string[] = [];

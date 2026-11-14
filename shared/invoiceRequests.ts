@@ -9,9 +9,9 @@ export interface RequestActor { uid: string; email: string | null; name: string 
 /** `deliveredAtRequest`: piezas ya entregadas al pedir, para no descontar dos veces lo que Mari ya entregó. */
 /** `invoicedAtRequest`: lo ya facturado en Odoo al pedir una factura parcial, por la misma razón. */
 export interface InvoiceRequestLine { lineId: number; name: string; qty: number; unit: string | null; deliveredAtRequest?: number; invoicedAtRequest?: number }
-/** Clave SAT confirmada por partida (solo OHD): en factura, todas las partidas; en remisión, las pedidas. */
-/** `inList`: la clave está en la lista de OHD (Mary); false = salió del catálogo SAT y Mary debe validarla. */
-export interface SatKey { lineId: number; name: string; code: string; inList: boolean }
+/** Clave SAT por partida (solo OHD). `code: null` = sin clave; Mary la completa. */
+/** `inList`: true solo si hay código de la lista OHD; sin clave siempre `false` (explícito). */
+export interface SatKey { lineId: number; name: string; code: string | null; inList: boolean }
 export interface InvoiceRequest {
   id: string;
   orderId: number;
@@ -21,6 +21,8 @@ export interface InvoiceRequest {
   type: RequestType;
   lines?: InvoiceRequestLine[];
   satKeys?: SatKey[];
+  /** Nota para facturación (correo / Discord); opcional. */
+  note?: string;
   status: 'pendiente' | 'hecha';
   requestedBy: RequestActor;
   requestedAt: string;
@@ -40,6 +42,19 @@ export interface RequestDraft {
   type: RequestType;
   lines?: Array<{ lineId: number; qty: number }>;
   satKeys?: Array<{ lineId: number; code: string }>;
+  note?: string;
+}
+
+export const MAX_REQUEST_NOTE = 500;
+
+/** Sanea nota de solicitud: control chars → trim → vacío = undefined; >500 = Error. */
+export function sanitizeRequestNote(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'string') throw new Error('La nota debe ser texto.');
+  const cleaned = raw.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+  if (!cleaned) return undefined;
+  if (cleaned.length > MAX_REQUEST_NOTE) throw new Error(`La nota no puede pasar de ${MAX_REQUEST_NOTE} caracteres.`);
+  return cleaned;
 }
 export interface SkippedRequest { orderId: number; orderName: string | null; reason: string }
 
@@ -144,10 +159,19 @@ function parseRequest(raw: unknown): InvoiceRequest | null {
     if (!Array.isArray(raw.satKeys)) return null;
     const satKeys: SatKey[] = [];
     for (const k of raw.satKeys) {
-      if (!isRecord(k) || !isPosInt(k.lineId) || typeof k.name !== 'string' || typeof k.code !== 'string') return null;
+      if (!isRecord(k) || !isPosInt(k.lineId) || typeof k.name !== 'string') return null;
+      if (k.code === null) {
+        satKeys.push({ lineId: k.lineId, name: k.name, code: null, inList: false });
+        continue;
+      }
+      if (typeof k.code !== 'string' || !k.code) return null;
       satKeys.push({ lineId: k.lineId, name: k.name, code: k.code, inList: k.inList !== false });
     }
     out.satKeys = satKeys;
+  }
+  if (raw.note !== undefined) {
+    if (typeof raw.note !== 'string' || !raw.note || raw.note.length > MAX_REQUEST_NOTE) return null;
+    out.note = raw.note;
   }
   if (raw.status === 'hecha') {
     const doneBy = parseActor(raw.doneBy);
@@ -197,14 +221,19 @@ export function parseCreateRequestsBody(body: unknown): RequestDraft[] {
     if (!isRecord(item)) throw new Error('Solicitud inválida.');
     if (!isPosInt(item.orderId)) throw new Error('orderId inválido.');
     const sat = parseSatKeysBody(item.satKeys);
+    // La nota se sanea en buildRequest (skipped por draft si pasa de 500); aquí solo tipado.
+    if (item.note !== undefined && item.note !== null && typeof item.note !== 'string') {
+      throw new Error('La nota debe ser texto.');
+    }
+    const withNote = typeof item.note === 'string' ? { note: item.note } : {};
     if (item.type !== 'factura' && item.type !== 'remision') throw new Error('Tipo de solicitud inválido.');
-    if (item.type === 'factura' && item.lines === undefined) return { orderId: item.orderId, type: 'factura', ...sat };
+    if (item.type === 'factura' && item.lines === undefined) return { orderId: item.orderId, type: 'factura', ...sat, ...withNote };
     if (!Array.isArray(item.lines) || item.lines.length === 0) throw new Error(item.type === 'factura' ? 'La factura parcial necesita al menos una pieza.' : 'La remisión necesita al menos una pieza.');
     const lines = item.lines.map(l => {
       if (!isRecord(l) || !isPosInt(l.lineId) || !isPosNum(l.qty)) throw new Error('Pieza inválida: lineId entero y cantidad mayor a 0.');
       return { lineId: l.lineId, qty: l.qty };
     });
-    return { orderId: item.orderId, type: item.type, lines, ...sat };
+    return { orderId: item.orderId, type: item.type, lines, ...sat, ...withNote };
   });
 }
 
@@ -219,7 +248,7 @@ function parseSatKeysBody(raw: unknown): { satKeys?: RequestDraft['satKeys'] } {
   };
 }
 
-/** OHD exige una clave SAT del catálogo por cada partida que se pide; los demás clientes no la llevan. */
+/** OHD: una entrada SAT por partida pedida; la clave es opcional (`code: null` si no vino en el draft). */
 function attachSatKeys(request: InvoiceRequest, draft: RequestDraft, order: RequestableOrder, isKnownSatCode?: (code: string) => boolean): DraftResult {
   if (!isOhdPartner(order.partner_name)) return { request };
   const needed = request.type === 'factura'
@@ -227,8 +256,15 @@ function attachSatKeys(request: InvoiceRequest, draft: RequestDraft, order: Requ
     : (request.lines ?? []).map(l => ({ lineId: l.lineId, name: l.name }));
   const satKeys: SatKey[] = [];
   for (const { lineId, name } of needed) {
-    const code = draft.satKeys?.find(k => k.lineId === lineId)?.code;
-    if (!code) return { reason: `Falta la clave SAT de ${name}.` };
+    const raw = draft.satKeys?.find(k => k.lineId === lineId)?.code;
+    if (raw === undefined || raw === null || raw === '') {
+      satKeys.push({ lineId, name, code: null, inList: false });
+      continue;
+    }
+    if (typeof raw !== 'string' || !/^\d{8}$/.test(raw)) {
+      return { reason: `La clave SAT de ${name} no es válida.` };
+    }
+    const code = raw;
     const inList = isSatOhdCode(code);
     if (!inList && !isKnownSatCode) return { reason: `La clave SAT ${code} de ${name} no está en el catálogo de OHD.` };
     if (!inList && isKnownSatCode && !isKnownSatCode(code)) return { reason: `La clave SAT ${code} de ${name} no existe en el catálogo.` };
@@ -240,10 +276,17 @@ function attachSatKeys(request: InvoiceRequest, draft: RequestDraft, order: Requ
 type DraftResult = { request: InvoiceRequest } | { reason: string };
 
 function buildRequest(draft: RequestDraft, order: RequestableOrder, pendingForOrder: InvoiceRequest[], id: string, actor: RequestActor, now: string, isKnownSatCode?: (code: string) => boolean): DraftResult {
+  let note: string | undefined;
+  try {
+    note = sanitizeRequestNote(draft.note);
+  } catch (err) {
+    return { reason: err instanceof Error ? err.message : 'Nota inválida.' };
+  }
   const base: InvoiceRequest = {
     id, orderId: order.id, orderName: order.name, partnerName: order.partner_name,
     customerReference: order.customer_reference ?? null, type: draft.type, status: 'pendiente',
     requestedBy: actor, requestedAt: now,
+    ...(note ? { note } : {}),
   };
   if (draft.type === 'factura') {
     if (!allowsPartialInvoice(order.partner_name)) {
