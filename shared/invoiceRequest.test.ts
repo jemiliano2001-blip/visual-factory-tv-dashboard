@@ -118,3 +118,11 @@ test('correo: la factura con partidas se rotula parcial y lista sus piezas', () 
   assert.doesNotMatch(mail.text, /S2 — OHD \(parcial\)/);
   assert.match(mail.html, /Fisher Controls \(parcial\)/);
 });
+
+test('correo: factura con partidas marcada completa (partial: false) no dice parcial', () => {
+  const mail = buildRequestsEmail([
+    { orderName: 'S1', partnerName: 'Fisher Controls', customerReference: null, type: 'factura', partial: false, lines: [{ lineId: 1, name: 'Válvula', qty: 4, unit: 'pza' }] },
+  ], { email: null, name: 'Ana', uid: 'u' });
+  assert.doesNotMatch(mail.text, /parcial/);
+  assert.match(mail.text, /4 pza — Válvula/);
+});

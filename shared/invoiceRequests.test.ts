@@ -490,6 +490,17 @@ test('parseCreateRequestsBody: factura con partidas', () => {
   assert.throws(() => parseCreateRequestsBody([{ orderId: 1, type: 'factura', lines: [] }]));
 });
 
+test('Fisher: "Toda la orden" no es parcial; menos piezas sí, y se conserva al leer', () => {
+  const toda = facturaFisher(empty, [{ lineId: 51, qty: 10 }, { lineId: 52, qty: 4 }]);
+  assert.equal(toda.created[0].partial, false);
+  assert.equal(normalizeInvoiceRequests(toda.state).requests[0].partial, false);
+  const menos = facturaFisher(empty, [{ lineId: 51, qty: 10 }]);
+  assert.equal(menos.created[0].partial, true);
+  assert.equal(normalizeInvoiceRequests(menos.state).requests[0].partial, true);
+  // Lo ya facturado en Odoo no cuenta: pedir todo lo que falta es completa.
+  assert.equal(facturaFisher(empty, [{ lineId: 51, qty: 4 }], fisher([6, 4])).created[0].partial, false);
+});
+
 test('solicitud de factura parcial se guarda y se lee con invoicedAtRequest', () => {
   const a = facturaFisher(empty, [{ lineId: 51, qty: 2 }], fisher([1, 0]));
   assert.deepEqual(normalizeInvoiceRequests(a.state).requests[0].lines, a.created[0].lines);

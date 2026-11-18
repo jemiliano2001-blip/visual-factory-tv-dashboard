@@ -31,6 +31,8 @@ export interface MailableRequest {
   customerReference: string | null;
   type: 'factura' | 'remision';
   lines?: { lineId?: number; name: string; qty: number; unit: string | null }[];
+  /** Factura con partidas: false = cubre todo lo que faltaba. Ausente = parcial si trae partidas. */
+  partial?: boolean;
   /** Solo OHD: clave SAT por partida; `code: null` = sin clave. */
   satKeys?: { lineId: number; name: string; code: string | null; inList?: boolean }[];
   note?: string;
@@ -51,7 +53,7 @@ export function buildRequestsEmail(
   const who = (actor.name || actor.email || actor.uid).replace(/\s+/g, ' ').trim().slice(0, 80);
   const intro = `Buen día, ${who} pide lo siguiente:`;
   const head = (r: MailableRequest) =>
-    `${r.orderName} — ${r.partnerName}${r.customerReference ? ` (PO ${r.customerReference})` : ''}${r.type === 'factura' && r.lines?.length ? ' (parcial)' : ''}`;
+    `${r.orderName} — ${r.partnerName}${r.customerReference ? ` (PO ${r.customerReference})` : ''}${r.type === 'factura' && r.lines?.length && r.partial !== false ? ' (parcial)' : ''}`;
   const sat = (k: { code: string | null; inList?: boolean } | undefined) => {
     if (!k) return '';
     if (k.code === null) return ' — Sin clave SAT — Mary elige/valida';

@@ -23,7 +23,7 @@ function RequestCard({ request, action, progress }: { request: InvoiceRequest; a
     <li className="rounded-2xl border border-border bg-card p-4 space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono-data text-base font-bold text-foreground">{request.orderName}</span>
-        <Badge variant={isFactura ? 'default' : 'info'} size="md">{isFactura ? (request.lines?.length ? 'Factura parcial' : 'Factura') : 'Remisión'}</Badge>
+        <Badge variant={isFactura ? 'default' : 'info'} size="md">{isFactura ? (request.lines?.length && request.partial !== false ? 'Factura parcial' : 'Factura') : 'Remisión'}</Badge>
         <span className="text-sm text-foreground">{request.partnerName}</span>
         {request.customerReference && (
           <span className="text-sm text-muted-foreground">Compra <span className="font-mono-data">{request.customerReference}</span></span>

@@ -20,6 +20,8 @@ export interface InvoiceRequest {
   customerReference: string | null;
   type: RequestType;
   lines?: InvoiceRequestLine[];
+  /** Solo factura con partidas: false si cubre todo lo que faltaba por facturar. Ausente (viejas) = parcial si trae partidas. */
+  partial?: boolean;
   satKeys?: SatKey[];
   /** Nota para facturación (correo / Discord); opcional. */
   note?: string;
@@ -154,6 +156,7 @@ function parseRequest(raw: unknown): InvoiceRequest | null {
       lines.push({ lineId: l.lineId, name: l.name, qty: l.qty, unit, ...(isPosNum(l.deliveredAtRequest) || l.deliveredAtRequest === 0 ? { deliveredAtRequest: l.deliveredAtRequest as number } : {}), ...(isPosNum(l.invoicedAtRequest) || l.invoicedAtRequest === 0 ? { invoicedAtRequest: l.invoicedAtRequest as number } : {}) });
     }
     out.lines = lines;
+    if (raw.type === 'factura' && typeof raw.partial === 'boolean') out.partial = raw.partial;
   }
   if (raw.satKeys !== undefined) {
     if (!Array.isArray(raw.satKeys)) return null;
@@ -310,7 +313,10 @@ function buildRequest(draft: RequestDraft, order: RequestableOrder, pendingForOr
       if (!(qty > 0)) return { reason: `La cantidad de ${line.name} debe ser mayor a 0.` };
       lines.push({ lineId: dl.lineId, name: line.name, qty, unit: line.unit ?? null, invoicedAtRequest: Math.max(0, line.invoiced ?? 0) });
     }
-    return { request: { ...base, lines } };
+    // Parcial = alguna partida queda con algo por facturar fuera de esta solicitud.
+    const partial = order.lines.some(l => l.id !== undefined &&
+      lineInvoiceRemaining(l, pendingForOrder) - (lines.find(x => x.lineId === l.id)?.qty ?? 0) > EPS);
+    return { request: { ...base, lines, partial } };
   }
   if (!order.lines.some(l => l.id !== undefined && lineRemainingQty(l, pendingForOrder) > EPS)) {
     return { reason: `La orden ${order.name} no tiene piezas pendientes de entrega, o ya están pedidas en otra remisión.` };
