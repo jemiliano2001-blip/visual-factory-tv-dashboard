@@ -49,13 +49,19 @@ export default defineConfig(({mode}) => {
         devOptions: { enabled: true },
         workbox: {
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          globIgnores: [
+            '**/exportExcel-*.js',
+            '**/satCatalogData-*.js',
+            '**/vendor-recharts-*.js',
+            '**/vendor-table-*.js',
+          ],
         },
         manifest: {
-          name: 'Visual Factory TV',
+          name: 'Fábrica Visual TV',
           short_name: 'VF TV',
-          description: 'Visual Factory TV Dashboard',
-          theme_color: '#09090b',
-          background_color: '#09090b',
+          description: 'Tablero de control de producción y entregas en tiempo real - SMV',
+          theme_color: '#0a0a0f',
+          background_color: '#0a0a0f',
           display: 'standalone',
           icons: [
             { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
@@ -78,11 +84,13 @@ export default defineConfig(({mode}) => {
             if (id.includes('node_modules')) {
               if (id.includes('firebase')) return 'vendor-firebase';
               if (id.includes('framer-motion')) return 'vendor-motion';
-              if (id.includes('@tanstack')) return 'vendor-tanstack';
+              if (id.includes('@tanstack/react-query')) return 'vendor-query';
+              if (id.includes('@tanstack/react-table') || id.includes('@tanstack/table-core')) return 'vendor-table';
               if (id.includes('lucide-react')) return 'vendor-lucide';
               if (id.includes('date-fns')) return 'vendor-date-fns';
               if (id.includes('@base-ui')) return 'vendor-base-ui';
-              if (id.includes('recharts')) return 'vendor-recharts';
+              if (id.includes('clsx') || id.includes('tailwind-merge') || id.includes('class-variance-authority')) return 'vendor-utils';
+              if (id.includes('recharts') || id.includes('victory-vendor') || id.includes('d3-')) return 'vendor-recharts';
             }
           },
         },

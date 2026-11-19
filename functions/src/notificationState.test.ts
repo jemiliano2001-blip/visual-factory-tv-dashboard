@@ -90,3 +90,21 @@ test('retiene deduplicación de entregadas aún presentes aunque venza el histor
   assert.deepEqual(patch.deliveryTimestamps, {});
 });
 
+test('poda clientMonthlyStats a los últimos 6 meses y clientAlertDates antiguos', () => {
+  const state = initialState();
+  state.clientMonthlyStats = {
+    Bosch: {
+      '2025-01': ['1'], '2025-02': ['2'], '2025-03': ['3'],
+      '2025-04': ['4'], '2025-05': ['5'], '2025-06': ['6'], '2025-07': ['7'],
+    },
+  };
+  const recentDate = new Date().toISOString().slice(0, 10);
+  state.clientAlertDates = { Viejo: '2020-01-01', Reciente: recentDate };
+
+  const patch = createNotificationStatePatch(state, ['clientMonthlyStats', 'clientAlertDates']);
+  assert.equal(Object.keys(patch.clientMonthlyStats.Bosch).length, 6);
+  assert.equal(patch.clientMonthlyStats.Bosch['2025-01'], undefined);
+  assert.deepEqual(patch.clientMonthlyStats.Bosch['2025-07'], ['7']);
+  assert.deepEqual(patch.clientAlertDates, { Reciente: recentDate });
+});
+

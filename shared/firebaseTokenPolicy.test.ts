@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
-import { crearAuthApi, esTokenAnonimo, identidadDeToken } from './firebaseTokenPolicy.ts';
+import { crearAuthApi, esEmailVerificado, esTokenAnonimo, extractBearerToken, identidadDeToken } from './firebaseTokenPolicy.ts';
 
 function jwt(payload: Record<string, unknown>): string {
   const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
@@ -89,4 +89,31 @@ test('functions/src/index.ts usa crearAuthApi y no el guard anónimo viejo', () 
   assert.ok(src.includes('crearAuthApi('));
   assert.ok(!src.includes('esTokenAnonimo('));
   assert.ok(!src.includes("app.use('/api/order-assignments'"));
+});
+
+test('extractBearerToken es insensible a mayúsculas y esEmailVerificado exige boolean true', () => {
+  const t = jwt({ user_id: 'u1', email_verified: true, firebase: { sign_in_provider: 'password' } });
+  assert.equal(extractBearerToken(`bearer ${t}`), t);
+  assert.equal(esEmailVerificado(t), true);
+  assert.equal(esEmailVerificado(jwt({ user_id: 'u1', email_verified: 'true' })), false);
+});
+
+test('crearAuthApi acepta bearer en minúsculas y responde 401 si verificar lanza error', async () => {
+  const t = jwt({ user_id: 'u1', email: 'a@smv.mx', name: 'Ana', firebase: { sign_in_provider: 'password' } });
+  const r = await correrAuth(`bearer ${t}`, true);
+  assert.equal(r.nexts, 1);
+
+  const res = {
+    code: 0,
+    body: undefined as unknown,
+    locals: {} as Record<string, unknown>,
+    status(c: number) { this.code = c; return { json: (b: unknown) => { this.body = b; } }; },
+  };
+  let nexts = 0;
+  await crearAuthApi(async () => { throw new Error('red caída'); })(
+    { headers: { authorization: `Bearer ${t}` } },
+    res,
+    () => { nexts++; },
+  );
+  assert.deepEqual([res.code, nexts], [401, 0]);
 });

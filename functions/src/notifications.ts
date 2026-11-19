@@ -62,16 +62,80 @@ const defaultRuntime: NotificationRuntime = { loadState, saveState, sendWebhook 
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-export async function loadState(): Promise<NotificationState> {
+const isPlainRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+function parseNotificationState(raw: unknown): NotificationState {
   const initial = structuredClone(EMPTY_STATE);
+  if (!isPlainRecord(raw)) return initial;
+  if (isPlainRecord(raw.sentAlerts)) {
+    for (const [k, v] of Object.entries(raw.sentAlerts)) if (typeof v === 'number' && Number.isFinite(v)) initial.sentAlerts[k] = v;
+  }
+  if (Array.isArray(raw.knownOrderIds)) {
+    initial.knownOrderIds = raw.knownOrderIds.filter((id): id is number => typeof id === 'number' && Number.isFinite(id));
+  }
+  if (typeof raw.eventsInitialized === 'boolean') initial.eventsInitialized = raw.eventsInitialized;
+  if (Array.isArray(raw.deliveredOrderIds)) {
+    initial.deliveredOrderIds = raw.deliveredOrderIds.filter((id): id is number => typeof id === 'number' && Number.isFinite(id));
+  }
+  if (isPlainRecord(raw.deliveryTimestamps)) {
+    for (const [k, v] of Object.entries(raw.deliveryTimestamps)) {
+      if (isPlainRecord(v) && typeof v.detectedAt === 'number' && typeof v.ageAtDelivery === 'number') {
+        initial.deliveryTimestamps[k] = { detectedAt: v.detectedAt, ageAtDelivery: v.ageAtDelivery };
+      }
+    }
+  }
+  if (isPlainRecord(raw.clientAlertDates)) {
+    for (const [k, v] of Object.entries(raw.clientAlertDates)) if (typeof v === 'string') initial.clientAlertDates[k] = v;
+  }
+  if (isPlainRecord(raw.clientAlertSignatures)) {
+    initial.clientAlertSignatures = {};
+    for (const [k, v] of Object.entries(raw.clientAlertSignatures)) if (typeof v === 'string') initial.clientAlertSignatures[k] = v;
+  }
+  if (typeof raw.lastMonthlyReportMonth === 'string') initial.lastMonthlyReportMonth = raw.lastMonthlyReportMonth;
+  if (isPlainRecord(raw.partialDeliveryAlerts)) {
+    for (const [k, v] of Object.entries(raw.partialDeliveryAlerts)) if (typeof v === 'number' && Number.isFinite(v)) initial.partialDeliveryAlerts[k] = v;
+  }
+  if (isPlainRecord(raw.lastDeliveryStates)) {
+    for (const [k, v] of Object.entries(raw.lastDeliveryStates)) {
+      if (isPlainRecord(v) && typeof v.sig === 'string' && typeof v.changedAt === 'number') {
+        initial.lastDeliveryStates[k] = { sig: v.sig, changedAt: v.changedAt };
+      }
+    }
+  }
+  if (isPlainRecord(raw.stalledAlerts)) {
+    for (const [k, v] of Object.entries(raw.stalledAlerts)) if (typeof v === 'number' && Number.isFinite(v)) initial.stalledAlerts[k] = v;
+  }
+  if (isPlainRecord(raw.clientMonthlyStats)) {
+    for (const [client, months] of Object.entries(raw.clientMonthlyStats)) {
+      if (!isPlainRecord(months)) continue;
+      const cleanMonths: Record<string, string[]> = {};
+      for (const [m, ids] of Object.entries(months)) {
+        if (Array.isArray(ids)) cleanMonths[m] = ids.filter((id): id is string => typeof id === 'string');
+      }
+      initial.clientMonthlyStats[client] = cleanMonths;
+    }
+  }
+  if (Array.isArray(raw.recoveryNotifications)) {
+    initial.recoveryNotifications = raw.recoveryNotifications.filter((id): id is string => typeof id === 'string');
+  }
+  if (isPlainRecord(raw.weeklyBaselineOverdue)) {
+    for (const [k, v] of Object.entries(raw.weeklyBaselineOverdue)) {
+      if (typeof v === 'number' && Number.isFinite(v)) initial.weeklyBaselineOverdue[k] = v;
+    }
+  }
+  return initial;
+}
+
+export async function loadState(): Promise<NotificationState> {
   try {
     const doc = await admin.firestore().collection('config').doc('notification_state').get();
-    if (doc.exists) return { ...initial, ...doc.data() } as NotificationState;
+    if (doc.exists) return parseNotificationState(doc.data());
   } catch (e) {
     console.error('[notifications] Error cargando estado de Firestore:', e);
     throw new Error('No se pudo leer la deduplicación; se cancela el envío para evitar avisos repetidos.');
   }
-  return initial;
+  return structuredClone(EMPTY_STATE);
 }
 
 export async function saveState(
@@ -105,16 +169,39 @@ function escapeDiscord(s: string): string {
 
 // ─── Discord webhook ──────────────────────────────────────────────────────────
 
+let sendQueue: Promise<unknown> = Promise.resolve();
 let lastSendMs = 0;
 
-async function postWebhook(url: string, body: string): Promise<Response> {
-  // Enforce minimum 1.5s between sends to stay under Discord's per-webhook rate limit
-  const wait = 1500 - (Date.now() - lastSendMs);
-  if (wait > 0) await new Promise(r => setTimeout(r, wait));
-  lastSendMs = Date.now();
+function enqueueSend<T>(fn: () => Promise<T>): Promise<T> {
+  const next = sendQueue.then(fn, fn);
+  sendQueue = next.catch(() => undefined);
+  return next;
+}
+
+async function postWebhookRaw(url: string, body: string): Promise<Response> {
   const target = new URL(url);
   target.searchParams.set('wait', 'true');
   return fetch(target, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(15000) });
+}
+
+async function postWebhook(url: string, body: string): Promise<Response> {
+  return enqueueSend(async () => {
+    // Enforce minimum 1.5s between sends to stay under Discord's per-webhook rate limit
+    const wait = 1500 - (Date.now() - lastSendMs);
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    lastSendMs = Date.now();
+    const res = await postWebhookRaw(url, body);
+    if (res.status === 429) {
+      const parsed = await res.json().catch(() => ({})) as { retry_after?: unknown };
+      const retrySec = typeof parsed.retry_after === 'number' && Number.isFinite(parsed.retry_after) && parsed.retry_after > 0
+        ? Math.min(parsed.retry_after, 10)
+        : 2;
+      await new Promise(r => setTimeout(r, Math.ceil(retrySec * 1000) + 500));
+      lastSendMs = Date.now();
+      return postWebhookRaw(url, body);
+    }
+    return res;
+  });
 }
 
 interface DiscordWebhookPayload {
@@ -133,13 +220,7 @@ export async function sendWebhook(url: string, content: string, embeds: DiscordE
   if (threadName) payload.thread_name = threadName;
   const body = JSON.stringify(payload);
   try {
-    let res = await postWebhook(url, body);
-    if (res.status === 429) {
-      const { retry_after } = await res.json() as { retry_after?: number };
-      await new Promise(r => setTimeout(r, Math.ceil((retry_after ?? 1) * 1000) + 500));
-      lastSendMs = Date.now();
-      res = await postWebhook(url, body);
-    }
+    const res = await postWebhook(url, body);
     if (!res.ok) {
       console.error(`[notifications] Discord webhook falló: HTTP ${res.status}`);
       return false;
@@ -300,28 +381,50 @@ export function buildConsolidatedOrdersEmbed(
   const color = hasCritical ? 0xDC2626 : 0x2563EB;
   const title = `📦 Resumen consolidado: ${items.length} órdenes (${criticas.length} críticas)`;
 
-  const lines: string[] = [
+  const headerLines = [
     `⚡ Se procesaron **${items.length}** órdenes en este intervalo: **${criticas.length}** críticas · **${normales.length}** normales`,
     '',
     '**Detalle individual accesible:**',
   ];
+  const footerLine = `\n🔗 [Abrir Visual Factory TV](${dashboardUrl})`;
 
-  for (const item of items) {
+  const blocks = items.map(item => {
     const badge = item.severity === 'critical' ? '🔴 [CRÍTICA]' : '🆕 [NUEVA]';
     const commitment = formatCommitmentLine(item.order.commitment_date);
-    lines.push(
+    return [
       `• ${badge} **${escapeDiscord(item.order.name)}** · ${escapeDiscord(item.order.partner_name)}`,
       `  👤 **Ingeniero:** ${escapeDiscord(item.engineer)} | 📝 **Smart Text:** ${escapeDiscord(item.smartText)}`,
       `  ⏱ **Estado:** ${item.reason}${commitment ? ` · ${commitment}` : ''}`,
       `  🔗 [Ver en tablero](${dashboardUrl})`,
-    );
+    ].join('\n');
+  });
+
+  const kept: string[] = [];
+  let used = headerLines.join('\n').length + footerLine.length + 1;
+  for (const block of blocks) {
+    const rest = blocks.length - kept.length - 1;
+    const extra = rest > 0 ? 32 : 0;
+    if (kept.length > 0 && used + block.length + 1 + extra > 4096) break;
+    if (kept.length === 0 && used + block.length + 1 + extra > 4096) {
+      const budget = Math.max(0, 4096 - used - extra - 2);
+      kept.push(`${block.slice(0, budget)}…`);
+      break;
+    }
+    kept.push(block);
+    used += block.length + 1;
   }
 
-  lines.push('', `🔗 [Abrir Visual Factory TV](${dashboardUrl})`);
+  const omitted = blocks.length - kept.length;
+  const bodyLines = [
+    ...headerLines,
+    ...kept,
+    ...(omitted > 0 ? [`…y ${omitted} órdenes más`] : []),
+    footerLine,
+  ];
 
   return {
     title: title.slice(0, 256),
-    description: lines.join('\n').slice(0, 4096),
+    description: bodyLines.join('\n').slice(0, 4096),
     color,
     timestamp: nowISO(),
     footer: { text: 'Visual Factory TV · Odoo' },
@@ -360,7 +463,45 @@ export function getOrderAgeDays(dateOrder: string): number {
   return count;
 }
 
+const CHICAGO_TZ = 'America/Chicago';
+const WEEKDAY_MAP: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+function getChicagoParts(date: Date): { year: number; month: number; day: number; weekday: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: CHICAGO_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+  }).formatToParts(date);
+  const val = (type: string) => parts.find(p => p.type === type)?.value ?? '';
+  return {
+    year: Number(val('year')),
+    month: Number(val('month')),
+    day: Number(val('day')),
+    weekday: WEEKDAY_MAP[val('weekday')] ?? date.getUTCDay(),
+  };
+}
+
+function formatChicagoDate(date: Date): string {
+  const { year, month, day } = getChicagoParts(date);
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function formatChicagoMonth(date: Date): string {
+  const { year, month } = getChicagoParts(date);
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
 export function isFullyDelivered(order: NotifOrder): boolean {
+  const positiveLines = (order.lines ?? []).filter(
+    (l): l is { name: string; qty: number; delivered: number } =>
+      typeof l.qty === 'number' && Number.isFinite(l.qty) && l.qty > 0 &&
+      typeof l.delivered === 'number' && Number.isFinite(l.delivered),
+  );
+  if (positiveLines.length > 0) {
+    return positiveLines.every(l => l.delivered >= l.qty - 1e-6);
+  }
   const active = order.deliveries.filter(d => d.state !== 'cancel');
   return active.length > 0 && active.every(d => d.state === 'done');
 }
@@ -378,7 +519,8 @@ function getReportMention(): string {
 
 // Returns "YYYY-WW" using ISO week numbering (Monday = start of week)
 function getISOWeek(date: Date): string {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const { year, month, day } = getChicagoParts(date);
+  const d = new Date(Date.UTC(year, month - 1, day));
   const dayNum = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
@@ -519,7 +661,7 @@ export async function checkThresholds(
     { days: 30, key: '30d', color: 0x7F1D1D, title: '🚨 Entrega pendiente — 30 días hábiles o más' },
   ] as const;
 
-  const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const currentMonth = formatChicagoMonth(new Date()); // YYYY-MM
 
   for (const order of orders) {
     if (isFullyDelivered(order)) continue;
@@ -549,7 +691,7 @@ export async function checkEvents(
 ): Promise<void> {
   const state = await runtime.loadState();
   const alerts: PendingAlert[] = [];
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = formatChicagoDate(new Date());
   const isFirstRun = !state.eventsInitialized && state.knownOrderIds.length === 0;
   state.eventsInitialized = true;
   const pendingNewIds = new Set<number>();
@@ -602,7 +744,7 @@ export async function checkEvents(
         const hadCriticalAlert = ['14d', '21d', '30d'].some(level => state.sentAlerts[`${order.id}_${level}`]);
         const recovered = hadCriticalAlert && !state.recoveryNotifications.includes(key);
         queue(channels.eventos, reportEmbed(
-          `✅ ${recovered ? 'Orden recuperada' : 'Orden entregada'} — ${order.name}`,
+          `✅ ${recovered ? 'Orden recuperada' : 'Orden entregada'} — ${escapeDiscord(order.name)}`,
           orderEventDescription(order, [clientLine, `**Antigüedad al detectar entrega:** ${age} días hábiles`,
             '**Acción:** confirmar cierre de remisiones y facturación.']), 0x16A34A), () => {
             if (recovered) state.recoveryNotifications.push(key);
@@ -619,7 +761,7 @@ export async function checkEvents(
     const active = order.deliveries.filter(delivery => delivery.state !== 'cancel');
     const done = active.filter(delivery => delivery.state === 'done');
     if (done.length > 0 && !state.partialDeliveryAlerts[key]) {
-      queue(channels.eventos, reportEmbed(`📦 Entrega parcial — ${order.name}`,
+      queue(channels.eventos, reportEmbed(`📦 Entrega parcial — ${escapeDiscord(order.name)}`,
         orderEventDescription(order, [clientLine, `**Remisiones:** ${done.length} de ${active.length} completadas`,
           '**Acción:** confirmar qué piezas faltan y la próxima entrega.']), 0x10B981),
         () => { state.partialDeliveryAlerts[key] = Date.now(); });
@@ -631,7 +773,7 @@ export async function checkEvents(
       state.lastDeliveryStates[key] = { sig, changedAt: Date.now() };
       delete state.stalledAlerts[key];
     } else if (!state.stalledAlerts[key] && businessDaysSince(prev.changedAt) >= STALL_DAYS) {
-      queue(channels.criticas, reportEmbed(`⏸️ Orden sin movimiento — ${order.name}`,
+      queue(channels.criticas, reportEmbed(`⏸️ Orden sin movimiento — ${escapeDiscord(order.name)}`,
         orderEventDescription(order, [clientLine, `**Sin cambios en remisiones:** ${STALL_DAYS} días hábiles o más`,
           '**Acción:** confirmar avance real y actualizar las remisiones en Odoo.']), 0xF59E0B),
         () => { state.stalledAlerts[key] = Date.now(); });
@@ -732,7 +874,7 @@ export async function sendMorningReport(orders: NotifOrder[], mainUrl: string): 
     over14
       .sort((a, b) => getOrderAgeDays(b.date_order) - getOrderAgeDays(a.date_order))
       .slice(0, 10)
-      .forEach(o => lines.push(`  • ${o.name} · ${escapeDiscord(o.partner_name)} (${getOrderAgeDays(o.date_order)}d)`));
+      .forEach(o => lines.push(`  • ${escapeDiscord(o.name)} · ${escapeDiscord(o.partner_name)} (${getOrderAgeDays(o.date_order)}d)`));
   } else {
     lines.push('✅ Sin órdenes críticas hoy.');
   }
@@ -742,7 +884,7 @@ export async function sendMorningReport(orders: NotifOrder[], mainUrl: string): 
   const weekKey = getISOWeek(now);
   state.weeklyBaselineOverdue ??= {};
 
-  if (now.getDay() === 1) {
+  if (getChicagoParts(now).weekday === 1) {
     state.weeklyBaselineOverdue[weekKey] = over14.length;
     await saveState(state, ['weeklyBaselineOverdue']);
   } else {
@@ -781,7 +923,7 @@ export async function sendWeeklySummary(orders: NotifOrder[], mainUrl: string): 
     '🏆 **Top clientes con órdenes atrasadas (+14d):**',
     ...(topClients.length > 0 ? topClients : ['  Ninguno esta semana']),
     '',
-    oldest ? `⏳ **Orden más antigua:** ${oldest.name} · ${escapeDiscord(oldest.partner_name)} (${getOrderAgeDays(oldest.date_order)}d)` : '✅ Sin órdenes activas.',
+    oldest ? `⏳ **Orden más antigua:** ${escapeDiscord(oldest.name)} · ${escapeDiscord(oldest.partner_name)} (${getOrderAgeDays(oldest.date_order)}d)` : '✅ Sin órdenes activas.',
   ].filter(Boolean);
 
   const chartUrl = buildWeeklyChartUrl(state);
@@ -796,7 +938,7 @@ export async function sendMiddayReport(orders: NotifOrder[], mainUrl: string): P
     ...overdue
       .sort((a, b) => getOrderAgeDays(b.date_order) - getOrderAgeDays(a.date_order))
       .slice(0, 8)
-      .map(o => `  • ${o.name} · ${escapeDiscord(o.partner_name)} (${getOrderAgeDays(o.date_order)}d)`),
+      .map(o => `  • ${escapeDiscord(o.name)} · ${escapeDiscord(o.partner_name)} (${getOrderAgeDays(o.date_order)}d)`),
   ];
   await sendWebhook(mainUrl, '', [reportEmbed('☀️ Reporte mediodía — Visual Factory', lines, 0xD97706)]);
 }
@@ -832,7 +974,7 @@ export async function sendWeekendReport(orders: NotifOrder[], mainUrl: string): 
     overdue
       .sort((a, b) => getOrderAgeDays(b.date_order) - getOrderAgeDays(a.date_order))
       .slice(0, 5)
-      .forEach(o => lines.push(`  • ${o.name} · ${escapeDiscord(o.partner_name)} (${getOrderAgeDays(o.date_order)}d)`));
+      .forEach(o => lines.push(`  • ${escapeDiscord(o.name)} · ${escapeDiscord(o.partner_name)} (${getOrderAgeDays(o.date_order)}d)`));
   } else {
     lines.push('✅ Sin críticas al cierre de semana.');
   }
@@ -875,13 +1017,15 @@ export async function sendMonthlyReport(orders: NotifOrder[], mainUrl: string): 
 }
 
 function prevMonthRange(): { start: number; end: number; label: string } {
-  const now = new Date();
-  const y   = now.getFullYear();
-  const m   = now.getMonth();
+  const { year, month } = getChicagoParts(new Date()); // month 1..12
   return {
-    start: new Date(y, m - 1, 1).getTime(),
-    end:   new Date(y, m, 1).getTime(),
-    label: new Date(y, m - 1).toLocaleString('es-MX', { month: 'long', year: 'numeric' }),
+    start: Date.UTC(year, month - 2, 1, 6, 0, 0),
+    end: Date.UTC(year, month - 1, 1, 6, 0, 0),
+    label: new Date(Date.UTC(year, month - 2, 15, 12, 0, 0)).toLocaleString('es-MX', {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    }),
   };
 }
 
@@ -907,7 +1051,13 @@ export function buildInvoiceRequestsEmbed(created: InvoiceRequest[], actor: Requ
   for (const block of blocks) {
     const rest = blocks.length - kept.length - 1;
     // Reserva espacio para el aviso "…y N órdenes más" mientras queden órdenes sin incluir.
-    if (length + block.length + 1 + (rest ? 30 : 0) > 4096) break;
+    if (length + block.length + 1 + (rest ? 30 : 0) > 4096) {
+      if (kept.length === 0) {
+        const budget = Math.max(0, 4096 - length - (rest ? 30 : 0) - 2);
+        if (budget > 20) kept.push(`${block.slice(0, budget)}…`);
+      }
+      break;
+    }
     kept.push(block);
     length += block.length + 1;
   }

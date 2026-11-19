@@ -74,3 +74,15 @@ test('getOrderEngineerId busca por nombre y luego por id', () => {
   assert.equal(getOrderEngineerId({ '7': 'edgar-castro' }, { id: 7, name: 'S01' }), 'edgar-castro');
   assert.equal(getOrderEngineerId({}, { id: 7, name: 'S01' }), null);
 });
+
+test('nombre de 1 carácter sobrevive claimOrders -> normalizeOrderAssignments y parseOrderKeys rechaza vacíos/prototipo', () => {
+  const claimed = claimOrders(normalizeOrderAssignments(null), { uid: 'X1', name: 'A', email: null }, ['S01']);
+  const reloaded = normalizeOrderAssignments(JSON.parse(JSON.stringify(claimed)));
+  assert.equal(reloaded.engineers.length, 1);
+  assert.equal(reloaded.engineers[0].name, 'A.');
+  assert.equal(reloaded.assignments.S01, 'u-X1');
+
+  for (const bad of [[''], ['   '], ['__proto__'], ['constructor'], ['prototype']]) {
+    assert.throws(() => parseOrderKeys({ orderKeys: bad }), /orderKeys inválido/);
+  }
+});

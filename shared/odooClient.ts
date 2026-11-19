@@ -50,7 +50,7 @@ interface RawMove {
   id: number;
   sale_line_id: [number, string] | false;
   quantity_done: number;
-  product_uom: [number, string];
+  product_uom: [number, string] | false;
   origin_returned_move_id: [number, string] | false;
 }
 
@@ -92,6 +92,7 @@ export class OdooClient {
   private readonly password: string;
   private sessionPromise: Promise<OdooSession> | null = null;
   private reauthing: Promise<OdooSession> | null = null;
+  private sessionVersion = 0;
 
   constructor(config: OdooClientConfig) {
     this.url = config.url.replace(/\/$/, '');
@@ -110,6 +111,7 @@ export class OdooClient {
 
   async getSession(forceNew = false): Promise<OdooSession> {
     if (forceNew || !this.sessionPromise) {
+      this.sessionVersion++;
       this.sessionPromise = this.authenticate().catch(err => {
         this.sessionPromise = null;
         throw err;
@@ -181,13 +183,24 @@ export class OdooClient {
         }),
         signal: controller.signal,
       });
+      if (response.status === 401 || response.status === 403) {
+        throw new OdooSessionExpiredError(`Odoo HTTP ${response.status} ${response.statusText}`);
+      }
       if (!response.ok) {
         throw new Error(`Odoo HTTP error: ${response.status} ${response.statusText}`);
       }
-      const json = (await response.json()) as {
+      let json: {
         result?: T;
         error?: { code?: number; message: string; data?: { message?: string; name?: string } };
       };
+      try {
+        json = (await response.json()) as typeof json;
+      } catch (err) {
+        if (err instanceof SyntaxError) {
+          throw new OdooSessionExpiredError('Odoo devolvió respuesta no JSON (posible sesión expirada)');
+        }
+        throw err;
+      }
       if (json.error) {
         const msg = json.error.data?.message || json.error.message || 'Error desconocido de Odoo';
         if (json.error.code === 100 || json.error.data?.name === 'odoo.http.SessionExpiredException') {
@@ -207,19 +220,31 @@ export class OdooClient {
     args: unknown[] = [],
     kwargs: Record<string, unknown> = {},
   ): Promise<T> {
+    const initialSession = await this.getSession();
+    const usedVersion = this.sessionVersion;
     try {
-      return await this.odooRpc<T>(await this.getSession(), model, method, args, kwargs);
+      return await this.odooRpc<T>(initialSession, model, method, args, kwargs);
     } catch (err) {
       if (!(err instanceof OdooSessionExpiredError)) throw err;
       console.warn('[Odoo] Sesión expirada — reautenticando…');
-      if (!this.reauthing) {
-        this.reauthing = this.getSession(true).finally(() => { this.reauthing = null; });
+      let nextSession: OdooSession;
+      if (this.sessionVersion === usedVersion) {
+        if (!this.reauthing) {
+          this.reauthing = this.getSession(true).finally(() => { this.reauthing = null; });
+        }
+        nextSession = await this.reauthing;
+      } else {
+        nextSession = await (this.reauthing ?? this.getSession());
       }
-      return await this.odooRpc<T>(await this.reauthing, model, method, args, kwargs);
+      return await this.odooRpc<T>(nextSession, model, method, args, kwargs);
     }
   }
 
   private ordersCache: { at: number; promise: ReturnType<OdooClient['fetchInvoiceableOrders']> } | null = null;
+
+  invalidateOrdersCache(): void {
+    this.ordersCache = null;
+  }
 
   /**
    * Igual que fetchInvoiceableOrders, pero varias pantallas/pestañas dentro de la
@@ -227,12 +252,21 @@ export class OdooClient {
    * Un fallo no se cachea.
    */
   fetchInvoiceableOrdersCached(ttlMs = 60_000): ReturnType<OdooClient['fetchInvoiceableOrders']> {
+    if (ttlMs <= 0) return this.fetchInvoiceableOrders();
     const cached = this.ordersCache;
     if (cached && Date.now() - cached.at < ttlMs) return cached.promise;
-    const promise = this.fetchInvoiceableOrders();
-    this.ordersCache = { at: Date.now(), promise };
+    const entry: { at: number; promise: ReturnType<OdooClient['fetchInvoiceableOrders']> } = {
+      at: Date.now(),
+      promise: Promise.resolve({ orders: [], truncated: false }),
+    };
+    const promise = this.fetchInvoiceableOrders().then(res => {
+      if (this.ordersCache === entry) entry.at = Date.now();
+      return res;
+    });
+    entry.promise = promise;
+    this.ordersCache = entry;
     promise.catch(() => {
-      if (this.ordersCache?.promise === promise) this.ordersCache = null;
+      if (this.ordersCache === entry) this.ordersCache = null;
     });
     return promise;
   }
@@ -291,8 +325,9 @@ export class OdooClient {
         if (!pickingsByOrder.has(saleId)) pickingsByOrder.set(saleId, []);
         pickingsByOrder.get(saleId)!.push(picking);
       }
-    } catch {
+    } catch (err) {
       /* remisiones opcionales */
+      console.warn('[Odoo] Error al consultar stock.picking:', err instanceof Error ? err.message : String(err));
     }
 
     // Los traslados en Hecho son la fuente de entrega. Nunca sustituir un fallo
@@ -314,8 +349,8 @@ export class OdooClient {
     }
     const uomIds = Array.from(new Set([
       ...Array.from(linesMap.values()).flatMap(line => line.product_uom ? [line.product_uom[0]] : []),
-      ...outgoingMoves.map(move => move.product_uom[0]),
-      ...returnMoves.map(move => move.product_uom[0]),
+      ...outgoingMoves.flatMap(move => (Array.isArray(move.product_uom) && move.product_uom[0] ? [move.product_uom[0]] : [])),
+      ...returnMoves.flatMap(move => (Array.isArray(move.product_uom) && move.product_uom[0] ? [move.product_uom[0]] : [])),
     ]));
     const uoms = new Map<number, RawUom>();
     for (let i = 0; i < uomIds.length; i += 500) {
@@ -329,6 +364,9 @@ export class OdooClient {
       const line = lineId === undefined ? undefined : linesMap.get(lineId);
       if (!line || line.display_type) return;
       if (!line.product_uom) throw new Error('Falta la unidad de una partida de Odoo');
+      if (!Array.isArray(move.product_uom) || !move.product_uom[0]) {
+        throw new Error('Falta la unidad de un traslado de Odoo');
+      }
       let quantity = move.quantity_done;
       if (move.product_uom[0] !== line.product_uom[0]) {
         const from = uoms.get(move.product_uom[0]);

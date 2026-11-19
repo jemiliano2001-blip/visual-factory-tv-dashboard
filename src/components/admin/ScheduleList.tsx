@@ -223,18 +223,21 @@ export default function ScheduleList({ orders, canEdit, permissionLoading }: Pro
                       )}
                     </div>
                   </div>
-                  <dl className="space-y-1 text-sm">
-                    {row.odoo && (
-                      <div><dt className="text-xs text-muted-foreground">Odoo (la TV usa este)</dt><dd className="text-foreground">{row.odoo}</dd></div>
-                    )}
-                    {row.manual && (
-                      <div>
-                        <dt className="text-xs text-muted-foreground">{row.odoo ? 'Manual (respaldo, hoy no se usa)' : 'Manual'}</dt>
-                        <dd className={row.odoo ? 'text-muted-foreground' : 'text-foreground'}>{row.manual}</dd>
-                      </div>
-                    )}
-                    {!row.odoo && !row.manual && <dd className="text-muted-foreground">Sin horario en Odoo ni manual.</dd>}
-                  </dl>
+                  {row.odoo || row.manual ? (
+                    <dl className="space-y-1 text-sm">
+                      {row.odoo && (
+                        <div><dt className="text-xs text-muted-foreground">Odoo (la TV usa este)</dt><dd className="text-foreground">{row.odoo}</dd></div>
+                      )}
+                      {row.manual && (
+                        <div>
+                          <dt className="text-xs text-muted-foreground">{row.odoo ? 'Manual (respaldo, hoy no se usa)' : 'Manual'}</dt>
+                          <dd className={row.odoo ? 'text-muted-foreground' : 'text-foreground'}>{row.manual}</dd>
+                        </div>
+                      )}
+                    </dl>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Sin horario en Odoo ni manual.</p>
+                  )}
                   {row.updatedAt && <p className="text-xs text-muted-foreground">Editado el {dateFmt.format(row.updatedAt)}</p>}
                 </Card>
               </li>

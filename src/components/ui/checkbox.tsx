@@ -14,18 +14,29 @@ export interface CheckboxProps
  */
 const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
   ({ className, checked, onCheckedChange, ...props }, ref) => {
+    const innerRef = React.useRef<HTMLInputElement>(null);
     const indeterminate = checked === 'indeterminate';
+
+    React.useImperativeHandle(ref, () => innerRef.current as HTMLInputElement);
+
+    React.useEffect(() => {
+      if (innerRef.current) {
+        innerRef.current.indeterminate = indeterminate;
+      }
+    }, [indeterminate]);
+
     return (
       <span className={cn('relative inline-flex size-4 shrink-0', className)}>
         <input
-          ref={ref}
+          ref={innerRef}
           type="checkbox"
-          checked={indeterminate ? true : !!checked}
+          checked={checked === true}
+          aria-checked={indeterminate ? 'mixed' : Boolean(checked)}
           onChange={e => onCheckedChange?.(e.target.checked)}
-          className="peer size-4 shrink-0 cursor-pointer appearance-none rounded-[4px] border border-input bg-transparent transition-colors checked:border-primary checked:bg-primary focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50"
+          className="peer size-4 shrink-0 cursor-pointer appearance-none rounded-[4px] border border-input bg-transparent transition-colors checked:border-primary checked:bg-primary indeterminate:border-primary indeterminate:bg-primary focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50"
           {...props}
         />
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-primary-foreground opacity-0 peer-checked:opacity-100">
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-primary-foreground opacity-0 peer-checked:opacity-100 peer-indeterminate:opacity-100">
           {indeterminate ? <Minus className="size-3" /> : <Check className="size-3" />}
         </span>
       </span>

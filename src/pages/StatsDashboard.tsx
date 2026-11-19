@@ -319,7 +319,7 @@ export default function StatsDashboard() {
                 label="Avance medio"
                 value={`${deliveryRate}%`}
                 detail={`${fullyDeliveredCount} entregadas al 100% (por facturar)`}
-                href="/admin?tab=deliveries"
+                href="/admin"
               />
               <KpiCard
                 icon={<Clock className="size-5 text-warning" />}
@@ -339,16 +339,16 @@ export default function StatsDashboard() {
                 title="Carga de seguimiento por diseñador / ingeniero SMV"
                 subtitle="Órdenes asignadas, piezas faltantes y atrasos por responsable. Haz clic en un ingeniero para abrir su apartado."
               >
-                <div className="overflow-x-auto">
+                <div tabIndex={0} role="region" aria-label="Carga de seguimiento por diseñador" className="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
                   <table className="w-full text-left text-sm">
                     <thead className="border-b border-border text-xs font-medium text-muted-foreground">
                       <tr>
-                        <th className="py-2.5 pr-3 font-medium">Ingeniero / Diseñador</th>
-                        <th className="px-3 py-2.5 text-right font-medium">Órdenes</th>
-                        <th className="px-3 py-2.5 text-right font-medium">Con PO</th>
-                        <th className="px-3 py-2.5 text-right font-medium">Pzas pendientes</th>
-                        <th className="px-3 py-2.5 text-right font-medium">Atrasadas</th>
-                        <th className="py-2.5 pl-3 text-right font-medium">Acción</th>
+                        <th scope="col" className="py-2.5 pr-3 font-medium">Ingeniero / Diseñador</th>
+                        <th scope="col" className="px-3 py-2.5 text-right font-medium">Órdenes</th>
+                        <th scope="col" className="px-3 py-2.5 text-right font-medium">Con PO</th>
+                        <th scope="col" className="px-3 py-2.5 text-right font-medium">Pzas pendientes</th>
+                        <th scope="col" className="px-3 py-2.5 text-right font-medium">Atrasadas</th>
+                        <th scope="col" className="py-2.5 pl-3 text-right font-medium">Acción</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">

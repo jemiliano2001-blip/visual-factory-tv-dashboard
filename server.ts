@@ -11,11 +11,11 @@
 
 import express, { Request, Response, NextFunction } from 'express';
 import * as dotenv from 'dotenv';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { OdooClient } from './shared/odooClient.ts';
-import { crearAuthApi, identidadDeToken } from './shared/firebaseTokenPolicy.ts';
+import { crearAuthApi, extractBearerToken } from './shared/firebaseTokenPolicy.ts';
 import {
   claimOrders, normalizeOrderAssignments, parseOrderKeys, releaseOrders, type OrderAssignmentsPayload,
 } from './shared/orderAssignments.ts';
@@ -33,16 +33,27 @@ if (existsSync('.env.local')) {
 dotenv.config(); // carga .env como fallback (no sobreescribe variables ya definidas)
 
 const app = express();
-app.use(express.json());
+app.disable('x-powered-by');
+app.use(express.json({ limit: '1mb' }));
+
+// Cabeceras de seguridad básicas en todas las respuestas
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
 
 // ─── CORS — solo permite el frontend Vite ─────────────────────────────────────
 app.use((req: Request, res: Response, next: NextFunction) => {
   const allowedOrigins = [
     'http://localhost:3000',
+    'http://localhost:3010',
     'http://localhost:4173',
     process.env.APP_URL || '',
   ].filter(Boolean);
 
+  res.setHeader('Vary', 'Origin');
   const origin = req.headers.origin || '';
   if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -70,11 +81,25 @@ if (!FIREBASE_API_KEY && existsSync('./firebase-applet-config.json')) {
 
 // Caché en memoria de tokens ya verificados (clave → expiración). Evita una
 // llamada a Google por cada poll (cada 5 min × pantallas activas).
+const MAX_TOKEN_CACHE = 500;
+const DEFAULT_TOKEN_TTL_MS = 5 * 60 * 1000;
+function jwtExpirationMs(token: string): number {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as { exp?: unknown };
+    if (typeof payload.exp === 'number' && Number.isFinite(payload.exp)) {
+      return Math.min(payload.exp * 1000, Date.now() + DEFAULT_TOKEN_TTL_MS);
+    }
+  } catch {
+    // fallback al TTL fijo
+  }
+  return Date.now() + DEFAULT_TOKEN_TTL_MS;
+}
+
 const tokenCache = new Map<string, number>();
 setInterval(() => {
   const now = Date.now();
   for (const [k, expiresAt] of tokenCache) if (now > expiresAt) tokenCache.delete(k);
-}, 10 * 60 * 1000);
+}, 10 * 60 * 1000).unref();
 
 async function verifyFirebaseToken(token: string): Promise<boolean> {
   const expiresAt = tokenCache.get(token);
@@ -92,7 +117,14 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
     if (!res.ok) return false;
     const data = await res.json() as { users?: unknown[] };
     if (!data.users?.[0]) return false;
-    tokenCache.set(token, Date.now() + 5 * 60 * 1000); // caché 5 min
+    const expMs = jwtExpirationMs(token);
+    if (expMs > Date.now()) {
+      if (!tokenCache.has(token) && tokenCache.size >= MAX_TOKEN_CACHE) {
+        const oldest = tokenCache.keys().next().value;
+        if (oldest !== undefined) tokenCache.delete(oldest);
+      }
+      tokenCache.set(token, expMs);
+    }
     return true;
   } catch {
     return false;
@@ -107,15 +139,15 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
 // dejaría todo abierto si NODE_ENV no fuera 'production'.
 const authApi = crearAuthApi(verifyFirebaseToken);
 app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
-  const token = req.headers.authorization?.replace('Bearer ', '') || '';
   if (process.env.DEV_AUTH_BYPASS === 'true') {
-    const addr = req.socket.localAddress ?? '';
-    if (addr === '127.0.0.1' || addr === '::1') {
-      res.locals.actor = identidadDeToken(token) ?? { uid: 'dev-local', email: null, name: 'Desarrollo local' };
+    const addr = req.socket.remoteAddress ?? '';
+    if (addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1') {
+      res.locals.actor = { uid: 'dev-local', email: null, name: 'Desarrollo local' };
       return next();
     }
   }
 
+  const token = extractBearerToken(req.headers.authorization);
   if (token && !FIREBASE_API_KEY) {
     res.status(500).json({ error: 'Server misconfiguration: FIREBASE_API_KEY no configurado.' });
     return;
@@ -163,8 +195,8 @@ app.get('/api/odoo/status', async (_req: Request, res: Response) => {
     await odooClient.odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
     res.json({ connected: true, message: 'Conectado a Odoo correctamente', url: ODOO_URL });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(503).json({ connected: false, message: msg });
+    console.error('[Odoo] Error en /api/odoo/status:', err);
+    res.status(503).json({ connected: false, message: 'No se pudo conectar con Odoo.' });
   }
 });
 
@@ -182,9 +214,8 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
     res.json({ orders, total: orders.length, truncated, lastUpdated: new Date().toISOString() });
 
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[Odoo] Error al obtener órdenes:', msg);
-    res.status(500).json({ error: msg, orders: [] });
+    console.error('[Odoo] Error al obtener órdenes:', err);
+    res.status(500).json({ error: 'Error al consultar las órdenes en Odoo.', orders: [] });
   }
 });
 
@@ -193,6 +224,12 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
 const isActor = (a: unknown): a is RequestActor => typeof a === 'object' && a !== null && typeof (a as RequestActor).uid === 'string';
 const NO_ACTOR = 'Se requiere una cuenta de personal SMV.';
 const ASSIGNMENTS_FILE = resolve(process.cwd(), '.local-order-assignments.json');
+
+function writeJsonAtomic(filePath: string, data: unknown): void {
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+  renameSync(tmpPath, filePath);
+}
 
 function readAssignments(): OrderAssignmentsPayload {
   try {
@@ -212,7 +249,8 @@ app.get('/api/order-assignments', (_req: Request, res: Response) => {
   try {
     res.json(readAssignments());
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    console.error('[Assignments] Error leyendo asignaciones:', err);
+    res.status(500).json({ error: 'No se pudieron leer las asignaciones.' });
   }
 });
 
@@ -227,15 +265,16 @@ const changeAssignments = (mutate: (current: OrderAssignmentsPayload, actor: Req
     try {
       keys = parseOrderKeys(req.body);
     } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      res.status(400).json({ error: err instanceof Error ? err.message : 'orderKeys inválido.' });
       return;
     }
     try {
       const next = mutate(readAssignments(), actor, keys);
-      writeFileSync(ASSIGNMENTS_FILE, JSON.stringify(next, null, 2));
+      writeJsonAtomic(ASSIGNMENTS_FILE, next);
       res.json(next);
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      console.error('[Assignments] Error guardando asignaciones:', err);
+      res.status(500).json({ error: 'No se pudieron guardar las asignaciones.' });
     }
   };
 
@@ -276,23 +315,24 @@ app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
     // Sin await entre leer y escribir: otra petición no puede intercalarse.
     const current = readRequests();
     const out = reconcileWithOdoo(current, orders, new Date().toISOString());
-    if (out.state !== current) writeFileSync(REQUESTS_FILE, JSON.stringify(out.state, null, 2));
+    if (out.state !== current) writeJsonAtomic(REQUESTS_FILE, out.state);
     res.json({ ...out.state, progress: out.progress });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    console.error('[InvoiceRequests] Error en GET:', err);
+    res.status(500).json({ error: 'No se pudieron consultar las solicitudes.' });
   }
 });
 
 app.post('/api/invoice-requests', async (req: Request, res: Response) => {
+  const actor = res.locals.actor;
+  if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
   let drafts;
   try {
     drafts = parseCreateRequestsBody(req.body);
   } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Solicitud inválida.' });
     return;
   }
-  const actor = res.locals.actor;
-  if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
   if (!odooClient.isConfigured()) { res.status(503).json({ error: 'Odoo no configurado.' }); return; }
   let orders;
   try {
@@ -304,10 +344,19 @@ app.post('/api/invoice-requests', async (req: Request, res: Response) => {
   // Sin await entre leer y escribir: otra petición no puede intercalarse.
   try {
     const out = createInvoiceRequests(readRequests(), drafts, orders, { actor, now: new Date().toISOString(), newId: randomUUID, isKnownSatCode });
-    if (out.created.length > 0) writeFileSync(REQUESTS_FILE, JSON.stringify(out.state, null, 2));
+    if (out.created.length > 0) {
+      writeJsonAtomic(REQUESTS_FILE, out.state);
+      odooClient.invalidateOrdersCache();
+    }
     res.json({ state: out.state, created: out.created, skipped: out.skipped, notified: false, emailed: false });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    console.error('[InvoiceRequests] Error en POST:', err);
+    const msg = err instanceof Error ? err.message : '';
+    if (msg.includes('tamaño máximo')) {
+      res.status(409).json({ error: msg });
+      return;
+    }
+    res.status(500).json({ error: 'No se pudieron crear las solicitudes.' });
   }
 });
 
@@ -317,12 +366,21 @@ app.post('/api/invoice-requests/:id/done', (req: Request, res: Response) => {
   try {
     const current = readRequests();
     const next = markInvoiceRequestDone(current, String(req.params.id), { actor, now: new Date().toISOString() });
-    if (next !== current) writeFileSync(REQUESTS_FILE, JSON.stringify(next, null, 2));
+    if (next !== current) writeJsonAtomic(REQUESTS_FILE, next);
     res.json(next);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(msg === 'No se encontró la solicitud.' ? 404 : 500).json({ error: msg });
+    const msg = err instanceof Error ? err.message : '';
+    if (msg === 'No se encontró la solicitud.') {
+      res.status(404).json({ error: msg });
+      return;
+    }
+    console.error('[InvoiceRequests] Error en POST done:', err);
+    res.status(500).json({ error: 'No se pudo actualizar la solicitud.' });
   }
+});
+
+app.use('/api', (_req: Request, res: Response) => {
+  res.status(404).json({ error: 'Ruta API no encontrada.' });
 });
 
 // ─── Frontend en producción ──────────────────────────────────────────────────
@@ -339,10 +397,25 @@ if (existsSync(distDir)) {
   console.log(`   Sirviendo frontend desde ${distDir}`);
 }
 
-app.listen(PORT, () => {
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  if (err instanceof SyntaxError && 'body' in err) {
+    res.status(400).json({ error: 'JSON inválido en la solicitud.' });
+    return;
+  }
+  console.error('[Server] Error no controlado:', err);
+  res.status(500).json({ error: 'Error interno del servidor.' });
+});
+
+const server = app.listen(PORT, () => {
   console.log(`\n🚀 Odoo Proxy corriendo en http://localhost:${PORT}`);
   console.log(`   Odoo URL: ${ODOO_URL || '⚠️  No configurada'}`);
   console.log(`   Endpoints:`);
   console.log(`     GET http://localhost:${PORT}/api/odoo/status`);
   console.log(`     GET http://localhost:${PORT}/api/odoo/invoiceable-orders\n`);
 });
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    server.close(() => process.exit(0));
+  });
+}

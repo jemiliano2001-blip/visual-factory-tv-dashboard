@@ -35,7 +35,6 @@ import { pendingRequestsByOrder } from '../../shared/invoiceRequests';
 import OrderReportTab from '../components/admin/OrderReportTab';
 import { Button } from '../components/ui/button';
 import { getSection, hasActiveFilters, restoreSavedFilters, sectionFromFilters } from '../services/adminSections';
-import { TooltipProvider } from '../components/ui/tooltip';
 import {
   WifiOff, AlertTriangle, Loader2, RefreshCw,
 } from 'lucide-react';
@@ -102,14 +101,32 @@ export default function AdminPanel() {
 
   const [team, setTeam] = useState(loadCachedAssignments);
   const [teamError, setTeamError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  const teamRef = useRef(team);
+  teamRef.current = team;
+  const mutationSeqRef = useRef(0);
 
   // Se relee cada minuto: así se ve cuando otra persona toma o suelta una orden.
   useEffect(() => {
-    const load = () =>
-      fetchOrderAssignments().then(setTeam).catch(err => setTeamError(err instanceof Error ? err.message : String(err)));
+    mountedRef.current = true;
+    const load = () => {
+      const seqAtStart = mutationSeqRef.current;
+      return fetchOrderAssignments()
+        .then(next => {
+          if (!mountedRef.current || mutationSeqRef.current !== seqAtStart) return;
+          setTeam(next);
+          cacheAssignments(next);
+        })
+        .catch(err => {
+          if (mountedRef.current) setTeamError(err instanceof Error ? err.message : String(err));
+        });
+    };
     void load();
     const timer = window.setInterval(load, 60_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      mountedRef.current = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   const me = auth.currentUser;
@@ -120,19 +137,24 @@ export default function AdminPanel() {
     local: (state: OrderAssignmentsPayload) => OrderAssignmentsPayload,
     remote: () => Promise<OrderAssignmentsPayload>,
   ) => {
-    const previous = team;
+    const seq = ++mutationSeqRef.current;
+    const previous = teamRef.current;
     setTeamError(null);
     try {
       const optimistic = local(previous);
       setTeam(optimistic);
       cacheAssignments(optimistic);
-      setTeam(await remote());
+      const confirmed = await remote();
+      if (!mountedRef.current || mutationSeqRef.current !== seq) return;
+      setTeam(confirmed);
+      cacheAssignments(confirmed);
     } catch (err) {
+      if (!mountedRef.current || mutationSeqRef.current !== seq) return;
       setTeam(previous);
       cacheAssignments(previous);
       setTeamError(err instanceof Error ? err.message : String(err));
     }
-  }, [team]);
+  }, []);
 
   const engineerNames = useMemo(() => new Map(team.engineers.map(e => [e.id, e.name])), [team.engineers]);
   const getEngineerId = useCallback((o: OdooSaleOrder) => getOrderEngineerId(team.assignments, o), [team.assignments]);
@@ -209,7 +231,6 @@ export default function AdminPanel() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <TooltipProvider delayDuration={200}>
       <div className="min-h-screen bg-background font-sans text-foreground">
         <div className={`mx-auto max-w-[1600px] p-5 lg:p-8 ${selectedCount > 0 ? 'pb-56 md:pb-28' : ''}`}>
           <div className="order-report-no-print space-y-5">
@@ -327,7 +348,6 @@ export default function AdminPanel() {
           onSent={() => setRowSelection({})}
         />
       </div>
-    </TooltipProvider>
   );
 }
 

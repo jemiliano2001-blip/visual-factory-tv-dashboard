@@ -7,7 +7,9 @@
 const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-const fmtQty = (n: number) => String(Math.round(n * 100) / 100);
+const stripCrlf = (s: string) => s.replace(/[\r\n]+/g, ' ').trim();
+
+const fmtQty = (n: number) => (n > 0 && n < 0.01 ? n.toFixed(6).replace(/\.?0+$/, '') : String(Math.round(n * 100) / 100));
 
 const MAX_DESCRIPTION = 90;
 
@@ -49,7 +51,7 @@ export function buildRequestsEmail(
     facturas.length ? `${facturas.length} ${facturas.length > 1 ? 'facturas' : 'factura'}` : '',
     remisiones.length ? `${remisiones.length} ${remisiones.length > 1 ? 'remisiones' : 'remisión'}` : '',
   ].filter(Boolean).join(' y ');
-  const subject = `Solicitud de ${counts}: ${[...new Set(requests.map(r => r.orderName))].join(', ')}`;
+  const subject = stripCrlf(`Solicitud de ${counts}: ${[...new Set(requests.map(r => r.orderName))].join(', ')}`);
   const who = (actor.name || actor.email || actor.uid).replace(/\s+/g, ' ').trim().slice(0, 80);
   const intro = `Buen día, ${who} pide lo siguiente:`;
   const head = (r: MailableRequest) =>
@@ -92,15 +94,17 @@ export function buildMailEnvelope(
   config: { user: string; to: string; cc?: string },
   actor: { uid: string; name: string | null; email: string | null },
 ) {
-  const label = (actor.name ?? '').replace(/["\\\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
-  const person = actor.email?.trim() || '';
+  const label = stripCrlf((actor.name ?? '').replace(/["\\]+/g, ' ')).replace(/\s+/g, ' ').trim();
+  const person = stripCrlf(actor.email ?? '');
+  const to = stripCrlf(config.to);
   const cc: string[] = [];
-  for (const addr of [config.cc ?? '', person]) {
+  const ccCandidates = [...(config.cc ?? '').split(',').map(stripCrlf), person];
+  for (const addr of ccCandidates) {
     if (addr && !cc.some(c => c.toLowerCase() === addr.toLowerCase())) cc.push(addr);
   }
   return {
-    from: `"${label ? `${label} (Visual Factory)` : 'Visual Factory'}" <${config.user}>`,
-    to: config.to,
+    from: `"${label ? `${label} (Visual Factory)` : 'Visual Factory'}" <${stripCrlf(config.user)}>`,
+    to,
     ...(cc.length ? { cc: cc.join(', ') } : {}),
     ...(person ? { replyTo: person } : {}),
   };

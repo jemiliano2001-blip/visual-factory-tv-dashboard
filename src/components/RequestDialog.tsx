@@ -253,9 +253,15 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
   const setSat = (o: OdooSaleOrder, lineId: number, code: string) =>
     setChoices(c => ({ ...c, [o.id]: { ...(c[o.id] ?? NO_CHOICE), sat: { ...c[o.id]?.sat, [lineId]: code } } }));
   const setNote = (o: OdooSaleOrder, note: string) =>
-    setChoices(c => ({ ...c, [o.id]: { ...choiceOf(o), note } }));
+    setChoices(c => {
+      const prev = c[o.id] ?? NO_CHOICE;
+      return { ...c, [o.id]: { ...prev, note } };
+    });
   const setQty = (o: OdooSaleOrder, lineId: number, qty: number) =>
-    setChoices(c => ({ ...c, [o.id]: { ...choiceOf(o), lineQty: { ...choiceOf(o).lineQty, [lineId]: qty } } }));
+    setChoices(c => {
+      const prev = c[o.id] ?? NO_CHOICE;
+      return { ...c, [o.id]: { ...prev, lineQty: { ...prev.lineQty, [lineId]: qty } } };
+    });
   const send = () => { submit.mutateAsync(drafts).then(setResult).catch(() => undefined); };
 
   if (result) {

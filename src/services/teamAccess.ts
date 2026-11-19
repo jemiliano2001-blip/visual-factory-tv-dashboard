@@ -8,10 +8,11 @@ import { parseTeamAccessResponse, type TeamAccessResponse } from '../../shared/t
 const PROXY_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ODOO_PROXY_URL) || '';
 
 export async function fetchTeamAccess(): Promise<TeamAccessResponse> {
+  const token = await getIdTokenOrThrow();
   let response: Response;
   try {
     response = await fetch(`${PROXY_BASE}/api/team-access`, {
-      headers: { Authorization: `Bearer ${await getIdTokenOrThrow()}` },
+      headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(15000),
     });
   } catch {

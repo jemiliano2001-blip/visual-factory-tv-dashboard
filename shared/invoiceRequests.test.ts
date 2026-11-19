@@ -6,6 +6,7 @@ import {
   lineInvoiceRemaining,
   MAX_DONE_KEPT,
   MAX_DRAFTS,
+  MAX_LINES_PER_REQUEST,
   actorLabel,
   clampQty,
   createInvoiceRequests,
@@ -504,4 +505,18 @@ test('Fisher: "Toda la orden" no es parcial; menos piezas sí, y se conserva al 
 test('solicitud de factura parcial se guarda y se lee con invoicedAtRequest', () => {
   const a = facturaFisher(empty, [{ lineId: 51, qty: 2 }], fisher([1, 0]));
   assert.deepEqual(normalizeInvoiceRequests(a.state).requests[0].lines, a.created[0].lines);
+});
+
+test('rechaza demasiadas partidas por solicitud y recorta por bytes UTF-8', () => {
+  const tooManyLines = Array.from({ length: MAX_LINES_PER_REQUEST + 1 }, (_, i) => ({ lineId: i + 1, qty: 1 }));
+  assert.throws(() => parseCreateRequestsBody([{ orderId: 1, type: 'remision', lines: tooManyLines }]), /Máximo 500 piezas/);
+
+  // Caracteres multibyte (3 bytes UTF-8 por carácter) fuerzan recorte antes de 800k chars
+  const multiByte = 'á'.repeat(10_000);
+  const requests: InvoiceRequest[] = [];
+  for (let i = 0; i < 40; i++) {
+    requests.push({ ...done(`d${i}`, `2026-01-01T00:00:${String(i).padStart(2, '0')}Z`), partnerName: multiByte });
+  }
+  const out = normalizeInvoiceRequests({ requests, updatedAt: '' });
+  assert.ok(new TextEncoder().encode(JSON.stringify(out)).length <= 800_000);
 });

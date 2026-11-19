@@ -10,7 +10,7 @@ import {
   flexRender, createColumnHelper, SortingState, ExpandedState, RowSelectionState,
 } from '@tanstack/react-table';
 import { format } from 'date-fns';
-import DOMPurify from 'dompurify';
+import { SanitizedHtml } from '../SanitizedHtml';
 import { ChevronDown, ChevronRight, Clock } from 'lucide-react';
 import {
   OdooSaleOrder, parseOdooDate, getOrderStatus, getDeliveryProgress,
@@ -263,7 +263,7 @@ export default function OrdersTable({
     }
     return Array.from(byClient.values()).flat();
   }, [sortedRows, groupByClient]);
-  let lastClient: string | null = groupByClient ? null : undefined as unknown as string | null;
+  let lastClient: string | null = null;
 
   // Teléfono: una columna de tarjetas (sin tabla ni scroll lateral), en el orden por compromiso.
   if (isMobile) {
@@ -311,7 +311,7 @@ export default function OrdersTable({
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
-      <div className="overflow-x-auto">
+      <div tabIndex={0} role="region" aria-label="Tabla de órdenes" className="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
         <table className="w-full text-left">
           <thead className="border-b border-border bg-muted/40 text-xs font-medium text-muted-foreground">
             {table.getHeaderGroups().map(hg => (
@@ -319,6 +319,7 @@ export default function OrdersTable({
                 {hg.headers.map(header => (
                   <th
                     key={header.id}
+                    scope="col"
                     aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : 'none'}
                     className={`px-3 py-3 font-medium ${(header.column.columnDef.meta as { className?: string } | undefined)?.className ?? ''}`}
                   >
@@ -499,9 +500,9 @@ function ExpandedRow({ order }: { order: OdooSaleOrder }) {
           <table className="w-full text-sm">
             <thead className="text-xs font-medium text-muted-foreground">
               <tr>
-                <th className="py-1 pr-4 text-left font-bold">Producto</th>
-                <th className="px-4 py-1 text-right font-bold">Cant.</th>
-                <th className="py-1 pl-4 text-right font-bold">Entregado</th>
+                <th scope="col" className="py-1 pr-4 text-left font-bold">Producto</th>
+                <th scope="col" className="px-4 py-1 text-right font-bold">Cant.</th>
+                <th scope="col" className="py-1 pl-4 text-right font-bold">Entregado</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -523,17 +524,20 @@ function ExpandedRow({ order }: { order: OdooSaleOrder }) {
             Remisiones ({order.deliveries.length})
           </h4>
           <div className="flex flex-wrap gap-2">
-            {order.deliveries.map((d, i) => (
-              <div key={`${d.name}-${i}`} className="flex items-center gap-1.5 rounded-lg border border-border bg-background/50 px-2 py-1">
-                <span className="font-mono-data text-xs text-foreground/90">{d.name}</span>
-                <Badge variant={DELIVERY_STATE_VARIANT[d.state] ?? 'muted'}>
-                  {DELIVERY_STATE_LABEL[d.state] ?? d.state}
-                </Badge>
-                {d.date_done && (
-                  <span className="font-mono-data text-xs tabular-nums text-muted-foreground">{d.date_done.split(' ')[0]}</span>
-                )}
-              </div>
-            ))}
+            {order.deliveries.map((d, i) => {
+              const dateDone = parseOdooDate(d.date_done);
+              return (
+                <div key={`${d.name}-${i}`} className="flex items-center gap-1.5 rounded-lg border border-border bg-background/50 px-2 py-1">
+                  <span className="font-mono-data text-xs text-foreground/90">{d.name}</span>
+                  <Badge variant={DELIVERY_STATE_VARIANT[d.state] ?? 'muted'}>
+                    {DELIVERY_STATE_LABEL[d.state] ?? d.state}
+                  </Badge>
+                  {dateDone && (
+                    <span className="font-mono-data text-xs tabular-nums text-muted-foreground">{format(dateDone, 'dd/MM/yyyy')}</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -543,9 +547,9 @@ function ExpandedRow({ order }: { order: OdooSaleOrder }) {
           <h4 className="mb-2 text-xs font-semibold text-muted-foreground">
             Nota / términos
           </h4>
-          <div
+          <SanitizedHtml
+            html={order.note}
             className="prose prose-sm max-w-none text-sm text-foreground/90 [&_a]:text-primary"
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(order.note) }}
           />
         </div>
       )}

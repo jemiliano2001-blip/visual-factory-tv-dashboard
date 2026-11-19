@@ -29,14 +29,15 @@ const CORAL = 'rgba(251, 113, 133, 0.60)';
 const strip = (colors: string[]) =>
   `linear-gradient(90deg, ${[...colors, ...colors, colors[0]].join(', ')})`;
 
-const Blob: React.FC<{ className: string; move: string; seconds: number; colors: string[] }> = ({
+const Blob: React.FC<{ className: string; move: string; seconds: number; colors: string[]; staticMode?: boolean }> = ({
   className,
   move,
   seconds,
   colors,
+  staticMode = false,
 }) => (
   <div
-    className={`aurora-blob ${className}`}
+    className={`aurora-blob${staticMode ? ' aurora-blob--static' : ''} ${className}`}
     style={{ '--aurora-move': move, '--aurora-speed': `${seconds}s` } as React.CSSProperties}
   >
     <span style={{ backgroundImage: strip(colors) }} />
@@ -56,6 +57,7 @@ const GeminiOledBackground: React.FC<GeminiOledBackgroundProps> = ({ mode, urgen
       move="aurora-sway"
       seconds={urgent ? 8 : 12}
       colors={urgent ? [...TOP.slice(0, 3), CRIMSON, ...TOP.slice(3), CORAL] : TOP}
+      staticMode={mode === 'oled-minimal'}
     />
     {mode !== 'oled-minimal' && (
       <>

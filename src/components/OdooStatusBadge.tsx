@@ -23,9 +23,11 @@ const OdooStatusBadge: React.FC<OdooStatusBadgeProps> = ({
   return (
     <div className="flex items-center gap-2">
       <button
+        type="button"
         onClick={onRefresh}
         disabled={isRefreshing}
         title="Actualizar datos de Odoo"
+        aria-label="Actualizar datos de Odoo"
         className="p-1.5 rounded-lg bg-card border border-border text-muted-foreground hover:text-secondary-foreground hover:bg-secondary transition-all disabled:opacity-50"
       >
         <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />

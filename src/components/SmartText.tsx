@@ -53,19 +53,26 @@ const SmartText: React.FC<SmartTextProps> = ({
   useLayoutEffect(() => {
     if (disableSmart || !containerRef.current) return;
     const el = containerRef.current;
-    
+
     const observer = new ResizeObserver((entries) => {
       const newWidth = entries[0].contentRect.width;
-      // Solo reiniciar si el ancho cambió significativamente (ignora cambios de altura por wrapping)
-      if (lastWidthRef.current !== 0 && Math.abs(newWidth - lastWidthRef.current) > 2) {
-        setLevelIndex(initialLevel);
-      }
+      const prevWidth = lastWidthRef.current;
       lastWidthRef.current = newWidth;
+      if (prevWidth === 0) return;
+      // Solo reiniciar a texto completo si el contenedor creció (evita oscilación al abreviar).
+      if (newWidth > prevWidth + 2) {
+        setLevelIndex(initialLevel);
+      } else if (newWidth < prevWidth - 2) {
+        const isOverflowing = el.scrollHeight > el.clientHeight + 2 || el.scrollWidth > el.clientWidth + 2;
+        if (isOverflowing) {
+          setLevelIndex((prev) => (prev < levels.length - 1 ? prev + 1 : prev));
+        }
+      }
     });
-    
+
     observer.observe(el);
     return () => observer.disconnect();
-  }, [disableSmart, initialLevel]);
+  }, [disableSmart, initialLevel, levels.length]);
 
   const displayText = disableSmart ? text : (levels[levelIndex] || text);
   const isAbbreviated = levelIndex > 0;
@@ -78,22 +85,32 @@ const SmartText: React.FC<SmartTextProps> = ({
     wordBreak: 'break-word' as const,
   };
 
+  if (!isAbbreviated) {
+    return (
+      <span
+        ref={containerRef}
+        className={className}
+        style={disableSmart ? undefined : lineClampStyle}
+      >
+        {displayText}
+      </span>
+    );
+  }
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <span
           ref={containerRef}
-          className={`${className} ${isAbbreviated ? 'cursor-help' : ''}`}
+          className={`${className} cursor-help`}
           style={disableSmart ? undefined : lineClampStyle}
         >
           {displayText}
         </span>
       </TooltipTrigger>
-      {isAbbreviated && (
-        <TooltipContent>
-          <p className="max-w-xs text-center leading-relaxed">{text}</p>
-        </TooltipContent>
-      )}
+      <TooltipContent>
+        <p className="max-w-xs text-center leading-relaxed">{text}</p>
+      </TooltipContent>
     </Tooltip>
   );
 };

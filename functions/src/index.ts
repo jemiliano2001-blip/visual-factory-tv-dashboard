@@ -6,7 +6,7 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import express, { NextFunction, Request, Response } from 'express';
 import { OdooClient } from '../../shared/odooClient';
 import nodemailer from 'nodemailer';
-import { crearAuthApi } from '../../shared/firebaseTokenPolicy';
+import { crearAuthApi, esEmailVerificado, extractBearerToken } from '../../shared/firebaseTokenPolicy';
 import { crearVerificadorHub } from '../../shared/hubAccess';
 import { buildTeamAccess, isAdminClaim, type AuthUserInfo } from '../../shared/teamAccess';
 import { buildMailEnvelope, buildRequestsEmail } from '../../shared/invoiceRequest';
@@ -39,14 +39,16 @@ import {
 if (!admin.apps.length) admin.initializeApp();
 
 const app = express();
-app.use(express.json());
+app.disable('x-powered-by');
+app.use(express.json({ limit: '1mb' }));
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 // En producción las peticiones llegan vía rewrite de Firebase Hosting (mismo
 // origen) — no se necesita CORS. Solo se habilita para localhost en dev local.
 app.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin ?? '';
-  if (origin.startsWith('http://localhost')) {
+  res.setHeader('Vary', 'Origin');
+  if (/^http:\/\/localhost(:\d+)?$/.test(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -57,23 +59,32 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // ─── Firebase Auth ─────────────────────────────────────────────────────────────
 // Caché en memoria por instancia para no llamar a firebase-admin por cada poll.
+const MAX_TOKEN_CACHE = 500;
+const MAX_TOKEN_CACHE_TTL_MS = 5 * 60 * 1000;
 const tokenCache = new Map<string, number>(); // token -> expiración (ms)
 setInterval(() => {
   const now = Date.now();
   for (const [k, expiresAt] of tokenCache) if (now > expiresAt) tokenCache.delete(k);
-}, 10 * 60 * 1000);
+}, 10 * 60 * 1000).unref();
 
 async function verifyFirebaseToken(token: string): Promise<boolean> {
   const expiresAt = tokenCache.get(token);
   if (expiresAt && Date.now() < expiresAt) return true;
   try {
     const decoded = await admin.auth().verifyIdToken(token);
-    tokenCache.set(token, decoded.exp * 1000);
+    if (!tokenCache.has(token) && tokenCache.size >= MAX_TOKEN_CACHE) {
+      const oldest = tokenCache.keys().next().value;
+      if (oldest !== undefined) tokenCache.delete(oldest);
+    }
+    tokenCache.set(token, Math.min(decoded.exp * 1000, Date.now() + MAX_TOKEN_CACHE_TTL_MS));
     return true;
   } catch {
     return false;
   }
 }
+
+const isActor = (a: unknown): a is RequestActor => typeof a === 'object' && a !== null && typeof (a as RequestActor).uid === 'string';
+const NO_ACTOR = 'Se requiere una cuenta de personal SMV.';
 
 // Todas las rutas /api exigen un ID token de Firebase válido de una cuenta real:
 // ya no hay sesión anónima (la TV entra con cuenta real) y los tokens anónimos
@@ -85,11 +96,12 @@ app.use('/api', crearAuthApi(verifyFirebaseToken));
 // OJO: el Hub guarda `usuarios` en la base nombrada "compras-americanas", no en la "(default)" del dashboard.
 const hubDb = () => getFirestore(admin.app(), 'compras-americanas');
 const hubAccess = crearVerificadorHub(async uid => (await hubDb().doc(`usuarios/${uid}`).get()).data());
-app.use('/api', async (_req: Request, res: Response, next: NextFunction) => {
-  const actor = res.locals.actor as RequestActor | undefined;
-  if (!actor) { res.status(403).json({ error: 'Se requiere una cuenta de personal SMV.' }); return; }
+app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
+  const actor = res.locals.actor;
+  if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
   try {
-    const access = await hubAccess(actor.uid, actor.email);
+    const token = extractBearerToken(req.headers.authorization);
+    const access = await hubAccess(actor.uid, actor.email, esEmailVerificado(token));
     if (!access.allowed) {
       res.status(403).json({ error: 'Tu cuenta no tiene acceso al dashboard. Pide a administración que te active en SMV Hub.' });
       return;
@@ -102,6 +114,39 @@ app.use('/api', async (_req: Request, res: Response, next: NextFunction) => {
     res.status(503).json({ error: 'No se pudo verificar tu acceso. Intenta de nuevo en un momento.' });
   }
 });
+
+function createRateLimiter(maxRequests: number, windowMs: number) {
+  const hits = new Map<string, number[]>();
+  return (req: Request, res: Response, next: NextFunction) => {
+    const actor = res.locals.actor;
+    const key = isActor(actor) ? actor.uid : (req.ip ?? 'anon');
+    const now = Date.now();
+    const recent = (hits.get(key) ?? []).filter(t => now - t < windowMs);
+    if (recent.length >= maxRequests) {
+      res.status(429).json({ error: 'Demasiadas solicitudes. Intenta en un minuto.' });
+      return;
+    }
+    recent.push(now);
+    if (!hits.has(key) && hits.size >= 500) {
+      const oldest = hits.keys().next().value;
+      if (oldest !== undefined) hits.delete(oldest);
+    }
+    hits.set(key, recent);
+    next();
+  };
+}
+const sensitiveRateLimit = createRateLimiter(15, 60_000);
+
+let cachedTransportKey = '';
+let cachedTransport: nodemailer.Transporter | null = null;
+function getMailTransport(user: string, pass: string): nodemailer.Transporter {
+  const key = `${user}\0${pass}`;
+  if (!cachedTransport || cachedTransportKey !== key) {
+    cachedTransport = nodemailer.createTransport({ service: 'gmail', auth: { user, pass } });
+    cachedTransportKey = key;
+  }
+  return cachedTransport;
+}
 
 // ─── Odoo (módulo compartido con server.ts) ───────────────────────────
 const odooClient = new OdooClient({
@@ -121,7 +166,8 @@ app.get('/api/odoo/status', async (_req: Request, res: Response) => {
     await odooClient.odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
     res.json({ connected: true, message: 'Conectado a Odoo' });
   } catch (err) {
-    res.status(503).json({ connected: false, message: err instanceof Error ? err.message : String(err) });
+    console.error('[Odoo] Error en /api/odoo/status:', err);
+    res.status(503).json({ connected: false, message: 'No se pudo conectar con Odoo.' });
   }
 });
 
@@ -134,20 +180,20 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
     const { orders, truncated } = await odooClient.fetchInvoiceableOrdersCached();
     res.json({ orders, total: orders.length, truncated, lastUpdated: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err), orders: [] });
+    console.error('[Odoo] Error al obtener órdenes:', err);
+    res.status(500).json({ error: 'Error al consultar las órdenes en Odoo.', orders: [] });
   }
 });
 
 // ─── Asignación de órdenes a ingenieros SMV ───────────────────────────────────
-const isActor = (a: unknown): a is RequestActor => typeof a === 'object' && a !== null && typeof (a as RequestActor).uid === 'string';
-const NO_ACTOR = 'Se requiere una cuenta de personal SMV.';
 const assignmentsDoc = () => admin.firestore().doc('visual_factory_state/order_assignments');
 
 app.get('/api/order-assignments', async (_req: Request, res: Response) => {
   try {
     res.json(normalizeOrderAssignments((await assignmentsDoc().get()).data()));
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    console.error('[Assignments] Error leyendo asignaciones:', err);
+    res.status(500).json({ error: 'No se pudieron leer las asignaciones.' });
   }
 });
 
@@ -162,7 +208,7 @@ const changeAssignments = (mutate: (current: OrderAssignmentsPayload, actor: Req
     try {
       keys = parseOrderKeys(req.body);
     } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      res.status(400).json({ error: err instanceof Error ? err.message : 'orderKeys inválido.' });
       return;
     }
     try {
@@ -173,7 +219,8 @@ const changeAssignments = (mutate: (current: OrderAssignmentsPayload, actor: Req
       });
       res.json(next);
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      console.error('[Assignments] Error guardando asignaciones:', err);
+      res.status(500).json({ error: 'No se pudieron guardar las asignaciones.' });
     }
   };
 
@@ -184,12 +231,12 @@ app.post('/api/order-assignments/release', changeAssignments((cur, actor, keys) 
 const requestsDoc = () => admin.firestore().doc('visual_factory_state/invoice_requests');
 
 // Quién tiene acceso (Hub) y quién edita horarios (claim admin). Solo lectura y solo para editores.
-app.get('/api/team-access', async (_req: Request, res: Response) => {
-  const actor = res.locals.actor as RequestActor | undefined;
-  if (!actor) { res.status(403).json({ error: 'Se requiere una cuenta de personal SMV.' }); return; }
+app.get('/api/team-access', sensitiveRateLimit, async (_req: Request, res: Response) => {
+  const actor = res.locals.actor;
+  if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
   try {
     const caller = await admin.auth().getUser(actor.uid);
-    if (!isAdminClaim(caller.customClaims)) {
+    if (!caller.emailVerified || !isAdminClaim(caller.customClaims)) {
       res.status(403).json({ error: 'Solo quien puede editar horarios ve esta lista.' });
       return;
     }
@@ -240,20 +287,21 @@ app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
     }
     res.json({ ...out.state, progress: out.progress });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    console.error('[InvoiceRequests] Error en GET:', err);
+    res.status(500).json({ error: 'No se pudieron consultar las solicitudes.' });
   }
 });
 
-app.post('/api/invoice-requests', async (req: Request, res: Response) => {
+app.post('/api/invoice-requests', sensitiveRateLimit, async (req: Request, res: Response) => {
+  const actor = res.locals.actor;
+  if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
   let drafts;
   try {
     drafts = parseCreateRequestsBody(req.body);
   } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Solicitud inválida.' });
     return;
   }
-  const actor = res.locals.actor;
-  if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
   if (!odooClient.isConfigured()) { res.status(503).json({ error: 'Odoo no configurado.' }); return; }
   let orders;
   try {
@@ -269,13 +317,14 @@ app.post('/api/invoice-requests', async (req: Request, res: Response) => {
       if (out.created.length > 0) tx.set(requestsDoc(), out.state);
       return out;
     });
+    if (result.created.length > 0) odooClient.invalidateOrdersCache();
     // El registro ya quedó guardado: si falla el correo o Discord solo se reporta.
     let emailed = false;
     if (result.created.length > 0) {
       const { GMAIL_USER, GMAIL_APP_PASSWORD, INVOICE_MAIL_TO, INVOICE_MAIL_CC } = process.env;
       if (GMAIL_USER && GMAIL_APP_PASSWORD && INVOICE_MAIL_TO) {
         try {
-          const transport = nodemailer.createTransport({ service: 'gmail', auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD } });
+          const transport = getMailTransport(GMAIL_USER, GMAIL_APP_PASSWORD);
           await transport.sendMail({
             ...buildMailEnvelope({ user: GMAIL_USER, to: INVOICE_MAIL_TO, cc: INVOICE_MAIL_CC || undefined }, actor),
             ...buildRequestsEmail(result.created, actor),
@@ -289,7 +338,13 @@ app.post('/api/invoice-requests', async (req: Request, res: Response) => {
     const notified = result.created.length > 0 ? await sendInvoiceRequestsNotice(result.created, actor) : false;
     res.json({ state: result.state, created: result.created, skipped: result.skipped, notified, emailed });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    console.error('[InvoiceRequests] Error en POST:', err);
+    const msg = err instanceof Error ? err.message : '';
+    if (msg.includes('tamaño máximo')) {
+      res.status(409).json({ error: msg });
+      return;
+    }
+    res.status(500).json({ error: 'No se pudieron crear las solicitudes.' });
   }
 });
 
@@ -311,13 +366,32 @@ app.post('/api/invoice-requests/:id/done', async (req: Request, res: Response) =
       return updated;
     });
     if (validationError !== null) {
-      res.status(validationError === 'No se encontró la solicitud.' ? 404 : 500).json({ error: validationError });
+      if (validationError === 'No se encontró la solicitud.') {
+        res.status(404).json({ error: validationError });
+        return;
+      }
+      console.error('[InvoiceRequests] Error validando POST done:', validationError);
+      res.status(500).json({ error: 'No se pudo actualizar la solicitud.' });
       return;
     }
     res.json(next);
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    console.error('[InvoiceRequests] Error en POST done:', err);
+    res.status(500).json({ error: 'No se pudo actualizar la solicitud.' });
   }
+});
+
+app.use('/api', (_req: Request, res: Response) => {
+  res.status(404).json({ error: 'Ruta API no encontrada.' });
+});
+
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  if (err instanceof SyntaxError && 'body' in err) {
+    res.status(400).json({ error: 'JSON inválido en la solicitud.' });
+    return;
+  }
+  console.error('[Functions API] Error no controlado:', err);
+  res.status(500).json({ error: 'Error interno del servidor.' });
 });
 
 // ─── Export API ───────────────────────────────────────────────────────────────
@@ -350,14 +424,17 @@ export const scanNotifications = onSchedule({ schedule: 'every 30 minutes', time
     await checkThresholds(orders, channels);
     await checkEvents(orders, channels);
 
-    // Lógica del reporte mensual
+    // Lógica del reporte mensual (directamente en TIME_ZONE sin desplazar Date)
     const now = new Date();
-    // Ajustar mes a la zona horaria
-    const localStr = new Date(now.toLocaleString('en-US', { timeZone: TIME_ZONE }));
-    const currentMonth = `${localStr.getFullYear()}-${String(localStr.getMonth() + 1).padStart(2, '0')}`;
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: TIME_ZONE, year: 'numeric', month: '2-digit', hour: '2-digit', hour12: false,
+    }).formatToParts(now);
+    const part = (type: string) => parts.find(p => p.type === type)?.value ?? '';
+    const currentMonth = `${part('year')}-${part('month')}`;
+    const currentHour = Number(part('hour')) % 24;
     const state = await loadState();
 
-    if (state.lastMonthlyReportMonth && state.lastMonthlyReportMonth !== currentMonth && localStr.getHours() >= 8) {
+    if (state.lastMonthlyReportMonth && state.lastMonthlyReportMonth !== currentMonth && currentHour >= 8) {
       await sendMonthlyReport(orders, channels.reportes);
       state.lastMonthlyReportMonth = currentMonth;
       await saveState(state, ['lastMonthlyReportMonth']);

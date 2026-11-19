@@ -3,8 +3,10 @@ import test from 'node:test';
 import {
   checkThresholds,
   checkEvents,
+  isFullyDelivered,
   orderAgeEmbed,
   reportEmbed,
+  buildConsolidatedOrdersEmbed,
   buildInvoiceRequestsEmbed,
   sendInvoiceRequestsNotice,
   type NotifOrder,
@@ -315,4 +317,42 @@ test('sendInvoiceRequestsNotice devuelve false sin webhook configurado', async (
     if (saved.a !== undefined) process.env.DISCORD_WEBHOOK_URL_FACTURACION = saved.a;
     if (saved.b !== undefined) process.env.DISCORD_WEBHOOK_URL = saved.b;
   }
+});
+
+test('isFullyDelivered prioriza cantidades entregadas cuando las partidas traen qty/delivered', () => {
+  // Completa por cantidades aunque haya un backorder abierto
+  assert.equal(isFullyDelivered({
+    ...oldOrder(10),
+    deliveries: [{ state: 'done' }, { state: 'assigned' }],
+    lines: [{ name: 'Placa', qty: 5, delivered: 5 }],
+  }), true);
+
+  // Incompleta por cantidades aunque el único traslado esté en done
+  assert.equal(isFullyDelivered({
+    ...oldOrder(11),
+    deliveries: [{ state: 'done' }],
+    lines: [{ name: 'Placa', qty: 5, delivered: 3 }],
+  }), false);
+
+  // Fallback a deliveries cuando las partidas no traen cantidades
+  assert.equal(isFullyDelivered({
+    ...oldOrder(12),
+    deliveries: [{ state: 'done' }],
+    lines: [{ name: 'Solo nombre' }],
+  }), true);
+});
+
+test('buildConsolidatedOrdersEmbed trunca por bloques completos sin partir markdown', () => {
+  const many = Array.from({ length: 40 }, (_, i) => ({
+    order: { ...oldOrder(i + 1), partner_name: `Cliente largo ${i} `.repeat(5) },
+    severity: 'normal' as const,
+    reason: 'Nueva orden',
+    engineer: 'Ana',
+    smartText: 'Fabricación de fixture de prueba '.repeat(3),
+  }));
+  const embed = buildConsolidatedOrdersEmbed(many);
+  const desc = embed.description ?? '';
+  assert.ok(desc.length <= 4096);
+  assert.match(desc, /…y \d+ órdenes más/);
+  assert.match(desc, /Abrir Visual Factory TV/);
 });

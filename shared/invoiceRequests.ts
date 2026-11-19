@@ -62,10 +62,14 @@ export interface SkippedRequest { orderId: number; orderName: string | null; rea
 
 export const MAX_DONE_KEPT = 200;
 export const MAX_DRAFTS = 100;
+export const MAX_LINES_PER_REQUEST = 500;
 /** Tope de pendientes: viven en un solo documento de Firestore (1 MiB). */
 export const MAX_PENDING = 300;
-const MAX_STATE_CHARS = 800_000;
+const MAX_STATE_BYTES = 800_000;
+const HARD_MAX_STATE_BYTES = 950_000;
 const EPS = 1e-6;
+const utf8Encoder = new TextEncoder();
+const utf8ByteLength = (str: string): number => utf8Encoder.encode(str).length;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -196,7 +200,7 @@ function trim(state: InvoiceRequestsState): InvoiceRequestsState {
     return { requests: state.requests.filter(r => r.status === 'pendiente' || keep.has(r)), updatedAt: state.updatedAt };
   };
   let out = build();
-  while (kept.length > 0 && JSON.stringify(out).length > MAX_STATE_CHARS) {
+  while (kept.length > 0 && utf8ByteLength(JSON.stringify(out)) > MAX_STATE_BYTES) {
     kept = kept.slice(0, Math.max(0, kept.length - Math.max(1, Math.floor(kept.length / 10))));
     out = build();
   }
@@ -232,6 +236,7 @@ export function parseCreateRequestsBody(body: unknown): RequestDraft[] {
     if (item.type !== 'factura' && item.type !== 'remision') throw new Error('Tipo de solicitud inválido.');
     if (item.type === 'factura' && item.lines === undefined) return { orderId: item.orderId, type: 'factura', ...sat, ...withNote };
     if (!Array.isArray(item.lines) || item.lines.length === 0) throw new Error(item.type === 'factura' ? 'La factura parcial necesita al menos una pieza.' : 'La remisión necesita al menos una pieza.');
+    if (item.lines.length > MAX_LINES_PER_REQUEST) throw new Error(`Máximo ${MAX_LINES_PER_REQUEST} piezas por solicitud.`);
     const lines = item.lines.map(l => {
       if (!isRecord(l) || !isPosInt(l.lineId) || !isPosNum(l.qty)) throw new Error('Pieza inválida: lineId entero y cantidad mayor a 0.');
       return { lineId: l.lineId, qty: l.qty };
@@ -364,6 +369,9 @@ export function createInvoiceRequests(
   }
   if (created.length === 0) return { state, created, skipped };
   const next = trim({ requests: [...[...created].reverse(), ...state.requests], updatedAt: ctx.now });
+  if (utf8ByteLength(JSON.stringify(next)) > HARD_MAX_STATE_BYTES) {
+    throw new Error('El registro de solicitudes alcanzó el tamaño máximo permitido. Marca solicitudes antiguas como hechas.');
+  }
   return { state: next, created, skipped };
 }
 

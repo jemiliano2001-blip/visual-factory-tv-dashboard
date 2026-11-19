@@ -37,11 +37,11 @@ export interface SelectContentProps
 const SelectContent = React.forwardRef<HTMLDivElement, SelectContentProps>(
   ({ className, children, sideOffset = 4, side = 'bottom', align = 'start', ...props }, ref) => (
     <BaseSelect.Portal>
-      <BaseSelect.Positioner sideOffset={sideOffset} side={side} align={align} className="z-50 min-w-[var(--anchor-width)]">
+      <BaseSelect.Positioner sideOffset={sideOffset} side={side} align={align} className="z-[80] min-w-[var(--anchor-width)]">
         <BaseSelect.Popup
           ref={ref}
           className={cn(
-            'relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-overlay p-1 data-[open]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[open]:fade-in-0 data-[closed]:zoom-out-95 data-[open]:zoom-in-95',
+            'relative z-[80] max-h-96 min-w-[8rem] overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-overlay p-1 data-[open]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[open]:fade-in-0 data-[closed]:zoom-out-95 data-[open]:zoom-in-95',
             className,
           )}
           {...props}

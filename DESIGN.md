@@ -25,8 +25,8 @@ off against glanceable urgency, urgency wins.
 - **Direction:** Industrial / Utilitarian. The screen is a gauge, not a webpage.
 - **Decoration level:** Expressive. Glow, soft blur, and accent stripes reinforce the
   progress/priority signal (kept legible, not noise).
-- **Mood:** Dark, dense, vivid. The OLED background makes the progress colors (cyan /
-  emerald / fuchsia) and priority glows pop; overdue still shouts loudest. It reads as a
+- **Mood:** Dark, dense, vivid. The OLED background makes the urgency colors (cyan /
+  amber / orange / red / fuchsia) pop; overdue still shouts loudest. It reads as a
   live, high-energy production board.
 - **Reference sites:** None used (worked from design knowledge — control-room/andon norms).
 
@@ -61,8 +61,8 @@ delivered and a progress color painted the whole wall cyan.
   tabular-nums` (utility `.font-mono-data`). Mandatory for any live-updating number so
   the layout does not shimmer as values change.
 - **Code:** `JetBrains Mono`.
-- **Loading:** Google Fonts via `@import` in `src/index.css`
-  (`Inter` 300-900, `Syne` 400-800, `JetBrains Mono` 400/500/700).
+- **Loading:** Google Fonts via `<link rel="stylesheet">` in `index.html`
+  (`Inter` 400-900, `Syne` 700-800, `JetBrains Mono` 400/500/700).
 - **Scale & distance:** On the TV, type follows the card's **measured size**, not the
   viewport: `getCardFit()` (`src/services/cardFit.ts`) picks the largest tier (`xs`…`xl`)
   where SO + footer + two lines fit, then spends leftover rows on fuller descriptions,
@@ -73,8 +73,8 @@ delivered and a progress color painted the whole wall cyan.
   meta (lines, salesperson, dates)**.
 
 ## Color
-- **Approach:** Two axes that both mean something — **progress** (the card status color)
-  and **priority** (the badge). Color is never random, but the board is deliberately vivid.
+- **Approach:** Two axes that both mean something — **urgency** (the card status color by
+  days late / margin) and **priority** (the badge). Color is never random, but the board is deliberately vivid.
 - **TV background (2026-11-12):** pure black `#000000` plus the aurora layer
   (`GeminiOledBackground`): a top light curtain and two blurred waves that drift behind the
   grid, with a vignette. Three modes cycled from the header palette button and stored in

@@ -9,8 +9,14 @@ export const HUB_BREAK_GLASS_EMAIL = 'jemiliano2001@gmail.com';
 
 export interface HubAccess { allowed: boolean; name?: string | null }
 
-export function evaluarAccesoHub(doc: unknown, email: string | null): HubAccess {
-  if (email && email.trim().toLowerCase() === HUB_BREAK_GLASS_EMAIL) {
+const MAX_CACHE_ENTRIES = 1000;
+
+export function evaluarAccesoHub(
+  doc: unknown,
+  email: string | null,
+  opts?: { emailVerified?: boolean },
+): HubAccess {
+  if (email && email.trim().toLowerCase() === HUB_BREAK_GLASS_EMAIL && opts?.emailVerified !== false) {
     const n = typeof (doc as { operadorNombre?: unknown } | null)?.operadorNombre === 'string'
       ? (doc as { operadorNombre: string }).operadorNombre.trim() : '';
     return { allowed: true, name: n || null };
@@ -30,11 +36,16 @@ export function crearVerificadorHub(
   const ttlMs = opts.ttlMs ?? 60_000;
   const now = opts.now ?? Date.now;
   const cache = new Map<string, { at: number; value: HubAccess }>();
-  return async (uid: string, email: string | null): Promise<HubAccess> => {
-    const hit = cache.get(uid);
+  return async (uid: string, email: string | null, emailVerified?: boolean): Promise<HubAccess> => {
+    const cacheKey = `${uid}:${emailVerified === false ? '0' : '1'}`;
+    const hit = cache.get(cacheKey);
     if (hit && now() - hit.at < ttlMs) return hit.value;
-    const value = evaluarAccesoHub(await leerUsuario(uid), email); // si falla la lectura, propaga: no se cachea
-    cache.set(uid, { at: now(), value });
+    const value = evaluarAccesoHub(await leerUsuario(uid), email, { emailVerified }); // si falla la lectura, propaga: no se cachea
+    if (!cache.has(cacheKey) && cache.size >= MAX_CACHE_ENTRIES) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
+    cache.set(cacheKey, { at: now(), value });
     return value;
   };
 }

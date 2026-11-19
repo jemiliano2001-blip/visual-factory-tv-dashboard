@@ -8,6 +8,8 @@ export interface DeliveryDaysRange {
   max: number;
 }
 
+const MAX_DELIVERY_BUSINESS_DAYS = 1000;
+
 /**
  * Parsea el rango de días hábiles desde el texto de la nota de una orden.
  * Soporta formatos como:
@@ -20,7 +22,11 @@ export interface DeliveryDaysRange {
  */
 export function parseDeliveryDaysFromNote(note: string | null | undefined): DeliveryDaysRange | null {
   if (!note) return null;
-  const normalized = note.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const plain = note
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ');
+  const normalized = plain.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
   // Validar explícitamente que la nota habla de tiempo o entrega para evitar falsos positivos
   // con otros números. (Aunque el regex ya exige la unidad, esto añade robustez).
@@ -41,7 +47,7 @@ export function parseDeliveryDaysFromNote(note: string | null | undefined): Deli
     const multiplier = getMultiplier(rangeMatch[3] || '');
     const a = parseInt(rangeMatch[1], 10) * multiplier;
     const b = parseInt(rangeMatch[2], 10) * multiplier;
-    if (a > 0 && b > 0) {
+    if (a > 0 && b > 0 && a <= MAX_DELIVERY_BUSINESS_DAYS && b <= MAX_DELIVERY_BUSINESS_DAYS) {
       return { min: Math.min(a, b), max: Math.max(a, b) };
     }
   }
@@ -51,7 +57,7 @@ export function parseDeliveryDaysFromNote(note: string | null | undefined): Deli
   if (singleMatch) {
     const multiplier = getMultiplier(singleMatch[2] || '');
     const n = parseInt(singleMatch[1], 10) * multiplier;
-    if (n > 0) return { min: n, max: n };
+    if (n > 0 && n <= MAX_DELIVERY_BUSINESS_DAYS) return { min: n, max: n };
   }
 
   return null;
@@ -60,11 +66,22 @@ export function parseDeliveryDaysFromNote(note: string | null | undefined): Deli
 /** Suma N días hábiles (lun-vie, en UTC) a una fecha. */
 export function addBusinessDays(start: Date, days: number): Date {
   const result = new Date(start);
-  let added = 0;
-  while (added < days) {
+  if (!Number.isFinite(days) || days <= 0) return result;
+  let remaining = Math.ceil(days);
+  while (remaining > 0 && (result.getUTCDay() === 0 || result.getUTCDay() === 6)) {
     result.setUTCDate(result.getUTCDate() + 1);
     const dow = result.getUTCDay();
-    if (dow !== 0 && dow !== 6) added++;
+    if (dow !== 0 && dow !== 6) remaining--;
+  }
+  if (remaining >= 5) {
+    const fullWeeks = Math.floor(remaining / 5);
+    result.setUTCDate(result.getUTCDate() + fullWeeks * 7);
+    remaining %= 5;
+  }
+  while (remaining > 0) {
+    result.setUTCDate(result.getUTCDate() + 1);
+    const dow = result.getUTCDay();
+    if (dow !== 0 && dow !== 6) remaining--;
   }
   return result;
 }

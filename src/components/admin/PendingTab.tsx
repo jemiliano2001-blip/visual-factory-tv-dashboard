@@ -68,7 +68,7 @@ export default function PendingTab({ orders, getEngineerName }: PendingTabProps)
       </div>
 
       <div className="space-y-3">
-        {groups.map(g => (
+        {groups.map((g, idx) => (
           <ClientGroup
             key={g.client}
             client={g.client}
@@ -78,6 +78,7 @@ export default function PendingTab({ orders, getEngineerName }: PendingTabProps)
             collapsed={!!collapsed[g.client]}
             onToggle={() => toggle(g.client)}
             getEngineerName={getEngineerName}
+            deferRender={idx >= 3}
           />
         ))}
       </div>
@@ -95,7 +96,7 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: str
 }
 
 function ClientGroup({
-  client, orderCount, missingQty, lines, collapsed, onToggle, getEngineerName,
+  client, orderCount, missingQty, lines, collapsed, onToggle, getEngineerName, deferRender = false,
 }: {
   client: string;
   orderCount: number;
@@ -104,12 +105,14 @@ function ClientGroup({
   collapsed: boolean;
   onToggle: () => void;
   getEngineerName: (order: OdooSaleOrder) => string | null;
+  deferRender?: boolean;
 }) {
   const isMobile = useMobile();
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
+    <div className={`overflow-hidden rounded-2xl border border-border bg-card shadow-card${deferRender ? ' cv-auto' : ''}`}>
       <button
         type="button"
+        aria-expanded={!collapsed}
         onClick={onToggle}
         className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-muted/40 px-4 py-3 text-left transition-colors hover:bg-accent/40"
       >
@@ -155,12 +158,12 @@ function ClientGroup({
         <table className="w-full text-sm">
           <thead className="text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2 text-left font-medium">SO</th>
-              <th className="px-4 py-2 text-left font-medium">PO / Ingeniero</th>
-              <th className="px-4 py-2 text-left font-medium">Producto</th>
-              <th className="px-4 py-2 text-right font-medium">Faltan</th>
-              <th className="px-4 py-2 text-left font-medium">Compromiso</th>
-              <th className="px-4 py-2 text-left font-medium">Estado</th>
+              <th scope="col" className="px-4 py-2 text-left font-medium">SO</th>
+              <th scope="col" className="px-4 py-2 text-left font-medium">PO / Ingeniero</th>
+              <th scope="col" className="px-4 py-2 text-left font-medium">Producto</th>
+              <th scope="col" className="px-4 py-2 text-right font-medium">Faltan</th>
+              <th scope="col" className="px-4 py-2 text-left font-medium">Compromiso</th>
+              <th scope="col" className="px-4 py-2 text-left font-medium">Estado</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">

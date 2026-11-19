@@ -3,6 +3,7 @@
  * que exigen las reglas de Firestore). Un claim recién otorgado no aparece hasta volver a iniciar sesión.
  */
 import { useEffect, useState } from 'react';
+import { onIdTokenChanged } from 'firebase/auth';
 import { auth } from '../firebase';
 import { isAdminClaim } from '../../shared/teamAccess';
 
@@ -10,15 +11,19 @@ export function useCanEditSchedules(): { loading: boolean; canEdit: boolean } {
   const [state, setState] = useState({ loading: true, canEdit: false });
   useEffect(() => {
     let active = true;
-    const user = auth.currentUser;
-    if (!user) {
-      setState({ loading: false, canEdit: false });
-      return;
-    }
-    user.getIdTokenResult()
-      .then(result => { if (active) setState({ loading: false, canEdit: isAdminClaim(result.claims) }); })
-      .catch(() => { if (active) setState({ loading: false, canEdit: false }); });
-    return () => { active = false; };
+    const unsub = onIdTokenChanged(auth, (user) => {
+      if (!user) {
+        if (active) setState({ loading: false, canEdit: false });
+        return;
+      }
+      user.getIdTokenResult()
+        .then(result => { if (active) setState({ loading: false, canEdit: isAdminClaim(result.claims) }); })
+        .catch(() => { if (active) setState({ loading: false, canEdit: false }); });
+    });
+    return () => {
+      active = false;
+      unsub();
+    };
   }, []);
   return state;
 }

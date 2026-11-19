@@ -1,5 +1,5 @@
 import React, { useEffect, useState, lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { MotionConfig } from 'framer-motion';
 import { onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { auth } from './firebase';
@@ -16,10 +16,25 @@ const Login = lazy(() => import('./pages/Login'));
 
 function RouteLoadingFallback() {
   return (
-    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
-      <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
     </div>
   );
+}
+
+const ROUTE_TITLES: Record<string, string> = {
+  '/': 'Fábrica Visual TV — SMV',
+  '/admin': 'Administración — Fábrica Visual TV',
+  '/stats': 'Estadísticas — Fábrica Visual TV',
+  '/login': 'Iniciar sesión — Fábrica Visual TV',
+};
+
+function RouteTitleSync() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    document.title = ROUTE_TITLES[pathname] ?? 'Fábrica Visual TV — SMV';
+  }, [pathname]);
+  return null;
 }
 
 export default function App() {
@@ -41,11 +56,11 @@ export default function App() {
         if (ssoToken) {
           try {
             await signInWithCustomToken(auth, ssoToken);
-            if (cancelado) return;
-            const urlLimpia = window.location.pathname + window.location.search;
-            window.history.replaceState(null, '', urlLimpia);
           } catch (err) {
             console.error('[visual-factory][auth] signInWithCustomToken falló:', err);
+          } finally {
+            const urlLimpia = window.location.pathname + window.location.search;
+            window.history.replaceState(null, '', urlLimpia);
           }
         }
       }
@@ -101,6 +116,7 @@ export default function App() {
       <TooltipProvider delayDuration={300}>
         <MotionConfig reducedMotion="user">
           <BrowserRouter>
+            <RouteTitleSync />
             <Suspense fallback={<RouteLoadingFallback />}>
               <Routes>
                 <Route path="/login" element={<Login />} />

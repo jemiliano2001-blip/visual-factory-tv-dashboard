@@ -49,11 +49,11 @@ export interface TooltipContentProps extends React.ComponentPropsWithoutRef<type
 const TooltipContent = React.forwardRef<HTMLDivElement, TooltipContentProps>(
   ({ className, sideOffset = 6, side = 'top', align = 'center', children, ...props }, ref) => (
     <BaseTooltip.Portal>
-      <BaseTooltip.Positioner sideOffset={sideOffset} side={side} align={align}>
+      <BaseTooltip.Positioner sideOffset={sideOffset} side={side} align={align} className="z-[80]">
         <BaseTooltip.Popup
           ref={ref}
           className={cn(
-            'z-50 overflow-hidden rounded-lg border border-border bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground shadow-overlay transition-opacity duration-150 data-[open]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[open]:fade-in-0',
+            'z-[80] overflow-hidden rounded-lg border border-border bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground shadow-overlay transition-opacity duration-150 data-[open]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[open]:fade-in-0',
             className,
           )}
           {...props}

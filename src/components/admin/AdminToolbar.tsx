@@ -2,7 +2,7 @@
  * Barra de controles del Admin en una sola fila (escritorio) o buscador + "Filtros" (móvil).
  * Recibe y emite el mismo AdminFilters que vive en el link; no tiene lógica de datos propia.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Check, Download, Filter, Link2, MoreHorizontal, Printer, Users2, X,
 } from 'lucide-react';
@@ -63,6 +63,11 @@ export default function AdminToolbar(p: AdminToolbarProps) {
   const isMobile = useMobile();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const copyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+  }, []);
 
   const chips = activeFilterChips(filters, {
     engineerName: id => p.engineers.find(e => e.id === id)?.name ?? null,
@@ -74,7 +79,11 @@ export default function AdminToolbar(p: AdminToolbarProps) {
     try {
       await navigator.clipboard.writeText(window.location.href);
       setLinkCopied(true);
-      window.setTimeout(() => setLinkCopied(false), 2000);
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = window.setTimeout(() => {
+        copyTimerRef.current = null;
+        setLinkCopied(false);
+      }, 2000);
     } catch {
       // portapapeles no disponible: la URL ya está en la barra
     }
@@ -129,7 +138,7 @@ export default function AdminToolbar(p: AdminToolbarProps) {
   );
 
   return (
-    <div className="space-y-2">
+    <search aria-label="Filtrar órdenes" className="block space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <OrderSearchInput
           value={filters.search}
@@ -242,6 +251,6 @@ export default function AdminToolbar(p: AdminToolbarProps) {
           </DrawerContent>
         </Drawer>
       )}
-    </div>
+    </search>
   );
 }

@@ -42,7 +42,7 @@ test('no cachea los fallos', async () => {
 
 type FixtureMove = {
   id: number; sale_line_id: [number, string] | false; quantity_done: number;
-  product_uom: [number, string]; origin_returned_move_id: [number, string] | false;
+  product_uom: [number, string] | false; origin_returned_move_id: [number, string] | false;
 };
 
 function transferClient(options: { moves?: FixtureMove[]; returns?: FixtureMove[]; failMoves?: boolean; note?: string; invoiced?: unknown[] } = {}) {
@@ -149,4 +149,66 @@ test('cada partida expone lo facturado en Odoo; ausente, no numérico o negativo
   assert.deepEqual(await lectura([3, 1.5]), [3, 1.5]);
   assert.deepEqual(await lectura(), [0, 0]);
   assert.deepEqual(await lectura(['x', -2]), [0, 0]);
+});
+
+test('move.product_uom en false en un movimiento no vinculado no truena', async () => {
+  const { client } = transferClient({
+    moves: [
+      { id: 649, sale_line_id: [5159, 'Navajas'], quantity_done: 2, product_uom: [1, 'Pieza'], origin_returned_move_id: false },
+      { id: 650, sale_line_id: false, quantity_done: 1, product_uom: false, origin_returned_move_id: false },
+    ],
+  });
+  const { orders } = await client.fetchInvoiceableOrders();
+  assert.equal(orders[0].lines[0].delivered, 2);
+});
+
+test('ttlMs <= 0 no sobreescribe la caché activa e invalidateOrdersCache la limpia', async () => {
+  let calls = 0;
+  const client = clientWith(async () => { calls++; return empty; });
+  await client.fetchInvoiceableOrdersCached(60_000);
+  await client.fetchInvoiceableOrdersCached(0);
+  await client.fetchInvoiceableOrdersCached(60_000);
+  assert.equal(calls, 2);
+  client.invalidateOrdersCache();
+  await client.fetchInvoiceableOrdersCached(60_000);
+  assert.equal(calls, 3);
+});
+
+test('reautentica una sola vez ante llamadas concurrentes con 401 o respuesta HTML no JSON', async () => {
+  const originalFetch = globalThis.fetch;
+  let authCalls = 0;
+  let rpcCalls = 0;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.endsWith('/web/session/authenticate')) {
+      authCalls++;
+      return new Response(JSON.stringify({ result: { uid: authCalls } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json', 'set-cookie': `session_id=s${authCalls}; Path=/` },
+      });
+    }
+    rpcCalls++;
+    if (rpcCalls === 1) {
+      return new Response('<html>login</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    }
+    if (rpcCalls === 2) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+    return new Response(JSON.stringify({ result: 'ok' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+  try {
+    const client = new OdooClient({ url: 'http://odoo.test', db: 'db', username: 'u', password: 'p' });
+    const [a, b] = await Promise.all([
+      client.odooCall<string>('sale.order', 'search'),
+      client.odooCall<string>('sale.order', 'search'),
+    ]);
+    const c = await client.odooCall<string>('sale.order', 'search');
+    assert.deepEqual([a, b, c], ['ok', 'ok', 'ok']);
+    assert.equal(authCalls, 2); // 1 sesión inicial + 1 sola reautenticación compartida
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

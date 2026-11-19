@@ -52,6 +52,7 @@ export default class ErrorBoundary extends Component<Props, State> {
             <p className="text-muted-foreground mb-4">{errorMessage}</p>
             {details && <p className="text-xs text-muted-foreground mb-6 font-mono">{details}</p>}
             <button
+              type="button"
               onClick={() => window.location.reload()}
               className="w-full py-3 bg-secondary hover:bg-foreground/20 text-foreground font-bold rounded-xl transition-all"
             >

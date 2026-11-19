@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { CompanyConfig } from '../types';
@@ -18,7 +18,6 @@ import OdooOrderCard from '../components/OdooOrderCard';
 import type { ViewMode, ScreenTier } from '../components/OdooOrderCard';
 import { SharedTVPage } from '../components/SharedTVPage';
 import SkeletonCard from '../components/SkeletonCard';
-import { OrderDetailsModal } from '../components/OrderDetailsModal';
 import DashboardHeader from '../components/DashboardHeader';
 import DashboardFooter from '../components/DashboardFooter';
 import TVControlBar, { type StatusFilter } from '../components/TVControlBar';
@@ -33,6 +32,10 @@ import { INITIAL_ROTATION_PAUSED, shouldAutoRotate } from '../services/rotationP
 import { computeTVGrid } from '../services/tvGrid';
 import GeminiOledBackground from '../components/GeminiOledBackground';
 import { type AuroraMode, isAuroraUrgent, nextAuroraMode, normalizeAuroraMode } from '../services/auroraMode';
+
+const OrderDetailsModal = lazy(() =>
+  import('../components/OrderDetailsModal').then(m => ({ default: m.OrderDetailsModal })),
+);
 
 // ─── TVDashboard principal ─────────────────────────────────────────────────────
 
@@ -151,6 +154,14 @@ export default function TVDashboard() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
   }, []);
 
+  const handleClearControls = useCallback(() => {
+    setClientFilter(null);
+    setTextFilter('');
+    setRotationPaused(false);
+    setStatusFilter('all');
+    setCurrentPageIndex(0);
+  }, [setClientFilter, setTextFilter]);
+
   // ── Auto-limpieza por inactividad en modo TV ─────────────────────────────────
   // En una TV de pared desatendida, si un operador aplicó filtros o pausó la
   // rotación y se alejó, auto-restaurar la rotación general tras 3 minutos sin actividad.
@@ -164,8 +175,12 @@ export default function TVDashboard() {
     let inactivityTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
       handleClearControls();
     }, 180000);
+    let lastActivityAt = 0;
 
     const onActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityAt < 1000) return;
+      lastActivityAt = now;
       if (inactivityTimer) {
         clearTimeout(inactivityTimer);
         inactivityTimer = setTimeout(() => {
@@ -184,7 +199,7 @@ export default function TVDashboard() {
       window.removeEventListener('keydown', onActivity);
       window.removeEventListener('touchstart', onActivity);
     };
-  }, [isTVMode, clientFilter, textFilter, statusFilter, rotationPaused]);
+  }, [isTVMode, clientFilter, textFilter, statusFilter, rotationPaused, handleClearControls]);
 
   // ── Fullscreen ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -290,7 +305,8 @@ export default function TVDashboard() {
     setCurrentPageIndex(0);
   }, [clientFilter, textFilter, statusFilter]);
 
-  const currentPage = pages.length > 0 ? pages[currentPageIndex] : null;
+  const safePageIndex = pages.length > 0 ? Math.min(currentPageIndex, pages.length - 1) : 0;
+  const currentPage = pages.length > 0 ? pages[safePageIndex] : null;
   const currentHeaderCompany = isTVMode
     ? currentPage?.type === 'company'
       ? currentPage.company
@@ -320,14 +336,6 @@ export default function TVDashboard() {
     const priority = getOrderPriority(order);
     return priority === 'critical' || priority === 'high';
   }).length;
-
-  const handleClearControls = () => {
-    setClientFilter(null);
-    setTextFilter('');
-    setRotationPaused(false);
-    setStatusFilter('all');
-    setCurrentPageIndex(0);
-  };
 
   // ─────────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -442,6 +450,7 @@ export default function TVDashboard() {
               )}
             </div>
             <button
+              type="button"
               onClick={() => loadOdooOrders()}
               disabled={isRefreshing}
               className="flex items-center gap-2 px-6 py-3 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-2xl font-bold hover:bg-indigo-500/30 transition-all disabled:opacity-50"
@@ -468,6 +477,7 @@ export default function TVDashboard() {
               <p className="text-muted-foreground max-w-md">Ninguna orden coincide con el cliente, estado o búsqueda activos.</p>
             </div>
             <button
+              type="button"
               onClick={handleClearControls}
               className="flex items-center gap-2 px-6 py-3 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-2xl font-bold hover:bg-indigo-500/30 transition-all"
             >
@@ -509,11 +519,11 @@ export default function TVDashboard() {
         ) : !isTVMode && pages.length > 0 ? (
           /* ── Modo Desktop: todas las órdenes con scroll, agrupadas ── */
           <div className={`flex flex-col ${isMobile ? 'gap-4' : 'gap-8'}`}>
-            {pages.map((page) => {
+            {pages.map((page, pageIdx) => {
               if (page.type !== 'company') return null;
               const pageData = page;
               return (
-              <div key={pageData.company} className="flex flex-col gap-4">
+              <div key={pageData.company} className={`flex flex-col gap-4${pageIdx >= 2 ? ' cv-auto' : ''}`}>
                 {/* Company header */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 lg:gap-5">
@@ -565,17 +575,21 @@ export default function TVDashboard() {
       </div>
 
       {/* ── Modal de Detalles de Orden ───────────────────────────────────────── */}
-      <OrderDetailsModal
-        order={selectedOrder}
-        isOpen={!!selectedOrder}
-        onClose={() => setSelectedOrder(null)}
-      />
+      {selectedOrder && (
+        <Suspense fallback={null}>
+          <OrderDetailsModal
+            order={selectedOrder}
+            isOpen
+            onClose={() => setSelectedOrder(null)}
+          />
+        </Suspense>
+      )}
 
       {/* ── Footer ─────────────────────────────────────────────────────────────── */}
       <DashboardFooter
         totalOrders={filteredOdooOrders.length}
         pages={isTVMode ? pages : []}
-        currentPageIndex={currentPageIndex}
+        currentPageIndex={safePageIndex}
         onPageChange={setCurrentPageIndex}
         toast={toast}
       />

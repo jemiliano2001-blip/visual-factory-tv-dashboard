@@ -135,8 +135,8 @@ export async function fetchInvoiceableOrders(): Promise<OdooOrdersResponse> {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('sesión') || msg.includes('token') || msg.includes('Firebase')) throw new Error(msg);
-    throw new Error(`Sin conexión al proxy de Odoo: ${msg}`);
+    if (msg.includes('sesión') || msg.includes('token') || msg.includes('Firebase')) throw new Error(msg, { cause: err });
+    throw new Error(`Sin conexión al proxy de Odoo: ${msg}`, { cause: err });
   }
 
   if (!response.ok) {

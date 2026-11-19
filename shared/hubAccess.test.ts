@@ -20,9 +20,11 @@ test('inactivo, sin documento o campo activo no booleano true: no entra', () => 
   }
 });
 
-test('el correo de emergencia entra aunque no esté en el Hub, sin importar mayúsculas', () => {
+test('el correo de emergencia entra aunque no esté en el Hub, sin importar mayúsculas, pero solo si está verificado', () => {
   assert.equal(evaluarAccesoHub(undefined, HUB_BREAK_GLASS_EMAIL.toUpperCase()).allowed, true);
   assert.equal(evaluarAccesoHub({ activo: false }, HUB_BREAK_GLASS_EMAIL).allowed, true);
+  assert.equal(evaluarAccesoHub({ activo: false }, HUB_BREAK_GLASS_EMAIL, { emailVerified: false }).allowed, false);
+  assert.equal(evaluarAccesoHub({ activo: false }, HUB_BREAK_GLASS_EMAIL, { emailVerified: true }).allowed, true);
 });
 
 test('verificador: consulta una vez por uid dentro del TTL y vuelve a consultar al vencer', async () => {

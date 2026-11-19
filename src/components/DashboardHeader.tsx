@@ -1,7 +1,5 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Monitor, Maximize, Minimize, Palette, ChevronRight, Clock } from 'lucide-react';
-import { format } from 'date-fns';
 import { OdooConnectionStatus } from '../services/odoo';
 import OdooStatusBadge from './OdooStatusBadge';
 import { ViewMode } from './OdooOrderCard';

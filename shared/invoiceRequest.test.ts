@@ -126,3 +126,19 @@ test('correo: factura con partidas marcada completa (partial: false) no dice par
   assert.doesNotMatch(mail.text, /parcial/);
   assert.match(mail.text, /4 pza — Válvula/);
 });
+
+test('correo y sobre: sanea CRLF, deduplica múltiples CC y preserva cantidades pequeñas', () => {
+  const mail = buildRequestsEmail([
+    req({ orderName: 'S1\r\nBcc: evil@x.com', type: 'remision', lines: [{ name: 'Micro', qty: 0.001, unit: 'kg' }] }),
+  ], actor);
+  assert.doesNotMatch(mail.subject, /[\r\n]/);
+  assert.match(mail.text, /0\.001 kg — Micro/);
+
+  const env = buildMailEnvelope(
+    { user: 'dash@gmail.com', to: 'mari@smv.com\r\n', cc: 'uno@smv.com, DOS@smv.com, uno@smv.com' },
+    { uid: 'u', name: 'Ana', email: 'dos@smv.com\r\n' },
+  );
+  assert.equal(env.to, 'mari@smv.com');
+  assert.equal(env.cc, 'uno@smv.com, DOS@smv.com');
+  assert.equal(env.replyTo, 'dos@smv.com');
+});

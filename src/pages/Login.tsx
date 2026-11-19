@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { auth, isRealUser } from '../firebase';
 import { GoogleAuthProvider, signInWithCustomToken, signInWithEmailAndPassword, signInWithPopup, onAuthStateChanged, type User } from 'firebase/auth';
 import { useNavigate, Navigate, useLocation } from 'react-router-dom';
-import { Tv } from 'lucide-react';
+import { Eye, EyeOff, Tv } from 'lucide-react';
 
 export default function Login() {
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
   const [user, setUser]         = useState<User | null>(auth.currentUser);
@@ -24,6 +25,7 @@ export default function Login() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const hash = typeof window !== 'undefined' && window.location.hash.startsWith('#')
       ? window.location.hash.slice(1)
       : '';
@@ -34,19 +36,22 @@ export default function Login() {
         setLoading(true);
         signInWithCustomToken(auth, ssoToken)
           .then(() => {
-            const urlLimpia = window.location.pathname + window.location.search;
-            window.history.replaceState(null, '', urlLimpia);
-            navigate(from, { replace: true });
+            if (!cancelled) navigate(from, { replace: true });
           })
           .catch((err) => {
             console.error('[visual-factory][login] SSO falló:', err);
-            setError('No se pudo autenticar con SSO token.');
+            if (!cancelled) setError('No se pudo autenticar con SSO token.');
           })
           .finally(() => {
-            setLoading(false);
+            const urlLimpia = window.location.pathname + window.location.search;
+            window.history.replaceState(null, '', urlLimpia);
+            if (!cancelled) setLoading(false);
           });
       }
     }
+    return () => {
+      cancelled = true;
+    };
   }, [from, navigate]);
 
 
@@ -105,44 +110,60 @@ export default function Login() {
         </div>
 
         {error && (
-          <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-2xl mb-6 text-sm font-medium">
+          <div role="alert" className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-2xl mb-6 text-sm font-medium">
             {error}
           </div>
         )}
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            <label htmlFor="login-email" className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
               Correo electrónico
             </label>
             <input
+              id="login-email"
+              name="email"
               type="email"
               required
-              autoComplete="email"
+              autoComplete="username"
+              spellCheck={false}
               value={email}
               onChange={e => setEmail(e.target.value)}
-              className="w-full bg-secondary/60 border border-input text-foreground rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground/60"
+              className="w-full bg-secondary/60 border border-input text-foreground rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground/60"
               placeholder="usuario@empresa.com"
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            <label htmlFor="login-password" className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
               Contraseña
             </label>
-            <input
-              type="password"
-              required
-              autoComplete="current-password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              className="w-full bg-secondary/60 border border-input text-foreground rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground/60"
-              placeholder="••••••••"
-            />
+            <div className="relative">
+              <input
+                id="login-password"
+                name="password"
+                type={showPassword ? 'text' : 'password'}
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="w-full bg-secondary/60 border border-input text-foreground rounded-xl pl-4 pr-12 py-3 text-base focus:outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground/60"
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(v => !v)}
+                aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                aria-pressed={showPassword}
+                className="absolute right-2 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                {showPassword ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+              </button>
+            </div>
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-4 bg-primary hover:bg-primary/90 text-foreground font-bold rounded-2xl transition-all disabled:opacity-50 shadow-xl shadow-primary/20 mt-2"
+            className="w-full py-4 bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-2xl transition-all disabled:opacity-50 shadow-xl shadow-primary/20 mt-2"
           >
             {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
           </button>

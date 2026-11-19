@@ -20,6 +20,7 @@ export const DEFAULT_ENGINEERS: EngineerRosterItem[] = [];
 
 const MIN_NAME = 2;
 const MAX_NAME = 50;
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 /** Ingenieros que antes se sembraron por código y nunca entraron con cuenta: se descartan de lo guardado. */
 const LEGACY_SEEDED_IDS = new Set(['edgar-castro', 'antonio-vazquez', 'rogelio']);
@@ -43,6 +44,7 @@ export function normalizeOrderAssignments(raw: unknown): OrderAssignmentsPayload
   const assignments: Record<string, string> = {};
   if (isRecord(source.assignments)) {
     for (const [key, value] of Object.entries(source.assignments)) {
+      if (FORBIDDEN_KEYS.has(key)) continue;
       if (typeof value === 'string' && engineers.some(e => e.id === value)) assignments[key] = value;
     }
   }
@@ -61,7 +63,7 @@ export const actorEngineerId = (uid: string) => `u-${uid}`;
 
 const actorLabel = (a: AssignmentActor) => {
   const label = (a.name || a.email || a.uid).replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
-  return label.length >= MIN_NAME ? label : `${label} `.padEnd(MIN_NAME, '.');
+  return label.length >= MIN_NAME ? label : label.padEnd(MIN_NAME, '.');
 };
 
 /** La persona toma las órdenes para sí; si otra las tenía, pasan a ella. */
@@ -73,7 +75,9 @@ export function claimOrders(state: OrderAssignmentsPayload, actor: AssignmentAct
     ? state.engineers.map(e => (e.id === id ? me : e))
     : [...state.engineers, me];
   const assignments = { ...state.assignments };
-  for (const key of orderKeys) assignments[key] = id;
+  for (const key of orderKeys) {
+    if (!FORBIDDEN_KEYS.has(key)) assignments[key] = id;
+  }
   return { engineers, assignments, updatedAt: new Date().toISOString() };
 }
 
@@ -81,7 +85,9 @@ export function claimOrders(state: OrderAssignmentsPayload, actor: AssignmentAct
 export function releaseOrders(state: OrderAssignmentsPayload, uid: string, orderKeys: string[]): OrderAssignmentsPayload {
   const id = actorEngineerId(uid);
   const assignments = { ...state.assignments };
-  for (const key of orderKeys) if (assignments[key] === id) delete assignments[key];
+  for (const key of orderKeys) {
+    if (!FORBIDDEN_KEYS.has(key) && assignments[key] === id) delete assignments[key];
+  }
   return { engineers: state.engineers, assignments, updatedAt: new Date().toISOString() };
 }
 
@@ -92,7 +98,12 @@ export function getOrderEngineerId(assignments: Record<string, string>, order: {
 /** Valida el body de claim/release: { orderKeys: string[] } (1 a 2000 claves). */
 export function parseOrderKeys(body: unknown): string[] {
   const keys = isRecord(body) ? body.orderKeys : undefined;
-  if (!Array.isArray(keys) || keys.length === 0 || keys.length > 2000 || !keys.every(k => typeof k === 'string' && k !== '' && k.length <= 100)) {
+  if (
+    !Array.isArray(keys) ||
+    keys.length === 0 ||
+    keys.length > 2000 ||
+    !keys.every(k => typeof k === 'string' && k.trim() !== '' && k.length <= 100 && !FORBIDDEN_KEYS.has(k))
+  ) {
     throw new Error('orderKeys inválido.');
   }
   return keys as string[];

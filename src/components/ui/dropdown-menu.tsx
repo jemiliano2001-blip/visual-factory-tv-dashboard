@@ -14,11 +14,11 @@ interface DropdownMenuContentProps extends React.ComponentPropsWithoutRef<typeof
 const DropdownMenuContent = React.forwardRef<HTMLDivElement, DropdownMenuContentProps>(
   ({ className, children, sideOffset = 4, side = 'bottom', align = 'end', ...props }, ref) => (
     <Menu.Portal>
-      <Menu.Positioner sideOffset={sideOffset} side={side} align={align} className="z-50">
+      <Menu.Positioner sideOffset={sideOffset} side={side} align={align} className="z-[80]">
         <Menu.Popup
           ref={ref}
           className={cn(
-            'min-w-[12rem] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-overlay outline-none',
+            'relative z-[80] min-w-[12rem] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-overlay outline-none',
             className,
           )}
           {...props}

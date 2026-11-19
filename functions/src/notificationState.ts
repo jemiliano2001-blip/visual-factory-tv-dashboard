@@ -35,9 +35,32 @@ export const EMPTY_STATE: NotificationState = {
 const DELIVERY_HISTORY_RETENTION_MS = 90 * 86_400_000;
 const MAX_DELIVERY_HISTORY_ENTRIES = 1500;
 const MAX_WEEKLY_BASELINE_WEEKS = 12;
+const MAX_CLIENT_MONTHLY_MONTHS = 6;
+const MAX_CLIENT_ALERTS = 200;
+
+function pruneTimestampMap(
+  map: Record<string, number> | undefined,
+  activeIds: Set<number>,
+): Record<string, number> {
+  const entries = Object.entries(map ?? {});
+  const kept: Array<[string, number]> = [];
+  const orphans: Array<[string, number]> = [];
+  for (const [key, ts] of entries) {
+    if (typeof ts !== 'number' || !Number.isFinite(ts)) continue;
+    const numId = Number(key.split('_')[0]);
+    if (Number.isFinite(numId) && activeIds.has(numId)) kept.push([key, ts]);
+    else orphans.push([key, ts]);
+  }
+  const extraBudget = Math.max(0, MAX_DELIVERY_HISTORY_ENTRIES - kept.length);
+  orphans.sort((a, b) => b[1] - a[1]);
+  const out: Record<string, number> = {};
+  for (const [k, v] of [...kept, ...orphans.slice(0, extraBudget)]) out[k] = v;
+  return out;
+}
 
 function pruneDeliveryHistory(state: NotificationState): NotificationState {
-  const cutoff = Date.now() - DELIVERY_HISTORY_RETENTION_MS;
+  const now = Date.now();
+  const cutoff = now - DELIVERY_HISTORY_RETENTION_MS;
   const prunedEntries = Object.entries(state.deliveryTimestamps ?? {})
     .filter(([, value]) => value.detectedAt >= cutoff)
     .sort((a, b) => b[1].detectedAt - a[1].detectedAt)
@@ -49,13 +72,71 @@ function pruneDeliveryHistory(state: NotificationState): NotificationState {
   const validIds = new Set(Object.keys(deliveryTimestamps).map(id => Number(id)));
   const knownIds = new Set(state.knownOrderIds);
   const deliveredOrderIds = (state.deliveredOrderIds ?? []).filter(id => validIds.has(id) || knownIds.has(id));
+  const activeIds = new Set<number>([...knownIds, ...deliveredOrderIds]);
+
   const baselineEntries = Object.entries(state.weeklyBaselineOverdue ?? {})
     .sort((a, b) => b[0].localeCompare(a[0]))
     .slice(0, MAX_WEEKLY_BASELINE_WEEKS);
   const weeklyBaselineOverdue: NotificationState['weeklyBaselineOverdue'] = {};
   for (const [key, value] of baselineEntries) weeklyBaselineOverdue[key] = value;
 
-  return { ...state, deliveryTimestamps, deliveredOrderIds, weeklyBaselineOverdue };
+  const sentAlerts = pruneTimestampMap(state.sentAlerts, activeIds);
+  const partialDeliveryAlerts = pruneTimestampMap(state.partialDeliveryAlerts, activeIds);
+  const stalledAlerts = pruneTimestampMap(state.stalledAlerts, activeIds);
+
+  const stateEntries = Object.entries(state.lastDeliveryStates ?? {});
+  const activeStateEntries = stateEntries.filter(([k]) => activeIds.has(Number(k)));
+  const orphanStateEntries = stateEntries
+    .filter(([k]) => !activeIds.has(Number(k)))
+    .sort((a, b) => b[1].changedAt - a[1].changedAt)
+    .slice(0, Math.max(0, MAX_DELIVERY_HISTORY_ENTRIES - activeStateEntries.length));
+  const lastDeliveryStates: NotificationState['lastDeliveryStates'] = {};
+  for (const [k, v] of [...activeStateEntries, ...orphanStateEntries]) lastDeliveryStates[k] = v;
+
+  const recoveryNotifications = (state.recoveryNotifications ?? [])
+    .filter(k => activeIds.has(Number(k)))
+    .slice(-MAX_DELIVERY_HISTORY_ENTRIES);
+
+  const clientMonthlyStats: NotificationState['clientMonthlyStats'] = {};
+  const allMonths = new Set<string>();
+  for (const monthsMap of Object.values(state.clientMonthlyStats ?? {})) {
+    for (const month of Object.keys(monthsMap ?? {})) allMonths.add(month);
+  }
+  const keptMonths = new Set([...allMonths].sort((a, b) => b.localeCompare(a)).slice(0, MAX_CLIENT_MONTHLY_MONTHS));
+  for (const [client, monthsMap] of Object.entries(state.clientMonthlyStats ?? {})) {
+    const nextMonths: Record<string, string[]> = {};
+    for (const [month, ids] of Object.entries(monthsMap ?? {})) {
+      if (keptMonths.has(month) && Array.isArray(ids) && ids.length > 0) nextMonths[month] = ids;
+    }
+    if (Object.keys(nextMonths).length > 0) clientMonthlyStats[client] = nextMonths;
+  }
+
+  const cutoffDateStr = new Date(cutoff).toISOString().slice(0, 10);
+  const clientAlertDates: Record<string, string> = {};
+  for (const [client, dateStr] of Object.entries(state.clientAlertDates ?? {})
+    .filter(([, d]) => typeof d === 'string' && d >= cutoffDateStr)
+    .slice(-MAX_CLIENT_ALERTS)) {
+    clientAlertDates[client] = dateStr;
+  }
+
+  const sigEntries = Object.entries(state.clientAlertSignatures ?? {}).slice(-MAX_CLIENT_ALERTS);
+  const clientAlertSignatures: Record<string, string> = {};
+  for (const [client, sig] of sigEntries) clientAlertSignatures[client] = sig;
+
+  return {
+    ...state,
+    deliveryTimestamps,
+    deliveredOrderIds,
+    weeklyBaselineOverdue,
+    sentAlerts,
+    partialDeliveryAlerts,
+    stalledAlerts,
+    lastDeliveryStates,
+    recoveryNotifications,
+    clientMonthlyStats,
+    clientAlertDates,
+    clientAlertSignatures,
+  };
 }
 
 export function createNotificationStatePatch<K extends keyof NotificationState>(
