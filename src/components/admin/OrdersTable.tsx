@@ -26,7 +26,9 @@ import { getSmartCompanyName } from '../../utils/customerNames';
 import { extractOrderNoteMeta } from '../../services/orderNoteParser';
 import type { InvoiceRequest } from '../../../shared/invoiceRequests';
 import { RequestBadges } from '../RequestDialog';
+import { CopyButton } from '../CopyButton';
 import { useMobile } from '../../hooks/useMobile';
+import type { TableDensity } from './AdminToolbar';
 
 interface OrdersTableProps {
   orders: OdooSaleOrder[];
@@ -41,6 +43,13 @@ interface OrdersTableProps {
   onRelease: (orderKeys: string[]) => void;
   /** Solicitudes de factura/remisión pendientes por id de orden. */
   pendingByOrder?: Map<number, InvoiceRequest[]>;
+  density?: TableDensity;
+  onOpenDetail?: (order: OdooSaleOrder) => void;
+  onOrderContextMenu?: (
+    e: React.MouseEvent,
+    order: OdooSaleOrder,
+    ctx: { expanded: boolean; toggleExpanded: () => void },
+  ) => void;
 }
 
 /** PO de la compañía y SMV a cargo, para pintar bajo la SO en Pendientes. */
@@ -57,11 +66,25 @@ export function OrderPoEngineer({ order, engineerName }: { order: OdooSaleOrder;
 const columnHelper = createColumnHelper<OdooSaleOrder>();
 
 export default function OrdersTable({
-  orders, groupByClient, rowSelection, onRowSelectionChange, getEngineerName, isMine, onClaim, onRelease, pendingByOrder,
+  orders,
+  groupByClient,
+  rowSelection,
+  onRowSelectionChange,
+  getEngineerName,
+  isMine,
+  onClaim,
+  onRelease,
+  pendingByOrder,
+  density = 'comfortable',
+  onOpenDetail,
+  onOrderContextMenu,
 }: OrdersTableProps) {
   const isMobile = useMobile();
   const [sorting, setSorting] = useState<SortingState>([{ id: 'commitment_date', desc: false }]);
   const [expanded, setExpanded] = useState<ExpandedState>({});
+  const isComfortable = density === 'comfortable';
+  const thPad = isComfortable ? 'px-3.5 py-3' : 'px-3 py-2.5';
+  const tdPad = isComfortable ? 'px-3.5 py-3.5' : 'px-3 py-2';
 
   const data = useMemo(() => {
     if (!groupByClient) return orders;
@@ -126,7 +149,20 @@ export default function OrdersTable({
         const created = parseOdooDate(row.original.date_order);
         return (
           <div>
-            <span className="font-mono-data text-sm font-bold text-foreground">{row.original.name}</span>
+            <div className="flex items-center gap-1">
+              {onOpenDetail ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenDetail(row.original)}
+                  className="cursor-pointer rounded text-left font-mono-data font-bold text-foreground underline-offset-2 transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  {row.original.name}
+                </button>
+              ) : (
+                <span className="font-mono-data font-bold text-foreground">{row.original.name}</span>
+              )}
+              <CopyButton value={row.original.name} label={`Copiar SO ${row.original.name}`} />
+            </div>
             <RequestBadges requests={pendingByOrder?.get(row.original.id)} />
             <div className="font-mono-data text-xs tabular-nums text-muted-foreground">{created ? format(created, 'dd/MM/yyyy') : '—'}</div>
           </div>
@@ -140,9 +176,14 @@ export default function OrdersTable({
         const { poNumber, clientContact } = extractOrderNoteMeta(row.original);
         return (
           <div>
-            {poNumber
-              ? <span className="font-mono-data text-sm font-bold text-data">PO.{poNumber}</span>
-              : <Badge variant="muted">Sin PO</Badge>}
+            {poNumber ? (
+              <div className="flex items-center gap-1">
+                <span className="font-mono-data font-bold text-data">PO.{poNumber}</span>
+                <CopyButton value={poNumber} label={`Copiar PO ${poNumber}`} />
+              </div>
+            ) : (
+              <Badge variant="muted">Sin PO</Badge>
+            )}
             {clientContact && <div className="text-xs text-muted-foreground">Req: {clientContact}</div>}
           </div>
         );
@@ -153,7 +194,7 @@ export default function OrdersTable({
       header: 'Ingeniero SMV',
       cell: ({ row }) => (
         <div className="flex min-w-[130px] flex-col items-start gap-1">
-          <span className="text-sm text-foreground">{getEngineerName(row.original) ?? 'Sin asignar'}</span>
+          <span className="text-foreground">{getEngineerName(row.original) ?? 'Sin asignar'}</span>
           {isMine(row.original) ? (
             <Button type="button" variant="ghost" className="-ml-3 min-h-11" onClick={() => onRelease([row.original.name])}>
               Soltar
@@ -173,7 +214,7 @@ export default function OrdersTable({
       cell: info => (
         <div className="flex items-center gap-2">
           <CompanyBadge company={info.getValue()} size="xs" />
-          <span className="text-sm font-medium text-foreground/90">{getSmartCompanyName(info.getValue(), 'card')}</span>
+          <span className="font-medium text-foreground/90">{getSmartCompanyName(info.getValue(), 'card')}</span>
         </div>
       ),
     }),
@@ -182,7 +223,7 @@ export default function OrdersTable({
       header: 'Producto / Descripción',
       cell: ({ row }) => (
         <div className="max-w-[240px]">
-          <span className="line-clamp-2 text-sm text-foreground/90">{row.original.main_product}</span>
+          <span className="line-clamp-2 text-foreground/90">{row.original.main_product}</span>
           <span className="text-xs text-muted-foreground">{row.original.lines_count} {row.original.lines_count === 1 ? 'línea' : 'líneas'}</span>
         </div>
       ),
@@ -232,7 +273,7 @@ export default function OrdersTable({
         (parseOdooDate(a.original.commitment_date)?.getTime() ?? Infinity) -
         (parseOdooDate(b.original.commitment_date)?.getTime() ?? Infinity),
     }),
-  ], [groupByClient, getEngineerName, isMine, onClaim, onRelease, pendingByOrder]);
+  ], [groupByClient, getEngineerName, isMine, onClaim, onRelease, pendingByOrder, onOpenDetail]);
 
   const table = useReactTable({
     data,
@@ -301,6 +342,7 @@ export default function OrdersTable({
                 onClaim={onClaim}
                 onRelease={onRelease}
                 requests={pendingByOrder?.get(row.original.id)}
+                onOpenDetail={onOpenDetail}
               />
             </React.Fragment>
           );
@@ -321,7 +363,7 @@ export default function OrdersTable({
                     key={header.id}
                     scope="col"
                     aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : 'none'}
-                    className={`px-3 py-3 font-medium ${(header.column.columnDef.meta as { className?: string } | undefined)?.className ?? ''}`}
+                    className={`${thPad} font-medium ${(header.column.columnDef.meta as { className?: string } | undefined)?.className ?? ''}`}
                   >
                     {header.column.getCanSort() ? (
                       <button type="button" onClick={header.column.getToggleSortingHandler()} className="inline-flex min-h-11 items-center gap-1 rounded px-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
@@ -363,9 +405,15 @@ export default function OrdersTable({
                         </td>
                       </tr>
                     )}
-                    <tr className="text-sm transition-colors hover:bg-accent/40">
+                    <tr
+                      onContextMenu={onOrderContextMenu ? (e) => onOrderContextMenu(e, row.original, {
+                        expanded: row.getIsExpanded(),
+                        toggleExpanded: () => row.toggleExpanded(),
+                      }) : undefined}
+                      className={`${isComfortable ? 'text-[15px]' : 'text-sm'} transition-colors hover:bg-accent/40`}
+                    >
                       {row.getVisibleCells().map(cell => (
-                        <td key={cell.id} className={`px-3 py-3 ${(cell.column.columnDef.meta as { className?: string } | undefined)?.className ?? ''}`}>
+                        <td key={cell.id} className={`${tdPad} ${(cell.column.columnDef.meta as { className?: string } | undefined)?.className ?? ''}`}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       ))}
@@ -390,7 +438,7 @@ export default function OrdersTable({
 
 /** Una orden como tarjeta de teléfono: todo el dato visible en una columna, sin scroll lateral. */
 function OrderCard({
-  order, selected, onSelect, expanded, onToggleExpanded, showCompany, engineerName, mine, onClaim, onRelease, requests,
+  order, selected, onSelect, expanded, onToggleExpanded, showCompany, engineerName, mine, onClaim, onRelease, requests, onOpenDetail,
 }: {
   order: OdooSaleOrder;
   selected: boolean;
@@ -403,6 +451,7 @@ function OrderCard({
   onClaim: (orderKeys: string[]) => void;
   onRelease: (orderKeys: string[]) => void;
   requests?: InvoiceRequest[];
+  onOpenDetail?: (order: OdooSaleOrder) => void;
 }) {
   const created = parseOdooDate(order.date_order);
   const d = parseOdooDate(order.commitment_date);
@@ -415,7 +464,18 @@ function OrderCard({
       <div className="space-y-2 p-4">
         <div className="flex items-center gap-2">
           <Checkbox checked={selected} onCheckedChange={v => onSelect(!!v)} aria-label={`Seleccionar la orden ${order.name}`} />
-          <span className="font-mono-data text-base font-bold text-foreground">{order.name}</span>
+          {onOpenDetail ? (
+            <button
+              type="button"
+              onClick={() => onOpenDetail(order)}
+              className="min-h-11 cursor-pointer rounded text-left font-mono-data text-base font-bold text-foreground underline-offset-2 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              {order.name}
+            </button>
+          ) : (
+            <span className="font-mono-data text-base font-bold text-foreground">{order.name}</span>
+          )}
+          <CopyButton value={order.name} label={`Copiar SO ${order.name}`} />
           <Badge variant={STATUS_VARIANT[status.level]} className="ml-auto">{status.label}</Badge>
         </div>
         <RequestBadges requests={requests} />
@@ -425,10 +485,15 @@ function OrderCard({
             <span className="min-w-0 break-words text-sm font-medium text-foreground/90">{getSmartCompanyName(order.partner_name, 'card')}</span>
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          {poNumber
-            ? <span className="font-mono-data text-sm font-bold text-data">PO.{poNumber}</span>
-            : <Badge variant="muted">Sin PO</Badge>}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {poNumber ? (
+            <span className="inline-flex items-center gap-1">
+              <span className="font-mono-data text-sm font-bold text-data">PO.{poNumber}</span>
+              <CopyButton value={poNumber} label={`Copiar PO ${poNumber}`} />
+            </span>
+          ) : (
+            <Badge variant="muted">Sin PO</Badge>
+          )}
           {clientContact && <span className="text-xs text-muted-foreground">Req: {clientContact}</span>}
         </div>
         <div className="flex flex-wrap items-center gap-x-2">

@@ -318,6 +318,9 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
       <div className="shrink-0 border-t border-border bg-popover p-4 space-y-2">
         {submit.error && <p role="alert" className="text-sm font-medium text-destructive">{submit.error.message}</p>}
         {sender && <p className="text-sm text-muted-foreground">Se enviará a nombre de {sender}</p>}
+        {requests.isLoading && (
+          <p className="text-sm text-muted-foreground">Esperando verificación de solicitudes anteriores…</p>
+        )}
         {missing > 0 && (
           <p className="text-sm text-foreground">Falta escoger en <span className="font-mono-data">{missing}</span> {missing === 1 ? 'orden' : 'órdenes'}</p>
         )}
@@ -326,9 +329,20 @@ function RequestContent({ orders, open, onClose, onSent }: RequestDialogProps) {
             <span className="font-mono-data">{emptyRemisiones}</span> {emptyRemisiones === 1 ? 'solicitud tiene' : 'solicitudes tienen'} todas las piezas en 0 y no se {emptyRemisiones === 1 ? 'enviará' : 'enviarán'}. Sube la cantidad para pedirla.
           </p>
         )}
+        {!requests.isLoading && !submit.isPending && missing === 0 && emptyRemisiones === 0 && drafts.length === 0 && (
+          <p className="text-sm text-warning">
+            No hay partidas disponibles para pedir (las órdenes seleccionadas ya tienen solicitud pendiente o sin saldo por pedir).
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <Button size="lg" variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button size="lg" disabled={!canSend} onClick={send}>{submit.isPending ? 'Enviando…' : 'Enviar solicitud'}</Button>
+          <Button size="lg" disabled={!canSend} onClick={send}>
+            {submit.isPending
+              ? 'Enviando…'
+              : drafts.length > 1
+                ? `Enviar ${drafts.length} solicitudes`
+                : 'Enviar solicitud'}
+          </Button>
         </div>
       </div>
     </>

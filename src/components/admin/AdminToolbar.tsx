@@ -2,9 +2,10 @@
  * Barra de controles del Admin en una sola fila (escritorio) o buscador + "Filtros" (móvil).
  * Recibe y emite el mismo AdminFilters que vive en el link; no tiene lógica de datos propia.
  */
+import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import {
-  Check, Download, Filter, Link2, MoreHorizontal, Printer, Users2, X,
+  Check, Download, Filter, Link2, MoreHorizontal, Printer, Rows3, UserCheck, Users2, X,
 } from 'lucide-react';
 import { UNASSIGNED_ENGINEER, type AdminFilters } from '../../services/adminFilters';
 import { activeFilterChips, clearFilter, hasActiveFilters } from '../../services/adminSections';
@@ -19,6 +20,8 @@ import { ClientSelect, OrderSearchInput, STATUS_OPTIONS, StatusSelect } from './
 
 const ALL_ENGINEERS = '__all__';
 const CONTROL = 'min-h-11 px-4 text-sm font-semibold rounded-xl';
+
+export type TableDensity = 'comfortable' | 'compact';
 
 export interface ToolbarEngineer { id: string; name: string; count: number }
 
@@ -36,6 +39,12 @@ export interface AdminToolbarProps {
   onExport: () => void;
   exportLabel: string;
   exportDisabled: boolean;
+  myEngineerId?: string | null;
+  myEngineerName?: string | null;
+  myOrdersCount?: number;
+  searchInputRef?: React.RefObject<HTMLInputElement | null>;
+  density?: TableDensity;
+  onToggleDensity?: () => void;
 }
 
 /** <select> nativo: los popups de Select/Menu se pintan bajo el Drawer (z-[70]) en móvil. */
@@ -69,11 +78,24 @@ export default function AdminToolbar(p: AdminToolbarProps) {
     if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
   }, []);
 
+  const resolveEngineerName = (id: string) =>
+    p.engineers.find(e => e.id === id)?.name ??
+    (p.myEngineerId && id === p.myEngineerId ? (p.myEngineerName ?? 'Mis órdenes') : null);
+
   const chips = activeFilterChips(filters, {
-    engineerName: id => p.engineers.find(e => e.id === id)?.name ?? null,
+    engineerName: resolveEngineerName,
     statusLabel: s => STATUS_OPTIONS.find(o => o.value === s)?.label ?? s,
   });
   const drawerFilterCount = chips.filter(c => c.key !== 'search').length;
+  const isMyOrdersActive = Boolean(p.myEngineerId && filters.engineer === p.myEngineerId);
+  const toggleMyOrders = () => {
+    if (!p.myEngineerId) return;
+    onChange({ engineer: isMyOrdersActive ? '' : p.myEngineerId });
+  };
+  const engineerOptionsList =
+    p.myEngineerId && !p.engineers.some(e => e.id === p.myEngineerId)
+      ? [{ id: p.myEngineerId, name: p.myEngineerName ?? 'Mis órdenes', count: p.myOrdersCount ?? 0 }, ...p.engineers]
+      : p.engineers;
 
   const copyLink = async () => {
     try {
@@ -89,26 +111,39 @@ export default function AdminToolbar(p: AdminToolbarProps) {
     }
   };
 
+  const myOrdersButton = p.myEngineerId ? (
+    <Button
+      type="button"
+      variant={isMyOrdersActive ? 'default' : 'secondary'}
+      aria-pressed={isMyOrdersActive}
+      className={CONTROL}
+      onClick={toggleMyOrders}
+    >
+      <UserCheck className="size-4" aria-hidden="true" />
+      Mis órdenes (<span className="font-mono-data tabular-nums">{p.myOrdersCount ?? 0}</span>)
+    </Button>
+  ) : null;
+
   const engineerSelect = (
     <Select
       value={filters.engineer || ALL_ENGINEERS}
       onValueChange={v => onChange({ engineer: v && v !== ALL_ENGINEERS ? v : '' })}
     >
-      <SelectTrigger aria-label="Filtrar por diseñador o ingeniero" className="min-h-11 md:w-[230px]">
+      <SelectTrigger aria-label="Filtrar por diseñador o ingeniero" className="min-h-11 md:w-[220px]">
         <SelectValue>
           {filters.engineer === UNASSIGNED_ENGINEER
             ? `Sin asignar (${p.unassignedCount})`
             : filters.engineer
               ? (() => {
-                  const e = p.engineers.find(x => x.id === filters.engineer);
-                  return e ? `${e.name} (${e.count})` : 'Ingeniero desconocido';
+                  const e = engineerOptionsList.find(x => x.id === filters.engineer);
+                  return e ? `${e.name} (${e.count})` : (resolveEngineerName(filters.engineer) ?? 'Ingeniero desconocido');
                 })()
               : `Todos los ingenieros (${p.totalCount})`}
         </SelectValue>
       </SelectTrigger>
       <SelectContent className="max-h-[50vh] overflow-y-auto">
         <SelectItem value={ALL_ENGINEERS}>Todos los ingenieros ({p.totalCount})</SelectItem>
-        {p.engineers.map(e => <SelectItem key={e.id} value={e.id}>{e.name} ({e.count})</SelectItem>)}
+        {engineerOptionsList.map(e => <SelectItem key={e.id} value={e.id}>{e.name} ({e.count})</SelectItem>)}
         <SelectItem value={UNASSIGNED_ENGINEER}>Sin asignar ({p.unassignedCount})</SelectItem>
       </SelectContent>
     </Select>
@@ -120,6 +155,8 @@ export default function AdminToolbar(p: AdminToolbarProps) {
     </Button>
   );
 
+  const densityLabel = p.density === 'compact' ? 'Densidad cómoda' : 'Densidad compacta';
+
   const menuItems = (
     <>
       <DropdownMenuItem onClick={copyLink}>
@@ -129,6 +166,11 @@ export default function AdminToolbar(p: AdminToolbarProps) {
       {p.showGroupToggle && (
         <DropdownMenuItem onClick={p.onToggleGroup}>
           <Users2 /> {p.groupByClient ? 'Lista plana' : 'Agrupar por compañía'}
+        </DropdownMenuItem>
+      )}
+      {p.onToggleDensity && (
+        <DropdownMenuItem onClick={p.onToggleDensity}>
+          <Rows3 /> {densityLabel}
         </DropdownMenuItem>
       )}
       <DropdownMenuItem onClick={() => window.print()} disabled={p.shownCount === 0}>
@@ -143,20 +185,25 @@ export default function AdminToolbar(p: AdminToolbarProps) {
         <OrderSearchInput
           value={filters.search}
           onChange={search => onChange({ search })}
+          inputRef={p.searchInputRef}
           className={isMobile ? 'min-w-0' : 'min-w-[220px]'}
         />
         {!isMobile && (
           <>
-            <ClientSelect value={filters.client} onChange={client => onChange({ client })} clients={p.clients} className="min-h-11 w-[200px]" />
-            <StatusSelect value={filters.status} onChange={status => onChange({ status })} className="min-h-11 w-[200px]" />
+            {myOrdersButton}
+            <ClientSelect value={filters.client} onChange={client => onChange({ client })} clients={p.clients} className="min-h-11 w-[195px]" />
+            <StatusSelect value={filters.status} onChange={status => onChange({ status })} className="min-h-11 w-[185px]" />
             {engineerSelect}
             {excelButton}
           </>
         )}
         {isMobile ? (
-          <Button type="button" variant="secondary" className={CONTROL} onClick={() => setFiltersOpen(true)}>
-            <Filter /> Filtros{drawerFilterCount > 0 ? ` (${drawerFilterCount})` : ''}
-          </Button>
+          <>
+            {myOrdersButton}
+            <Button type="button" variant="secondary" className={CONTROL} onClick={() => setFiltersOpen(true)}>
+              <Filter /> Filtros{drawerFilterCount > 0 ? ` (${drawerFilterCount})` : ''}
+            </Button>
+          </>
         ) : (
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -224,7 +271,7 @@ export default function AdminToolbar(p: AdminToolbarProps) {
                 onChange={engineer => onChange({ engineer })}
                 options={[
                   { value: '', label: `Todos los ingenieros (${p.totalCount})` },
-                  ...p.engineers.map(e => ({ value: e.id, label: `${e.name} (${e.count})` })),
+                  ...engineerOptionsList.map(e => ({ value: e.id, label: `${e.name} (${e.count})` })),
                   { value: UNASSIGNED_ENGINEER, label: `Sin asignar (${p.unassignedCount})` },
                 ]}
               />
@@ -237,6 +284,11 @@ export default function AdminToolbar(p: AdminToolbarProps) {
                   {p.showGroupToggle && (
                     <Button type="button" variant="secondary" className={CONTROL} onClick={p.onToggleGroup}>
                       <Users2 /> {p.groupByClient ? 'Lista plana' : 'Agrupar por compañía'}
+                    </Button>
+                  )}
+                  {p.onToggleDensity && (
+                    <Button type="button" variant="secondary" className={CONTROL} onClick={p.onToggleDensity}>
+                      <Rows3 /> {densityLabel}
                     </Button>
                   )}
                   <Button type="button" variant="secondary" className={CONTROL} onClick={() => window.print()} disabled={p.shownCount === 0}>

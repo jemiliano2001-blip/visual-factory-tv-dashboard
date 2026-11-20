@@ -69,7 +69,7 @@ export default function AppShellChrome() {
           {navItem('/stats', <BarChart3 className="size-[18px]" />, 'Estadísticas')}
 
           <div className="mt-4 border-t border-border pt-4">
-            <p className="mb-2 px-3 text-xs font-medium text-muted-foreground/80">
+            <p className="mb-2 px-3 text-xs font-medium text-muted-foreground">
               Vistas en vivo
             </p>
             <Link
@@ -136,7 +136,7 @@ export default function AppShellChrome() {
               key={to}
               to={to}
               className={`relative flex flex-1 flex-col items-center justify-center gap-1 py-2.5 min-h-[58px] transition-colors ${
-                isActive ? 'text-primary' : 'text-muted-foreground/60'
+                isActive ? 'text-primary' : 'text-muted-foreground'
               }`}
             >
               {isActive && (
@@ -146,7 +146,7 @@ export default function AppShellChrome() {
                   style={{ boxShadow: '0 0 10px rgba(99,102,241,0.9)' }}
                 />
               )}
-              <span className={`transition-colors ${isActive ? 'text-primary' : 'text-muted-foreground/60'}`}>{icon}</span>
+              <span className={`transition-colors ${isActive ? 'text-primary' : 'text-muted-foreground'}`}>{icon}</span>
               <span className="text-[11px] font-medium">{label}</span>
             </Link>
           );

@@ -4,12 +4,13 @@
  * No hay CRUD de órdenes: Odoo es la única fuente de verdad, todo es read-only;
  * lo único que se guarda aquí es qué ingeniero/diseñador de SMV lleva cada SO.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { RowSelectionState } from '@tanstack/react-table';
 import { useOdooOrders } from '../hooks/useOdooOrders';
 import { getOrderStatus, type OdooSaleOrder } from '../services/odoo';
 import { createOrderSearchMatcher } from '../services/orderSearch';
+import { extractOrderNoteMeta } from '../services/orderNoteParser';
 import {
   DEFAULT_ADMIN_FILTERS, UNASSIGNED_ENGINEER, parseAdminFilters, serializeAdminFilters,
   type AdminFilters,
@@ -23,7 +24,7 @@ import {
 import { auth } from '../firebase';
 import PendingTab from '../components/admin/PendingTab';
 import OrdersTable from '../components/admin/OrdersTable';
-import AdminToolbar from '../components/admin/AdminToolbar';
+import AdminToolbar, { type TableDensity } from '../components/admin/AdminToolbar';
 import SelectionBar from '../components/admin/SelectionBar';
 import ConfigTab from '../components/admin/ConfigTab';
 import RequestsTab from '../components/admin/RequestsTab';
@@ -34,15 +35,34 @@ import { useInvoiceRequests } from '../hooks/useInvoiceRequests';
 import { pendingRequestsByOrder } from '../../shared/invoiceRequests';
 import OrderReportTab from '../components/admin/OrderReportTab';
 import { Button } from '../components/ui/button';
+import { ContextMenu, type ContextMenuEntry } from '../components/ui/context-menu';
 import { getSection, hasActiveFilters, restoreSavedFilters, sectionFromFilters } from '../services/adminSections';
+import { usePersistedState } from '../hooks/usePersistedState';
+import { useMobile } from '../hooks/useMobile';
+import { useDataFreshness } from '../hooks/useDataFreshness';
+import { isEditableTarget, resolveAdminShortcut } from '../utils/keyboardShortcuts';
 import {
-  WifiOff, AlertTriangle, Loader2, RefreshCw,
+  WifiOff, AlertTriangle, RefreshCw, Eye, FileText, UserCheck, UserMinus, Copy, ChevronDown, ChevronRight, X,
 } from 'lucide-react';
-import { format } from 'date-fns';
+
+const OrderDetailsModal = lazy(() =>
+  import('../components/OrderDetailsModal').then(m => ({ default: m.OrderDetailsModal })),
+);
 
 const SAVED_FILTERS_KEY = 'adminFilters';
+const TOAST_DURATION_MS = 5000;
 
 const BIG_BUTTON = 'min-h-11 px-4 text-sm font-semibold rounded-xl';
+
+interface AdminToast {
+  id: number;
+  message: string;
+  tone?: 'info' | 'error';
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
+}
 
 /** Último filtro usado (sin pestaña): se restaura al entrar a /admin sin parámetros. */
 function readSavedFilters(): URLSearchParams | null {
@@ -88,14 +108,77 @@ export default function AdminPanel() {
     }
     saveFilters(filters);
   }, [filters, params, setParams]);
+  const isMobile = useMobile();
   const [groupByClient, setGroupByClient] = useState(true);
+  const [density, setDensity] = usePersistedState<TableDensity>('vftv:admin:density', 'comfortable');
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [requestOpen, setRequestOpen] = useState(false);
+  const [quickRequestOrder, setQuickRequestOrder] = useState<OdooSaleOrder | null>(null);
+  const [detailOrder, setDetailOrder] = useState<OdooSaleOrder | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    order: OdooSaleOrder;
+    expanded?: boolean;
+    toggleExpanded?: () => void;
+  } | null>(null);
+  const [toast, setToast] = useState<AdminToast | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+  const toastPausedRef = useRef(false);
+  const toastSeqRef = useRef(0);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  const freshness = useDataFreshness(lastUpdated);
   const invoiceRequests = useInvoiceRequests();
   const pendingByOrder = useMemo(
     () => (invoiceRequests.data ? pendingRequestsByOrder(invoiceRequests.data) : undefined),
     [invoiceRequests.data],
   );
+
+  const dismissToast = useCallback(() => {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+    setToast(null);
+  }, []);
+
+  const scheduleToastTimer = useCallback(() => {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+    if (toastPausedRef.current) return;
+    toastTimerRef.current = window.setTimeout(() => {
+      toastTimerRef.current = null;
+      setToast(null);
+    }, TOAST_DURATION_MS);
+  }, []);
+
+  const showToast = useCallback((next: Omit<AdminToast, 'id'>) => {
+    toastPausedRef.current = false;
+    setToast({ id: ++toastSeqRef.current, ...next });
+    scheduleToastTimer();
+  }, [scheduleToastTimer]);
+
+  const pauseToastTimer = useCallback(() => {
+    toastPausedRef.current = true;
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+  }, []);
+
+  const resumeToastTimer = useCallback(() => {
+    toastPausedRef.current = false;
+    if (toastTimerRef.current === null && toast !== null) {
+      scheduleToastTimer();
+    }
+  }, [scheduleToastTimer, toast]);
+
+  useEffect(() => () => {
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+  }, []);
 
   // ── Equipo de diseño / ingeniería ────────────────────────────────────────────
 
@@ -131,12 +214,13 @@ export default function AdminPanel() {
 
   const me = auth.currentUser;
   const myEngineerId = me ? actorEngineerId(me.uid) : null;
+  const myEngineerName = me ? (me.displayName || me.email || null) : null;
 
   /** Cambio propio (tomar o soltar): se pinta al instante y el servidor confirma. */
   const changeTeam = useCallback(async (
     local: (state: OrderAssignmentsPayload) => OrderAssignmentsPayload,
     remote: () => Promise<OrderAssignmentsPayload>,
-  ) => {
+  ): Promise<boolean> => {
     const seq = ++mutationSeqRef.current;
     const previous = teamRef.current;
     setTeamError(null);
@@ -145,16 +229,19 @@ export default function AdminPanel() {
       setTeam(optimistic);
       cacheAssignments(optimistic);
       const confirmed = await remote();
-      if (!mountedRef.current || mutationSeqRef.current !== seq) return;
+      if (!mountedRef.current || mutationSeqRef.current !== seq) return false;
       setTeam(confirmed);
       cacheAssignments(confirmed);
+      return true;
     } catch (err) {
-      if (!mountedRef.current || mutationSeqRef.current !== seq) return;
+      if (!mountedRef.current || mutationSeqRef.current !== seq) return false;
       setTeam(previous);
       cacheAssignments(previous);
+      dismissToast();
       setTeamError(err instanceof Error ? err.message : String(err));
+      return false;
     }
-  }, []);
+  }, [dismissToast]);
 
   const engineerNames = useMemo(() => new Map(team.engineers.map(e => [e.id, e.name])), [team.engineers]);
   const getEngineerId = useCallback((o: OdooSaleOrder) => getOrderEngineerId(team.assignments, o), [team.assignments]);
@@ -163,17 +250,61 @@ export default function AdminPanel() {
     [engineerNames, getEngineerId],
   );
   const isMine = useCallback((o: OdooSaleOrder) => myEngineerId !== null && getEngineerId(o) === myEngineerId, [getEngineerId, myEngineerId]);
-  const claimForMe = (orderKeys: string[]) => {
-    if (!me) return;
-    void changeTeam(
+
+  const releaseMine = useCallback((orderKeys: string[], options?: { silent?: boolean }) => {
+    if (!me || orderKeys.length === 0) return;
+    const mutation = changeTeam(
+      state => releaseOrders(state, me.uid, orderKeys),
+      () => releaseOrdersRemote(orderKeys),
+    );
+    if (!options?.silent) {
+      const count = orderKeys.length;
+      showToast({
+        message: count === 1 ? 'Orden liberada' : `${count} órdenes liberadas`,
+        action: {
+          label: 'Deshacer',
+          onClick: () => {
+            dismissToast();
+            void changeTeam(
+              state => claimOrders(state, { uid: me.uid, name: me.displayName, email: me.email }, orderKeys),
+              () => claimOrdersRemote(orderKeys),
+            );
+          },
+        },
+      });
+    }
+    void mutation;
+  }, [me, changeTeam, showToast, dismissToast]);
+
+  const claimForMe = useCallback((orderKeys: string[], options?: { silent?: boolean }) => {
+    if (!me || orderKeys.length === 0) return;
+    const currentAssignments = teamRef.current.assignments;
+    const hadOtherOwner = orderKeys.some(key => {
+      const direct = currentAssignments[key];
+      const match = direct !== undefined ? null : orders.find(o => o.name === key);
+      const owner = direct ?? (match ? getOrderEngineerId(currentAssignments, match) : null);
+      return owner !== null && owner !== myEngineerId;
+    });
+
+    const mutation = changeTeam(
       state => claimOrders(state, { uid: me.uid, name: me.displayName, email: me.email }, orderKeys),
       () => claimOrdersRemote(orderKeys),
     );
-  };
-  const releaseMine = (orderKeys: string[]) => {
-    if (!me) return;
-    void changeTeam(state => releaseOrders(state, me.uid, orderKeys), () => releaseOrdersRemote(orderKeys));
-  };
+    if (!options?.silent) {
+      const count = orderKeys.length;
+      showToast({
+        message: count === 1 ? 'Orden asignada a ti' : `${count} órdenes asignadas a ti`,
+        action: {
+          label: hadOtherOwner ? 'Soltar' : 'Deshacer',
+          onClick: () => {
+            dismissToast();
+            releaseMine(orderKeys, { silent: true });
+          },
+        },
+      });
+    }
+    void mutation;
+  }, [me, myEngineerId, orders, changeTeam, showToast, dismissToast, releaseMine]);
 
   const engineerCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -212,13 +343,119 @@ export default function AdminPanel() {
   // La selección solo existe en Órdenes → Por Compañía; en otra pestaña o vista no cuenta.
   const selectedCount = section === 'company' ? selectedOrders.length : 0;
 
-  const filterEmpty = getSection(section).hasToolbar && !isLoading && orders.length > 0
+  const dialogOrders = quickRequestOrder ? [quickRequestOrder] : selectedOrders;
+  const isRequestDialogOpen = quickRequestOrder !== null || requestOpen;
+  const activeDetailOrder = detailOrder
+    ? (orders.find(o => o.id === detailOrder.id) ?? detailOrder)
+    : null;
+
+  const hasToolbar = getSection(section).hasToolbar;
+  const filterEmpty = hasToolbar && !isLoading && orders.length > 0
     && filteredOrders.length === 0 && hasActiveFilters(filters);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      const action = resolveAdminShortcut({
+        key: e.key,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+        altKey: e.altKey,
+        editable: isEditableTarget(e.target),
+        dialogOpen: Boolean(activeDetailOrder || isRequestDialogOpen),
+        menuOpen: contextMenu !== null,
+        hasSearchInput: hasToolbar && searchInputRef.current !== null,
+      });
+      if (action === 'focus-search') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeDetailOrder, isRequestDialogOpen, contextMenu, hasToolbar]);
 
   const claimSelected = () => {
     claimForMe(selectedOrders.map(o => o.name));
     setRowSelection({});
   };
+
+  const copyFromMenu = useCallback(async (text: string, label: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
+      await navigator.clipboard.writeText(text);
+      showToast({ message: `Copiado ${label}` });
+    } catch {
+      showToast({ message: 'No se pudo copiar al portapapeles', tone: 'error' });
+    }
+  }, [showToast]);
+
+  const contextMenuItems: ContextMenuEntry[] = useMemo(() => {
+    if (!contextMenu) return [];
+    const { order, expanded, toggleExpanded } = contextMenu;
+    const poNumber = order.customer_reference?.trim() || extractOrderNoteMeta(order).poNumber;
+    const mine = isMine(order);
+
+    const entries: ContextMenuEntry[] = [
+      {
+        type: 'item',
+        id: 'detail',
+        label: 'Ver detalle',
+        icon: <Eye aria-hidden="true" />,
+        onSelect: () => setDetailOrder(order),
+      },
+      {
+        type: 'item',
+        id: 'request',
+        label: 'Pedir factura o remisión',
+        icon: <FileText aria-hidden="true" />,
+        onSelect: () => setQuickRequestOrder(order),
+      },
+    ];
+
+    if (me) {
+      entries.push({
+        type: 'item',
+        id: mine ? 'release' : 'claim',
+        label: mine ? 'Soltar' : 'Asignármela',
+        icon: mine ? <UserMinus aria-hidden="true" /> : <UserCheck aria-hidden="true" />,
+        onSelect: () => (mine ? releaseMine([order.name]) : claimForMe([order.name])),
+      });
+    }
+
+    entries.push({ type: 'separator', id: 'sep-copy' });
+    entries.push({
+      type: 'item',
+      id: 'copy-so',
+      label: `Copiar SO (${order.name})`,
+      icon: <Copy aria-hidden="true" />,
+      onSelect: () => { void copyFromMenu(order.name, `SO ${order.name}`); },
+    });
+
+    if (poNumber) {
+      entries.push({
+        type: 'item',
+        id: 'copy-po',
+        label: `Copiar PO (${poNumber})`,
+        icon: <Copy aria-hidden="true" />,
+        onSelect: () => { void copyFromMenu(poNumber, `PO ${poNumber}`); },
+      });
+    }
+
+    if (toggleExpanded) {
+      entries.push({ type: 'separator', id: 'sep-expand' });
+      entries.push({
+        type: 'item',
+        id: 'toggle-expand',
+        label: expanded ? 'Contraer fila' : 'Expandir fila',
+        icon: expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />,
+        onSelect: toggleExpanded,
+      });
+    }
+
+    return entries;
+  }, [contextMenu, isMine, me, releaseMine, claimForMe, copyFromMenu]);
 
   // ── Export Excel ─────────────────────────────────────────────────────────────
 
@@ -240,9 +477,15 @@ export default function AdminPanel() {
                 <h1 className="text-2xl font-semibold tracking-tight text-foreground">
                   {getSection(section).label}
                 </h1>
-                {lastUpdated && (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Actualizado <span className="font-mono-data tabular-nums">{format(new Date(lastUpdated), 'HH:mm')}</span>
+                {freshness && (
+                  <p
+                    title={freshness.stale ? 'Los datos llevan más de 10 minutos sin actualizarse' : undefined}
+                    className={`mt-1 text-sm ${freshness.stale ? 'font-semibold text-warning' : 'text-muted-foreground'}`}
+                  >
+                    {freshness.stale && (
+                      <AlertTriangle className="mr-1.5 inline size-4 align-text-bottom" aria-hidden="true" />
+                    )}
+                    Actualizado <span className="font-mono-data tabular-nums">{freshness.clock}</span> ({freshness.relative})
                   </p>
                 )}
               </div>
@@ -269,7 +512,7 @@ export default function AdminPanel() {
             )}
 
             <div>
-              {getSection(section).hasToolbar && (
+              {hasToolbar && (
                 <div className="mt-5">
                   <AdminToolbar
                     filters={filters}
@@ -285,6 +528,12 @@ export default function AdminPanel() {
                     onExport={handleExport}
                     exportLabel={selectedCount > 0 ? `Excel (${selectedCount})` : 'Excel'}
                     exportDisabled={filteredOrders.length === 0}
+                    myEngineerId={myEngineerId}
+                    myEngineerName={myEngineerName}
+                    myOrdersCount={myEngineerId ? (engineerCounts.counts.get(myEngineerId) ?? 0) : 0}
+                    searchInputRef={searchInputRef}
+                    density={density}
+                    onToggleDensity={() => setDensity(d => (d === 'comfortable' ? 'compact' : 'comfortable'))}
                   />
                 </div>
               )}
@@ -301,9 +550,18 @@ export default function AdminPanel() {
               {!filterEmpty && activeTab === 'orders' && (
               <div className="mt-4">
                 {isLoading ? (
-                  <LoadingState />
+                  <LoadingState view={view} isMobile={isMobile} />
                 ) : view === 'pending' ? (
-                  <PendingTab orders={filteredOrders} getEngineerName={getEngineerName} />
+                  <PendingTab
+                    orders={filteredOrders}
+                    getEngineerName={getEngineerName}
+                    onOrderClick={setDetailOrder}
+                    onOrderContextMenu={(e, order) => {
+                      e.preventDefault();
+                      setContextMenu({ x: e.clientX, y: e.clientY, order });
+                    }}
+                    density={density}
+                  />
                 ) : (
                   <OrdersTable
                     orders={filteredOrders}
@@ -315,6 +573,18 @@ export default function AdminPanel() {
                     onClaim={claimForMe}
                     onRelease={releaseMine}
                     pendingByOrder={pendingByOrder}
+                    density={density}
+                    onOpenDetail={setDetailOrder}
+                    onOrderContextMenu={(e, order, ctx) => {
+                      e.preventDefault();
+                      setContextMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        order,
+                        expanded: ctx.expanded,
+                        toggleExpanded: ctx.toggleExpanded,
+                      });
+                    }}
                   />
                 )}
               </div>
@@ -334,7 +604,10 @@ export default function AdminPanel() {
 
         <SelectionBar
           count={selectedCount}
-          onRequest={() => setRequestOpen(true)}
+          onRequest={() => {
+            setQuickRequestOrder(null);
+            setRequestOpen(true);
+          }}
           onClaim={claimSelected}
           claimDisabled={!me}
           onExport={handleExport}
@@ -342,19 +615,157 @@ export default function AdminPanel() {
         />
 
         <RequestDialog
-          orders={selectedOrders}
-          open={requestOpen}
-          onClose={() => setRequestOpen(false)}
-          onSent={() => setRowSelection({})}
+          orders={dialogOrders}
+          open={isRequestDialogOpen}
+          onClose={() => {
+            setQuickRequestOrder(null);
+            setRequestOpen(false);
+          }}
+          onSent={() => {
+            if (!quickRequestOrder) setRowSelection({});
+          }}
         />
+
+        {activeDetailOrder && (
+          <Suspense fallback={null}>
+            <OrderDetailsModal
+              order={activeDetailOrder}
+              isOpen
+              onClose={() => setDetailOrder(null)}
+            />
+          </Suspense>
+        )}
+
+        <ContextMenu
+          open={contextMenu !== null}
+          x={contextMenu?.x ?? 0}
+          y={contextMenu?.y ?? 0}
+          ariaLabel={contextMenu ? `Acciones para ${contextMenu.order.name}` : 'Acciones de orden'}
+          items={contextMenuItems}
+          onClose={() => setContextMenu(null)}
+        />
+
+        <div
+          role="region"
+          aria-label="Notificaciones de órdenes"
+          className={`fixed right-4 z-[65] max-w-[calc(100vw-2rem)] ${
+            selectedCount > 0 ? 'bottom-36 md:bottom-24' : 'bottom-20 md:bottom-6'
+          }`}
+        >
+          {toast && (
+            <div
+              key={toast.id}
+              role="status"
+              aria-live="polite"
+              onMouseEnter={pauseToastTimer}
+              onMouseLeave={resumeToastTimer}
+              onFocus={pauseToastTimer}
+              onBlur={resumeToastTimer}
+              className={`flex items-center gap-3 rounded-xl border px-4 py-2.5 text-sm shadow-overlay ${
+                toast.tone === 'error'
+                  ? 'border-destructive/40 bg-popover text-destructive'
+                  : 'border-border bg-popover text-popover-foreground'
+              }`}
+            >
+              <span className="font-medium">{toast.message}</span>
+              {toast.action && (
+                <button
+                  type="button"
+                  onClick={toast.action.onClick}
+                  className="cursor-pointer rounded-lg bg-primary/15 px-2.5 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  {toast.action.label}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={dismissToast}
+                aria-label="Cerrar aviso"
+                title="Cerrar aviso"
+                className="flex size-7 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <X className="size-4" aria-hidden="true" />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
   );
 }
 
-function LoadingState() {
+function LoadingState({ view, isMobile }: { view: 'company' | 'pending'; isMobile: boolean }) {
+  if (view === 'pending') {
+    return (
+      <div role="status" aria-label="Cargando órdenes de Odoo" className="space-y-4">
+        <span className="sr-only">Cargando órdenes de Odoo…</span>
+        <div className="grid grid-cols-3 divide-x divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-card animate-pulse">
+          {[0, 1, 2].map(i => (
+            <div key={i} className="space-y-2 px-3 py-3 md:px-5 md:py-4">
+              <div className="h-3.5 w-24 rounded bg-muted" />
+              <div className="h-8 w-16 rounded bg-muted/80" />
+            </div>
+          ))}
+        </div>
+        {[0, 1].map(group => (
+          <div key={group} className="overflow-hidden rounded-2xl border border-border bg-card shadow-card animate-pulse">
+            <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-4 py-3">
+              <div className="h-4 w-4 rounded bg-muted" />
+              <div className="h-4 w-48 rounded bg-muted" />
+              <div className="ml-auto h-4 w-28 rounded bg-muted/80" />
+            </div>
+            <div className="divide-y divide-border">
+              {[0, 1, 2].map(row => (
+                <div key={row} className="flex items-center gap-4 px-4 py-3">
+                  <div className="h-4 w-24 rounded bg-muted" />
+                  <div className="h-4 w-32 rounded bg-muted/70" />
+                  <div className="h-4 flex-1 rounded bg-muted/60" />
+                  <div className="h-5 w-14 rounded-full bg-muted/80" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (isMobile) {
+    return (
+      <div role="status" aria-label="Cargando órdenes de Odoo" className="space-y-3">
+        <span className="sr-only">Cargando órdenes de Odoo…</span>
+        {[0, 1, 2, 3].map(idx => (
+          <div key={idx} className="rounded-2xl border border-border bg-card p-4 space-y-3 shadow-card animate-pulse">
+            <div className="flex items-center justify-between gap-2">
+              <div className="h-5 w-28 rounded bg-muted" />
+              <div className="h-5 w-20 rounded-full bg-muted" />
+            </div>
+            <div className="h-4 w-44 rounded bg-muted/80" />
+            <div className="h-3.5 w-full rounded bg-muted/60" />
+            <div className="h-2 w-full rounded-full bg-muted/50" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className="flex items-center justify-center gap-3 py-24 text-muted-foreground">
-      <Loader2 className="size-6 animate-spin" /> Cargando órdenes de Odoo…
+    <div role="status" aria-label="Cargando órdenes de Odoo" className="overflow-hidden rounded-2xl border border-border bg-card shadow-card animate-pulse">
+      <span className="sr-only">Cargando órdenes de Odoo…</span>
+      <div className="border-b border-border bg-muted/40 px-4 py-3.5">
+        <div className="h-4 w-64 rounded bg-muted" />
+      </div>
+      <div className="divide-y divide-border">
+        {[0, 1, 2, 3, 4, 5].map(row => (
+          <div key={row} className="flex items-center gap-4 px-4 py-4">
+            <div className="size-4 rounded bg-muted" />
+            <div className="h-4 w-24 rounded bg-muted" />
+            <div className="h-4 w-28 rounded bg-muted/80" />
+            <div className="h-4 w-32 rounded bg-muted/70" />
+            <div className="h-4 flex-1 rounded bg-muted/60" />
+            <div className="h-5 w-20 rounded-full bg-muted/80" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

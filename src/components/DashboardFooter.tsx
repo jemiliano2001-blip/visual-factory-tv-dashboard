@@ -23,10 +23,10 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
   toast,
 }) => {
   return (
-    <footer className="mt-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 bg-background py-2 text-[9px] uppercase tracking-wider text-muted-foreground/70 sticky bottom-0 z-[60] flex-shrink-0 lg:py-3 lg:text-[10px]" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+    <footer className="mt-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 bg-background py-2 text-[9px] uppercase tracking-wider text-muted-foreground sticky bottom-0 z-[60] flex-shrink-0 lg:py-3 lg:text-[10px]" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
       <div className="flex min-w-0 items-center gap-3 lg:gap-4">
         <div className="whitespace-nowrap font-mono-data">
-          <span className="hidden sm:inline text-muted-foreground/70">Total:</span>{' '}
+          <span className="hidden sm:inline text-muted-foreground">Total:</span>{' '}
           <span className="font-bold text-indigo-300">{totalOrders}</span>{' '}
           <span className="text-muted-foreground">visibles</span>
         </div>

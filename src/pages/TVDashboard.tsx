@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { CompanyConfig } from '../types';
 import { subscribeToCompanyConfigs } from '../services/companyConfigs';
-import { Clock, RefreshCw, WifiOff, CheckCircle2 } from 'lucide-react';
+import { Clock, RefreshCw, WifiOff, CheckCircle2, Eye, Copy, Filter } from 'lucide-react';
 import CompanyBadge from '../components/CompanyBadge';
 import { getSmartCompanyName } from '../utils/customerNames';
 import {
@@ -13,6 +13,7 @@ import {
   getOrderPriority,
   getEffectiveDeliverySchedule,
 } from '../services/odoo';
+import { extractOrderNoteMeta } from '../services/orderNoteParser';
 import { useOdooOrders } from '../hooks/useOdooOrders';
 import OdooOrderCard from '../components/OdooOrderCard';
 import type { ViewMode, ScreenTier } from '../components/OdooOrderCard';
@@ -21,6 +22,7 @@ import SkeletonCard from '../components/SkeletonCard';
 import DashboardHeader from '../components/DashboardHeader';
 import DashboardFooter from '../components/DashboardFooter';
 import TVControlBar, { type StatusFilter } from '../components/TVControlBar';
+import { ContextMenu, type ContextMenuEntry } from '../components/ui/context-menu';
 import { createOrderSearchMatcher } from '../services/orderSearch';
 import { matchesTVStatus } from '../services/orderSignals';
 import { isAccessError } from '../services/orderLoadError';
@@ -30,6 +32,7 @@ import { buildTVPages, type TVPage } from '../utils/tvPagePacking';
 import { getCenteredLastRowStart } from '../utils/tvGridLayout';
 import { INITIAL_ROTATION_PAUSED, shouldAutoRotate } from '../services/rotationPolicy';
 import { computeTVGrid } from '../services/tvGrid';
+import { isEditableTarget, resolveTVShortcut } from '../utils/keyboardShortcuts';
 import GeminiOledBackground from '../components/GeminiOledBackground';
 import { type AuroraMode, isAuroraUrgent, nextAuroraMode, normalizeAuroraMode } from '../services/auroraMode';
 
@@ -48,7 +51,8 @@ const CompanyTVSection: React.FC<{
   gridCols: number;
   gridRows: number;
   onOrderClick: (order: OdooSaleOrder) => void;
-}> = ({ company, orders, isWide, isDense, screenTier, gridCols, gridRows, onOrderClick }) => (
+  onOrderContextMenu?: (e: React.MouseEvent<HTMLButtonElement>, order: OdooSaleOrder) => void;
+}> = ({ company, orders, isWide, isDense, screenTier, gridCols, gridRows, onOrderClick, onOrderContextMenu }) => (
   <div className="h-full min-h-0 w-full">
     <motion.div
       key={`${company}-grid`}
@@ -81,6 +85,7 @@ const CompanyTVSection: React.FC<{
               screenTier={screenTier}
               viewMode="tv"
               onClick={() => onOrderClick(order)}
+              onContextMenu={onOrderContextMenu ? (e) => onOrderContextMenu(e, order) : undefined}
             />
           </div>
         );
@@ -127,6 +132,7 @@ export default function TVDashboard() {
   const [clientFilter, setClientFilter]     = usePersistedState<string | null>('vftv:tv:client', null);
   const [textFilter, setTextFilter]         = usePersistedState<string>('vftv:tv:text', '');
   const [rotationPaused, setRotationPaused] = useState(INITIAL_ROTATION_PAUSED);
+  const [contextMenu, setContextMenu]       = useState<{ x: number; y: number; order: OdooSaleOrder } | null>(null);
 
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -288,13 +294,132 @@ export default function TVDashboard() {
     if (!shouldAutoRotate({
       isTVMode,
       pageCount: pages.length,
-      paused: rotationPaused,
+      paused: rotationPaused || selectedOrder !== null || contextMenu !== null,
     })) return;
     const interval = setInterval(() => {
       setCurrentPageIndex(prev => (prev + 1) % pages.length);
     }, 10000);
     return () => clearInterval(interval);
-  }, [pages.length, isTVMode, rotationPaused]);
+  }, [pages.length, isTVMode, rotationPaused, selectedOrder, contextMenu]);
+
+  // ── Atajos de teclado simples (←/→ paginar, Espacio pausar, Esc limpiar) ───
+  const hasAnyTVControl = Boolean(clientFilter || textFilter || statusFilter !== 'all' || (isTVMode && rotationPaused));
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.key === ' ' && e.target instanceof Element && e.target.closest('button, a, [role="button"], [role="menuitem"], [role="option"]')) {
+        return;
+      }
+      const action = resolveTVShortcut({
+        key: e.key,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+        altKey: e.altKey,
+        editable: isEditableTarget(e.target),
+        modalOpen: selectedOrder !== null,
+        menuOpen: contextMenu !== null,
+        isTVMode,
+        pageCount: pages.length,
+        hasFilters: hasAnyTVControl,
+      });
+      if (!action) return;
+
+      e.preventDefault();
+      if (action === 'next-page') {
+        setCurrentPageIndex(prev => (prev + 1) % pages.length);
+      } else if (action === 'prev-page') {
+        setCurrentPageIndex(prev => (prev - 1 + pages.length) % pages.length);
+      } else if (action === 'toggle-pause') {
+        setRotationPaused(prev => {
+          const next = !prev;
+          showToast(next ? 'Rotación pausada' : 'Rotación reanudada', 'info');
+          return next;
+        });
+      } else if (action === 'clear-filters') {
+        handleClearControls();
+        showToast('Filtros limpiados', 'info');
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [
+    isTVMode,
+    pages.length,
+    selectedOrder,
+    contextMenu,
+    hasAnyTVControl,
+    handleClearControls,
+    showToast,
+  ]);
+
+  const handleCardContextMenu = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>, order: OdooSaleOrder) => {
+      if (isMobile) return;
+      e.preventDefault();
+      setContextMenu({ x: e.clientX, y: e.clientY, order });
+    },
+    [isMobile],
+  );
+
+  const copyFromMenu = useCallback(async (text: string, label: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
+      await navigator.clipboard.writeText(text);
+      showToast(`Copiado ${label}`, 'info');
+    } catch {
+      showToast('No se pudo copiar al portapapeles', 'error');
+    }
+  }, [showToast]);
+
+  const tvContextMenuItems: ContextMenuEntry[] = useMemo(() => {
+    if (!contextMenu) return [];
+    const { order } = contextMenu;
+    const poNumber = order.customer_reference?.trim() || extractOrderNoteMeta(order).poNumber;
+    const isSameClient = clientFilter === order.partner_name;
+
+    const entries: ContextMenuEntry[] = [
+      {
+        type: 'item',
+        id: 'tv-detail',
+        label: 'Ver detalle',
+        icon: <Eye aria-hidden="true" />,
+        onSelect: () => setSelectedOrder(order),
+      },
+      {
+        type: 'item',
+        id: 'tv-copy-so',
+        label: `Copiar SO (${order.name})`,
+        icon: <Copy aria-hidden="true" />,
+        onSelect: () => { void copyFromMenu(order.name, `SO ${order.name}`); },
+      },
+    ];
+
+    if (poNumber) {
+      entries.push({
+        type: 'item',
+        id: 'tv-copy-po',
+        label: `Copiar PO (${poNumber})`,
+        icon: <Copy aria-hidden="true" />,
+        onSelect: () => { void copyFromMenu(poNumber, `PO ${poNumber}`); },
+      });
+    }
+
+    entries.push({ type: 'separator', id: 'tv-sep-filter' });
+    entries.push({
+      type: 'item',
+      id: 'tv-filter-client',
+      label: isSameClient ? 'Quitar filtro de cliente' : 'Filtrar solo este cliente',
+      icon: <Filter aria-hidden="true" />,
+      onSelect: () => {
+        setClientFilter(isSameClient ? null : order.partner_name);
+        setCurrentPageIndex(0);
+      },
+    });
+
+    return entries;
+  }, [contextMenu, clientFilter, copyFromMenu, setClientFilter]);
 
   useEffect(() => {
     if (currentPageIndex >= pages.length && pages.length > 0) setCurrentPageIndex(0);
@@ -443,7 +568,7 @@ export default function TVDashboard() {
               <h2 className="text-2xl font-bold text-foreground tracking-tight">{isAccessError(odooError) ? 'No se pudieron cargar las órdenes' : 'Sin conexión a Odoo'}</h2>
               <p className="text-muted-foreground max-w-md">{odooError}</p>
               {window.location.hostname === 'localhost' && (
-                <p className="text-muted-foreground/70 text-sm">
+                <p className="text-muted-foreground text-sm">
                   Asegúrate de que el servidor Express proxy esté corriendo:<br />
                   <code className="text-indigo-400 bg-card px-2 py-0.5 rounded text-xs">npm run server</code>
                 </p>
@@ -503,6 +628,7 @@ export default function TVDashboard() {
                 gridCols={gridCols}
                 gridRows={gridRows}
                 onOrderClick={setSelectedOrder}
+                onOrderContextMenu={handleCardContextMenu}
               />
             ) : (
               <SharedTVPage
@@ -513,6 +639,7 @@ export default function TVDashboard() {
                 isDense={isDense}
                 screenTier={screenTier}
                 onOrderClick={setSelectedOrder}
+                onOrderContextMenu={handleCardContextMenu}
               />
             )}
           </div>
@@ -565,6 +692,7 @@ export default function TVDashboard() {
                       screenTier={screenTier}
                       viewMode="desktop"
                       onClick={() => setSelectedOrder(order)}
+                      onContextMenu={isMobile ? undefined : (e) => handleCardContextMenu(e, order)}
                     />
                   ))}
                 </div>
@@ -584,6 +712,15 @@ export default function TVDashboard() {
           />
         </Suspense>
       )}
+
+      <ContextMenu
+        open={contextMenu !== null}
+        x={contextMenu?.x ?? 0}
+        y={contextMenu?.y ?? 0}
+        ariaLabel={contextMenu ? `Acciones para ${contextMenu.order.name}` : 'Acciones de orden'}
+        items={tvContextMenuItems}
+        onClose={() => setContextMenu(null)}
+      />
 
       {/* ── Footer ─────────────────────────────────────────────────────────────── */}
       <DashboardFooter

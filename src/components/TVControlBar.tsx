@@ -90,7 +90,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
           <div className="flex items-center gap-2">
             {/* Search input — always visible */}
             <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/60" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 aria-label="Buscar SO, PO, OT, ingeniero, producto o cliente"
                 value={textFilter}
@@ -109,7 +109,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
               className={`relative h-11 w-11 shrink-0 flex items-center justify-center rounded-xl border transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                 clientFilter || statusFilter !== 'all'
                   ? 'bg-primary/20 border-primary/50 text-primary'
-                  : 'border-input text-muted-foreground/60 hover:border-white/20 hover:text-muted-foreground'
+                  : 'border-input text-muted-foreground hover:border-white/20 hover:text-foreground'
               }`}
             >
               <SlidersHorizontal className="size-4" />
@@ -125,7 +125,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                 onClick={onClear}
                 title="Limpiar filtros"
                 aria-label="Limpiar filtros"
-                className="h-11 w-11 shrink-0 flex items-center justify-center rounded-xl border border-input text-muted-foreground/60 transition-colors hover:border-red-500/40 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="h-11 w-11 shrink-0 flex items-center justify-center rounded-xl border border-input text-muted-foreground transition-colors hover:border-red-500/40 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <X className="size-4" />
               </button>

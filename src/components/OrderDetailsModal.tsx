@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { OdooSaleOrder, parseOdooDate, getOrderPriority } from '../services/odoo';
+import { OdooSaleOrder, parseOdooDate, getOrderPriority, getOrderStatus } from '../services/odoo';
+import { extractOrderNoteMeta } from '../services/orderNoteParser';
 import { format } from 'date-fns';
 import {
   Dialog,
@@ -16,6 +17,7 @@ import { useInvoiceRequests } from '../hooks/useInvoiceRequests';
 import { pendingRequestsByOrder } from '../../shared/invoiceRequests';
 import { RequestDialog, RequestBadges } from './RequestDialog';
 import { Button } from './ui/button';
+import { CopyButton } from './CopyButton';
 import {
   Drawer,
   DrawerContent,
@@ -67,7 +69,67 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
   const orderDate = parseOdooDate(order.date_order);
   const commitmentDate = parseOdooDate(order.commitment_date);
   const priority = getOrderPriority(order);
-  const customerReference = order.customer_reference?.trim() || null;
+  const orderStatus = getOrderStatus(order);
+  const poNumber = order.customer_reference?.trim() || extractOrderNoteMeta(order).poNumber;
+
+  const deliveryValueClass =
+    orderStatus.level === 'overdue'
+      ? 'text-destructive font-semibold'
+      : orderStatus.level === 'warning'
+        ? 'text-warning font-semibold'
+        : 'text-foreground font-medium';
+
+  const deliveryIconClass =
+    orderStatus.level === 'overdue'
+      ? 'text-destructive'
+      : orderStatus.level === 'warning'
+        ? 'text-warning'
+        : 'text-muted-foreground';
+
+  const metadataCard = (
+    <div className="rounded-xl border border-border bg-card/30 divide-y divide-border mb-5 sm:mb-8">
+      <div className="flex justify-between items-center gap-3 px-4 py-3 min-h-[48px]">
+        <span className="text-xs font-medium text-muted-foreground">Creación</span>
+        <div className="flex items-center gap-2 text-foreground font-medium font-mono-data tabular-nums text-sm">
+          <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" aria-hidden="true" />
+          {orderDate ? format(orderDate, 'dd/MM/yyyy HH:mm') : '-'}
+        </div>
+      </div>
+      <div className="flex justify-between items-center gap-3 px-4 py-3 min-h-[48px]">
+        <span className="text-xs font-medium text-muted-foreground">Entrega</span>
+        <div className={`flex items-center gap-2 font-mono-data tabular-nums text-sm ${deliveryValueClass}`}>
+          <Clock className={`w-4 h-4 flex-shrink-0 ${deliveryIconClass}`} aria-hidden="true" />
+          {commitmentDate ? format(commitmentDate, 'dd/MM/yyyy') : '-'}
+        </div>
+      </div>
+      {poNumber && (
+        <div className="flex justify-between items-center gap-3 px-4 py-3 min-h-[48px]">
+          <span className="text-xs font-medium text-muted-foreground">OC cliente</span>
+          <div className="flex items-center gap-1.5 text-foreground font-medium text-sm min-w-0">
+            <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" aria-hidden="true" />
+            <span className="truncate max-w-[160px] sm:max-w-full font-mono-data">{poNumber}</span>
+            <CopyButton value={poNumber} label={`Copiar PO ${poNumber}`} />
+          </div>
+        </div>
+      )}
+      <div className="flex justify-between items-center gap-3 px-4 py-3 min-h-[48px]">
+        <span className="text-xs font-medium text-muted-foreground">Responsable</span>
+        <div className="flex items-center gap-2 text-foreground font-medium text-sm">
+          <User className="w-4 h-4 text-muted-foreground flex-shrink-0" aria-hidden="true" />
+          <span className="truncate max-w-[160px] sm:max-w-full">{order.salesperson || '-'}</span>
+        </div>
+      </div>
+      {order.delivery_times && (
+        <div className="flex justify-between items-center gap-3 px-4 py-3 min-h-[48px]">
+          <span className="text-xs font-medium text-muted-foreground">Horario cliente</span>
+          <div className="flex items-center gap-2 text-data font-medium text-sm text-right min-w-0">
+            <Clock className="w-4 h-4 text-data flex-shrink-0" aria-hidden="true" />
+            <span className="truncate max-w-[220px] sm:max-w-full font-mono-data">{order.delivery_times}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
   const headerContent = (
     <div className="flex items-center gap-3 sm:gap-4">
@@ -77,6 +139,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
           <span className="text-xl sm:text-2xl md:text-3xl font-black text-foreground font-mono-data tracking-tight">
             {order.name}
           </span>
+          <CopyButton value={order.name} label={`Copiar SO ${order.name}`} />
           <span className={`inline-flex items-center px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-xs sm:text-xs font-bold uppercase tracking-wider border transition-colors duration-200 ${PRIORITY_COLORS[priority]}`}>
             {PRIORITY_LABELS[priority]}
           </span>
@@ -114,47 +177,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
           {/* Scrollable body */}
           <div className="overflow-y-auto custom-scrollbar no-scrollbar flex-1 min-h-0 p-4">
             {/* ── Campos de cabecera ── */}
-            <div className="rounded-xl border border-border bg-card/30 divide-y divide-border mb-5">
-              <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
-                <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Creación</span>
-                <div className="flex items-center gap-2 text-info font-semibold text-sm">
-                  <Calendar className="w-4 h-4 text-info/70 flex-shrink-0" aria-hidden="true" />
-                  {orderDate ? format(orderDate, 'dd/MM/yyyy HH:mm') : '-'}
-                </div>
-              </div>
-              <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
-                <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Entrega</span>
-                <div className="flex items-center gap-2 text-info font-semibold text-sm">
-                  <Clock className="w-4 h-4 text-info/70 flex-shrink-0" aria-hidden="true" />
-                  {commitmentDate ? format(commitmentDate, 'dd/MM/yyyy') : '-'}
-                </div>
-              </div>
-              {customerReference && (
-                <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">OC cliente</span>
-                  <div className="flex items-center gap-2 text-info font-semibold text-sm min-w-0">
-                    <FileText className="w-4 h-4 text-info/70 flex-shrink-0" aria-hidden="true" />
-                    <span className="truncate max-w-[180px] font-mono-data">{customerReference}</span>
-                  </div>
-                </div>
-              )}
-              <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
-                <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Responsable</span>
-                <div className="flex items-center gap-2 text-info font-semibold text-sm">
-                  <User className="w-4 h-4 text-info/70 flex-shrink-0" aria-hidden="true" />
-                  <span className="truncate max-w-[180px]">{order.salesperson || '-'}</span>
-                </div>
-              </div>
-              {order.delivery_times && (
-                <div className="flex justify-between items-center gap-3 px-4 py-3.5 min-h-[48px]">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Horario cliente</span>
-                  <div className="flex items-center gap-2 text-data font-semibold text-sm text-right min-w-0">
-                    <Clock className="w-4 h-4 text-data flex-shrink-0" aria-hidden="true" />
-                    <span className="truncate max-w-[220px] font-mono-data">{order.delivery_times}</span>
-                  </div>
-                </div>
-              )}
-            </div>
+            {metadataCard}
 
             {/* ── Líneas de la orden — tarjetas verticales (sin scroll horizontal) ── */}
             <div className="mb-6">
@@ -252,47 +275,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
         {/* ── Body scrollable ──────────────────────────────────────────────── */}
         <div className="overflow-y-auto custom-scrollbar no-scrollbar flex-1 min-h-0 p-4 sm:p-6 lg:p-8">
           {/* ── Campos de cabecera ─────────────────────────────────────────── */}
-          <div className="rounded-xl border border-border bg-card/30 divide-y divide-border mb-5 sm:mb-8">
-            <div className="flex justify-between items-center px-4 py-3">
-              <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Creación</span>
-              <div className="flex items-center gap-2 text-info font-medium text-sm">
-                <Calendar className="w-4 h-4 text-info/70 flex-shrink-0" aria-hidden="true" />
-                {orderDate ? format(orderDate, 'dd/MM/yyyy HH:mm') : '-'}
-              </div>
-            </div>
-            <div className="flex justify-between items-center px-4 py-3">
-              <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Entrega</span>
-              <div className="flex items-center gap-2 text-info font-medium text-sm">
-                <Clock className="w-4 h-4 text-info/70 flex-shrink-0" aria-hidden="true" />
-                {commitmentDate ? format(commitmentDate, 'dd/MM/yyyy') : '-'}
-              </div>
-            </div>
-            {customerReference && (
-              <div className="flex justify-between items-center gap-3 px-4 py-3 min-h-[48px]">
-                <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">OC cliente</span>
-                <div className="flex items-center gap-2 text-info font-medium text-sm min-w-0">
-                  <FileText className="w-4 h-4 text-info/70 flex-shrink-0" aria-hidden="true" />
-                  <span className="truncate max-w-[160px] sm:max-w-full font-mono-data">{customerReference}</span>
-                </div>
-              </div>
-            )}
-            <div className="flex justify-between items-center px-4 py-3">
-              <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Responsable</span>
-              <div className="flex items-center gap-2 text-info font-medium text-sm">
-                <User className="w-4 h-4 text-info/70 flex-shrink-0" aria-hidden="true" />
-                <span className="truncate max-w-[160px] sm:max-w-full">{order.salesperson || '-'}</span>
-              </div>
-            </div>
-            {order.delivery_times && (
-              <div className="flex justify-between items-center gap-3 px-4 py-3 min-h-[48px]">
-                <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Horario cliente</span>
-                <div className="flex items-center gap-2 text-data font-medium text-sm text-right min-w-0">
-                  <Clock className="w-4 h-4 text-data flex-shrink-0" aria-hidden="true" />
-                  <span className="truncate max-w-[280px] sm:max-w-full font-mono-data">{order.delivery_times}</span>
-                </div>
-              </div>
-            )}
-          </div>
+          {metadataCard}
 
           <div className="mb-6 md:mb-8">
             <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">

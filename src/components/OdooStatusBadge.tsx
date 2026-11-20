@@ -1,7 +1,7 @@
 import React from 'react';
-import { RefreshCw, Wifi, WifiOff } from 'lucide-react';
-import { format } from 'date-fns';
+import { AlertTriangle, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { OdooConnectionStatus } from '../services/odoo';
+import { useDataFreshness } from '../hooks/useDataFreshness';
 
 interface OdooStatusBadgeProps {
   status: OdooConnectionStatus | null;
@@ -20,6 +20,8 @@ const OdooStatusBadge: React.FC<OdooStatusBadgeProps> = ({
   isRefreshing,
 }) => {
   const connected = status?.connected ?? null;
+  const freshness = useDataFreshness(lastUpdated);
+
   return (
     <div className="flex items-center gap-2">
       <button
@@ -48,9 +50,18 @@ const OdooStatusBadge: React.FC<OdooStatusBadgeProps> = ({
             Incompleto
           </span>
         )}
-        {lastUpdated && connected !== null && (
-          <span className="hidden sm:inline text-muted-foreground/70 font-normal normal-case tracking-normal whitespace-nowrap">
-            · {connected ? '' : 'datos de '}{format(new Date(lastUpdated), 'HH:mm')}
+        {freshness && connected !== null && (
+          <span
+            title={freshness.stale ? 'Los datos llevan más de 10 minutos sin actualizarse' : undefined}
+            className={`hidden sm:inline font-normal normal-case tracking-normal whitespace-nowrap ${
+              freshness.stale ? 'font-semibold text-warning' : 'text-muted-foreground'
+            }`}
+          >
+            · {freshness.stale && (
+              <AlertTriangle className="mr-1 inline size-3.5 align-text-bottom" aria-hidden="true" />
+            )}
+            {connected ? '' : 'datos de '}
+            <span className="font-mono-data tabular-nums">{freshness.clock}</span> ({freshness.relative})
           </span>
         )}
       </div>

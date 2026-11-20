@@ -1,3 +1,4 @@
+import type React from 'react';
 import { Clock } from 'lucide-react';
 import type { OdooSaleOrder } from '../services/odoo';
 import { getCenteredLastRowStart } from '../utils/tvGridLayout';
@@ -14,6 +15,7 @@ interface SharedTVPageProps {
   isDense: boolean;
   screenTier: ScreenTier;
   onOrderClick: (order: OdooSaleOrder) => void;
+  onOrderContextMenu?: (e: React.MouseEvent<HTMLButtonElement>, order: OdooSaleOrder) => void;
 }
 function getSegmentCardColumns(
   segment: SharedCompanySegment,
@@ -44,7 +46,16 @@ function getCompanyNameSize(company: string, isQuadLayout: boolean) {
   return 'text-sm lg:text-base';
 }
 
-export function SharedTVPage({ page, gridCols, gridRows, isWide, isDense, screenTier, onOrderClick }: SharedTVPageProps) {
+export function SharedTVPage({
+  page,
+  gridCols,
+  gridRows,
+  isWide,
+  isDense,
+  screenTier,
+  onOrderClick,
+  onOrderContextMenu,
+}: SharedTVPageProps) {
   const isQuadLayout = page.layout === 'quad';
 
   return (
@@ -123,6 +134,7 @@ export function SharedTVPage({ page, gridCols, gridRows, isWide, isDense, screen
                         screenTier={isQuadLayout ? 'sm' : 'md'}
                         viewMode="tv"
                         onClick={() => onOrderClick(order)}
+                        onContextMenu={onOrderContextMenu ? (e) => onOrderContextMenu(e, order) : undefined}
                       />
                     </div>
                   );

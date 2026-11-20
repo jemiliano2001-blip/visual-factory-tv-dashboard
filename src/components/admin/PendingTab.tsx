@@ -2,6 +2,7 @@
  * Tab Pendientes — vista de trabajo por defecto del equipo de diseño:
  * qué piezas faltan por entregar, agrupadas por cliente, en orden de urgencia.
  */
+import type React from 'react';
 import { useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { ChevronDown, ChevronRight, ListChecks } from 'lucide-react';
@@ -13,13 +14,23 @@ import { Badge } from '../ui/badge';
 import { STATUS_VARIANT } from './orderStatusMeta';
 import { OrderPoEngineer } from './OrdersTable';
 import { useMobile } from '../../hooks/useMobile';
+import type { TableDensity } from './AdminToolbar';
 
 interface PendingTabProps {
   orders: OdooSaleOrder[];
   getEngineerName: (order: OdooSaleOrder) => string | null;
+  onOrderClick?: (order: OdooSaleOrder) => void;
+  onOrderContextMenu?: (e: React.MouseEvent, order: OdooSaleOrder) => void;
+  density?: TableDensity;
 }
 
-export default function PendingTab({ orders, getEngineerName }: PendingTabProps) {
+export default function PendingTab({
+  orders,
+  getEngineerName,
+  onOrderClick,
+  onOrderContextMenu,
+  density = 'comfortable',
+}: PendingTabProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const groups = useMemo(() => {
@@ -78,6 +89,9 @@ export default function PendingTab({ orders, getEngineerName }: PendingTabProps)
             collapsed={!!collapsed[g.client]}
             onToggle={() => toggle(g.client)}
             getEngineerName={getEngineerName}
+            onOrderClick={onOrderClick}
+            onOrderContextMenu={onOrderContextMenu}
+            density={density}
             deferRender={idx >= 3}
           />
         ))}
@@ -96,7 +110,17 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: str
 }
 
 function ClientGroup({
-  client, orderCount, missingQty, lines, collapsed, onToggle, getEngineerName, deferRender = false,
+  client,
+  orderCount,
+  missingQty,
+  lines,
+  collapsed,
+  onToggle,
+  getEngineerName,
+  onOrderClick,
+  onOrderContextMenu,
+  density,
+  deferRender = false,
 }: {
   client: string;
   orderCount: number;
@@ -105,16 +129,23 @@ function ClientGroup({
   collapsed: boolean;
   onToggle: () => void;
   getEngineerName: (order: OdooSaleOrder) => string | null;
+  onOrderClick?: (order: OdooSaleOrder) => void;
+  onOrderContextMenu?: (e: React.MouseEvent, order: OdooSaleOrder) => void;
+  density: TableDensity;
   deferRender?: boolean;
 }) {
   const isMobile = useMobile();
+  const isComfortable = density === 'comfortable';
+  const cellPad = isComfortable ? 'px-4 py-3' : 'px-4 py-2';
+  const headPad = isComfortable ? 'px-4 py-2.5' : 'px-4 py-2';
+
   return (
     <div className={`overflow-hidden rounded-2xl border border-border bg-card shadow-card${deferRender ? ' cv-auto' : ''}`}>
       <button
         type="button"
         aria-expanded={!collapsed}
         onClick={onToggle}
-        className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-muted/40 px-4 py-3 text-left transition-colors hover:bg-accent/40"
+        className="flex w-full cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-muted/40 px-4 py-3 text-left transition-colors hover:bg-accent/40"
       >
         {collapsed ? <ChevronRight className="size-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="size-4 shrink-0 text-muted-foreground" />}
         <span className="min-w-0 break-words font-semibold text-foreground">{client}</span>
@@ -130,8 +161,8 @@ function ClientGroup({
           {lines.map((pl, i) => {
             const status = getOrderStatus(pl.order);
             const d = parseOdooDate(pl.order.commitment_date);
-            return (
-              <li key={`${pl.order.id}-${pl.line.name}-${i}`} className="space-y-1.5 px-4 py-3">
+            const rowBody = (
+              <>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-mono-data text-base font-bold text-foreground">{formatPONumber(pl.order.name)}</div>
@@ -149,21 +180,36 @@ function ClientGroup({
                   </span>
                   <Badge variant={STATUS_VARIANT[status.level]}>{status.label}</Badge>
                 </div>
+              </>
+            );
+            return (
+              <li key={`${pl.order.id}-${pl.line.name}-${i}`}>
+                {onOrderClick ? (
+                  <button
+                    type="button"
+                    onClick={() => onOrderClick(pl.order)}
+                    className="block w-full cursor-pointer space-y-1.5 px-4 py-3 text-left transition-colors hover:bg-accent/30 active:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                  >
+                    {rowBody}
+                  </button>
+                ) : (
+                  <div className="space-y-1.5 px-4 py-3">{rowBody}</div>
+                )}
               </li>
             );
           })}
         </ul>
       )}
       {!collapsed && !isMobile && (
-        <table className="w-full text-sm">
+        <table className={`w-full ${isComfortable ? 'text-[15px]' : 'text-sm'}`}>
           <thead className="text-xs font-medium text-muted-foreground">
             <tr>
-              <th scope="col" className="px-4 py-2 text-left font-medium">SO</th>
-              <th scope="col" className="px-4 py-2 text-left font-medium">PO / Ingeniero</th>
-              <th scope="col" className="px-4 py-2 text-left font-medium">Producto</th>
-              <th scope="col" className="px-4 py-2 text-right font-medium">Faltan</th>
-              <th scope="col" className="px-4 py-2 text-left font-medium">Compromiso</th>
-              <th scope="col" className="px-4 py-2 text-left font-medium">Estado</th>
+              <th scope="col" className={`${headPad} text-left font-medium`}>SO</th>
+              <th scope="col" className={`${headPad} text-left font-medium`}>PO / Ingeniero</th>
+              <th scope="col" className={`${headPad} text-left font-medium`}>Producto</th>
+              <th scope="col" className={`${headPad} text-right font-medium`}>Faltan</th>
+              <th scope="col" className={`${headPad} text-left font-medium`}>Compromiso</th>
+              <th scope="col" className={`${headPad} text-left font-medium`}>Estado</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -171,21 +217,39 @@ function ClientGroup({
               const status = getOrderStatus(pl.order);
               const d = parseOdooDate(pl.order.commitment_date);
               return (
-                <tr key={`${pl.order.id}-${pl.line.name}-${i}`} className="hover:bg-accent/20">
-                  <td className="whitespace-nowrap px-4 py-2 font-mono-data font-bold text-foreground">
-                    {formatPONumber(pl.order.name)}
+                <tr
+                  key={`${pl.order.id}-${pl.line.name}-${i}`}
+                  onClick={onOrderClick ? (e) => {
+                    if ((e.target as HTMLElement).closest('button, a, input')) return;
+                    onOrderClick(pl.order);
+                  } : undefined}
+                  onContextMenu={onOrderContextMenu ? (e) => onOrderContextMenu(e, pl.order) : undefined}
+                  className={onOrderClick ? 'cursor-pointer transition-colors hover:bg-accent/30' : 'hover:bg-accent/20'}
+                >
+                  <td className={`whitespace-nowrap ${cellPad} font-mono-data font-bold text-foreground`}>
+                    {onOrderClick ? (
+                      <button
+                        type="button"
+                        onClick={() => onOrderClick(pl.order)}
+                        className="cursor-pointer rounded text-left font-mono-data font-bold text-foreground underline-offset-2 transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      >
+                        {formatPONumber(pl.order.name)}
+                      </button>
+                    ) : (
+                      formatPONumber(pl.order.name)
+                    )}
                   </td>
-                  <td className="px-4 py-2">
+                  <td className={cellPad}>
                     <OrderPoEngineer order={pl.order} engineerName={getEngineerName(pl.order)} />
                   </td>
-                  <td className="px-4 py-2 text-foreground/90">{abbreviate(pl.line.name)}</td>
-                  <td className="px-4 py-2 text-right font-mono-data font-bold tabular-nums text-primary">
+                  <td className={`${cellPad} text-foreground/90`}>{abbreviate(pl.line.name)}</td>
+                  <td className={`${cellPad} text-right font-mono-data font-bold tabular-nums text-primary`}>
                     {pl.missing}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-2 font-mono-data text-xs tabular-nums text-muted-foreground">
+                  <td className={`whitespace-nowrap ${cellPad} font-mono-data text-xs tabular-nums text-muted-foreground`}>
                     {d ? format(d, 'dd/MM/yyyy') : 'Sin fecha'}
                   </td>
-                  <td className="px-4 py-2">
+                  <td className={cellPad}>
                     <Badge variant={STATUS_VARIANT[status.level]}>{status.label}</Badge>
                   </td>
                 </tr>

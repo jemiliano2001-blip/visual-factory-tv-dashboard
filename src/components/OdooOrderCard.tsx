@@ -23,6 +23,7 @@ interface OdooOrderCardProps {
   screenTier?: ScreenTier;
   viewMode: ViewMode;
   onClick?: () => void;
+  onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
 /**
@@ -68,6 +69,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   screenTier,
   viewMode,
   onClick,
+  onContextMenu,
 }) => {
   const priority = getOrderPriority(order);
   const progress = getDeliveryProgress(order);
@@ -160,6 +162,7 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
       ref={cardRef}
       id={`so-${order.name.replace(/\//g, '-')}`}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       aria-label={cardLabel}
       className={`group flex w-full flex-col rounded-2xl border text-left relative overflow-hidden h-full ${isMobile ? 'bg-card' : 'bg-black/60'} ${cardSize} ${presentation.borderClass} ${onClick ? 'cursor-pointer active:scale-[0.98]' : 'cursor-default'} focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
     >
