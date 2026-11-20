@@ -14,6 +14,8 @@ import { actorLabel, type InvoiceRequest, type LineProgress } from '../../../sha
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { SegmentedControl } from '../ui/segmented-control';
+import { EmptyState } from '../ui/empty-state';
 
 const MAX_DONE_SHOWN = 30;
 const fmt = (iso: string | undefined) => {
@@ -233,18 +235,19 @@ export default function RequestsTab() {
         </div>
       ) : (
         <>
-          <div role="group" aria-label="Ver solicitudes" className="grid max-w-md grid-cols-2 gap-2">
-            <Button type="button" className="min-h-11 px-4 text-sm font-semibold rounded-xl" variant={view === 'pending' ? 'default' : 'outline'} aria-pressed={view === 'pending'} onClick={() => setView('pending')}>
-              Pendientes (<span className="font-mono-data">{pending.length}</span>)
-            </Button>
-            <Button type="button" className="min-h-11 px-4 text-sm font-semibold rounded-xl" variant={view === 'done' ? 'default' : 'outline'} aria-pressed={view === 'done'} onClick={() => setView('done')}>
-              Hechas (<span className="font-mono-data">{done.length}</span>)
-            </Button>
-          </div>
+          <SegmentedControl
+            label="Ver solicitudes"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'pending', label: <>Pendientes (<span className="font-mono-data">{pending.length}</span>)</> },
+              { value: 'done', label: <>Hechas (<span className="font-mono-data">{done.length}</span>)</> },
+            ]}
+          />
           {view === 'pending' ? (
           <section aria-labelledby="req-pend" className="space-y-3">
             <h2 id="req-pend" className="sr-only">Solicitudes pendientes</h2>
-            {pending.length === 0 && <p className="rounded-2xl border border-border bg-card px-6 py-12 text-center text-sm text-muted-foreground">No hay solicitudes pendientes.</p>}
+            {pending.length === 0 && <EmptyState title="No hay solicitudes pendientes" hint="Se piden desde Órdenes: marca partidas y usa «Pedir factura o remisión»." />}
             <ul className="space-y-3">
               {pending.map(r => (
                 <RequestCard

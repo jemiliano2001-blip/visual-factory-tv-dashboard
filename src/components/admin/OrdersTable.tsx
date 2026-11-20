@@ -5,6 +5,7 @@
  * de producto, remisiones y la nota de la orden.
  */
 import React, { useMemo, useState } from 'react';
+import { EmptyState } from '../ui/empty-state';
 import {
   useReactTable, getCoreRowModel, getSortedRowModel, getExpandedRowModel,
   flexRender, createColumnHelper, SortingState, ExpandedState, RowSelectionState,
@@ -356,9 +357,7 @@ export default function OrdersTable({
     return (
       <div className="space-y-3">
         {rows.length === 0 && (
-          <p className="rounded-2xl border border-border bg-card px-4 py-12 text-center text-sm text-muted-foreground">
-            No hay órdenes que coincidan con los filtros
-          </p>
+          <EmptyState title="No hay órdenes que coincidan con los filtros" hint="Quita algún filtro o limpia la búsqueda para ver más." />
         )}
         {rows.map(row => {
           const showGroupHeader = groupByClient && row.original.partner_name !== lastClient;
@@ -621,8 +620,8 @@ function ExpandedRow({ order }: { order: OdooSaleOrder }) {
   return (
     <div className="space-y-4">
       {order.delivery_times && (
-        <div className="flex items-center gap-2 rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-cyan-300 font-mono-data text-xs">
-          <Clock className="size-4 text-cyan-400 shrink-0" aria-hidden="true" />
+        <div className="flex items-center gap-2 rounded-lg border border-data/20 bg-data/10 px-3 py-2 text-data font-mono-data text-xs">
+          <Clock className="size-4 text-data shrink-0" aria-hidden="true" />
           <span><strong>Horario de entrega del cliente:</strong> {order.delivery_times}</span>
         </div>
       )}

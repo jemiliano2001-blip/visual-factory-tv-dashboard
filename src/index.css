@@ -81,6 +81,45 @@
   }
 }
 
+/* Modo claro: solo /admin (ver useAdminTheme). Sobrescribe los mismos tokens;
+   TV, login y estadísticas nunca reciben data-theme y siguen oscuros. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-background: #f4f4f6;
+  --color-foreground: #18181b;
+  --color-card: #ffffff;
+  --color-card-foreground: #18181b;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #18181b;
+  --color-primary: #4f46e5;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #ececf0;
+  --color-secondary-foreground: #27272a;
+  --color-muted: #ececf0;
+  --color-muted-foreground: #52525b;
+  --color-accent: #e8e8ee;
+  --color-accent-foreground: #18181b;
+  --color-border: rgba(24, 24, 27, 0.12);
+  --color-input: rgba(24, 24, 27, 0.2);
+  --color-ring: #4f46e5;
+  --color-destructive: #dc2626;
+  --color-success: #047857;
+  --color-success-foreground: #ffffff;
+  --color-warning: #b45309;
+  --color-warning-foreground: #ffffff;
+  --color-info: #1d4ed8;
+  --color-data: #0e7490;
+  --color-status-overdue: #dc2626;
+  --color-status-warning: #b45309;
+  --color-status-ontime: #15803d;
+  --color-status-none: #64748b;
+  --shadow-card: 0 1px 2px rgba(24, 24, 27, 0.06), 0 6px 18px -10px rgba(24, 24, 27, 0.18);
+  --shadow-overlay: 0 24px 60px -20px rgba(24, 24, 27, 0.3);
+  --scrollbar-thumb: rgba(24, 24, 27, 0.35);
+  --scrollbar-track: rgba(24, 24, 27, 0.06);
+  --overlay-scrim: rgba(24, 24, 27, 0.4);
+}
+
 @layer utilities {
   .font-display {
     font-family: var(--font-display);
@@ -90,10 +129,10 @@
     font-variant-numeric: tabular-nums;
   }
   .glass-panel {
-    background-color: rgba(10, 10, 15, 0.8);
+    background-color: color-mix(in srgb, var(--color-background) 80%, transparent);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--color-border);
   }
   .custom-scrollbar {
     scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);

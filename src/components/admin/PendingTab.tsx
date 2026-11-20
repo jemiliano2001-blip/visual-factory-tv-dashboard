@@ -3,6 +3,7 @@
  * qué piezas faltan por entregar, agrupadas por cliente, en orden de urgencia.
  */
 import type React from 'react';
+import { EmptyState } from '../ui/empty-state';
 import { useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { ChevronDown, ChevronRight, ListChecks } from 'lucide-react';
@@ -62,11 +63,11 @@ export default function PendingTab({
 
   if (groups.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-card py-12 text-center text-muted-foreground">
-        <ListChecks className="size-10 text-success" />
-        <p className="font-semibold text-foreground">Sin pendientes con los filtros actuales.</p>
-        <p className="max-w-md text-sm">Todo lo que coincide con los filtros ya está entregado.</p>
-      </div>
+      <EmptyState
+        icon={<ListChecks className="size-10 text-success" />}
+        title="Sin pendientes con los filtros actuales"
+        hint="Todo lo que coincide con los filtros ya está entregado."
+      />
     );
   }
 

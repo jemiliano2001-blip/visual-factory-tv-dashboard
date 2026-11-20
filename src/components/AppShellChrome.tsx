@@ -3,7 +3,8 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { auth } from '../firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { LayoutDashboard, BarChart3, LogOut, Tv } from 'lucide-react';
+import { LayoutDashboard, BarChart3, LogOut, Tv, Sun, Moon } from 'lucide-react';
+import { useAdminTheme } from '../hooks/useAdminTheme';
 import { AdminSidebarSections, AdminMobileNav } from './admin/AdminNav';
 import { Button } from './ui/button';
 
@@ -11,6 +12,15 @@ export default function AppShellChrome() {
   const [user, setUser] = useState(auth.currentUser);
   const location = useLocation();
   const navigate = useNavigate();
+  const [theme, toggleTheme] = useAdminTheme();
+  const onAdmin = location.pathname === '/admin';
+
+  // El modo claro solo existe en /admin; en otras rutas se quita el atributo.
+  useEffect(() => {
+    if (!onAdmin || theme !== 'light') return;
+    document.documentElement.dataset.theme = 'light';
+    return () => { delete document.documentElement.dataset.theme; };
+  }, [onAdmin, theme]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, setUser);
@@ -87,7 +97,17 @@ export default function AppShellChrome() {
         </nav>
 
         {/* Usuario */}
-        <div className="border-t border-border px-3 py-4">
+        <div className="space-y-2 border-t border-border px-3 py-4">
+          {onAdmin && (
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              {theme === 'light' ? <Moon className="size-[18px]" /> : <Sun className="size-[18px]" />}
+              {theme === 'light' ? 'Modo oscuro' : 'Modo claro'}
+            </button>
+          )}
           {user ? (
             <div className="flex items-center gap-3 rounded-xl border border-border bg-background/40 px-3 py-2.5">
               <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
@@ -123,8 +143,7 @@ export default function AppShellChrome() {
       {/* Barra de navegación inferior — solo en móvil. En /admin: secciones del Admin. */}
       {location.pathname === '/admin' ? <AdminMobileNav /> : (
       <nav
-        className="fixed bottom-0 inset-x-0 z-30 flex md:hidden backdrop-blur-2xl"
-        style={{ backgroundColor: 'rgba(10,10,16,0.93)', borderTop: '1px solid rgba(255,255,255,0.07)' }}
+        className="fixed bottom-0 inset-x-0 z-30 flex md:hidden border-t border-border bg-card/95 backdrop-blur-2xl"
       >
         {([
           { to: '/admin', icon: <LayoutDashboard className="size-[22px]" />, label: 'Admin' },
@@ -143,7 +162,6 @@ export default function AppShellChrome() {
                 <motion.span
                   layoutId="mobile-nav-active"
                   className="absolute inset-x-4 top-0 h-[2px] rounded-b-full bg-primary"
-                  style={{ boxShadow: '0 0 10px rgba(99,102,241,0.9)' }}
                 />
               )}
               <span className={`transition-colors ${isActive ? 'text-primary' : 'text-muted-foreground'}`}>{icon}</span>

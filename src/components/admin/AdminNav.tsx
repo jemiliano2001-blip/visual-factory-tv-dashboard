@@ -6,7 +6,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
-  BarChart3, Building2, FileText, ListTodo, MoreHorizontal, Settings, Tv,
+  BarChart3, Building2, FileText, ListTodo, MoreHorizontal, Settings, Tv, Sun, Moon,
   type LucideIcon,
 } from 'lucide-react';
 import { parseAdminFilters, type AdminFilters } from '../../services/adminFilters';
@@ -16,6 +16,7 @@ import {
 } from '../../services/adminSections';
 import { useInvoiceRequests } from '../../hooks/useInvoiceRequests';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '../ui/drawer';
+import { useAdminTheme } from '../../hooks/useAdminTheme';
 
 const SECTION_ICON: Record<AdminSectionId, LucideIcon> = {
   company: Building2, pending: ListTodo, requests: FileText, config: Settings,
@@ -101,6 +102,7 @@ export function AdminMobileNav() {
   const { onAdmin, filters, section } = useAdminSection();
   const pending = usePendingRequestCount(onAdmin);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [theme, toggleTheme] = useAdminTheme();
   const moreActive = section !== null && isInMoreMenu(section);
 
   const moreItem = (to: string, label: string, Icon: LucideIcon, opts: { replace?: boolean; count?: number; active?: boolean } = {}) => (
@@ -169,6 +171,14 @@ export function AdminMobileNav() {
             {moreItem(adminSectionHref('config', filters), 'Configuración', Settings, { replace: true, active: section === 'config' })}
             {moreItem('/stats', 'Estadísticas', BarChart3)}
             {moreItem('/', 'TV en vivo', Tv)}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              {theme === 'light' ? <Moon className="size-5" /> : <Sun className="size-5" />}
+              {theme === 'light' ? 'Modo oscuro' : 'Modo claro'}
+            </button>
           </div>
         </DrawerContent>
       </Drawer>

@@ -15,7 +15,7 @@ const DialogOverlay = React.forwardRef<
   <BaseDialog.Backdrop
     ref={ref}
     className={cn(
-      'fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm transition-all duration-200 data-[open]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[open]:fade-in-0',
+      'fixed inset-0 z-[70] bg-[var(--overlay-scrim,rgba(0,0,0,0.7))] backdrop-blur-sm transition-all duration-200 data-[open]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[open]:fade-in-0',
       className,
     )}
     {...props}

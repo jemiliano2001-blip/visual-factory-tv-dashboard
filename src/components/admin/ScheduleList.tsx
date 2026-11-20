@@ -3,6 +3,7 @@
  * ambos y dice cuál usa la TV. Escribe solo en company_configs (requiere claim `admin`).
  */
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { EmptyState } from '../ui/empty-state';
 import { Clock, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import type { CompanyConfig } from '../../types';
 import {
@@ -184,11 +185,9 @@ export default function ScheduleList({ orders, canEdit, permissionLoading }: Pro
       </div>
 
       {configs === null ? (
-        <p role="status" className="rounded-2xl border border-border bg-card px-6 py-12 text-center text-sm text-muted-foreground">Cargando horarios…</p>
+        <EmptyState role="status" title="Cargando horarios…" />
       ) : shown.length === 0 ? (
-        <p className="rounded-2xl border border-border bg-card px-6 py-12 text-center text-sm text-muted-foreground">
-          {rows.length === 0 ? 'No hay clientes ni horarios todavía.' : 'Ningún cliente coincide con la búsqueda.'}
-        </p>
+        <EmptyState title={rows.length === 0 ? 'No hay clientes ni horarios todavía' : 'Ningún cliente coincide con la búsqueda'} />
       ) : (
         <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {shown.map(row => {
