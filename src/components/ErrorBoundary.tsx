@@ -2,6 +2,9 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 
 interface Props {
   children: ReactNode;
+  fallback?: ReactNode;
+  /** Si cambia mientras hay error, el boundary se reinicia y vuelve a intentar pintar. */
+  resetKey?: unknown;
 }
 
 interface State {
@@ -23,8 +26,18 @@ export default class ErrorBoundary extends Component<Props, State> {
     console.error('Uncaught error:', error, errorInfo);
   }
 
+  public componentDidUpdate(prev: Props) {
+    if (this.state.hasError && prev.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, error: null });
+    }
+  }
+
   public render() {
     if (this.state.hasError) {
+      if (this.props.fallback !== undefined) {
+        return this.props.fallback;
+      }
+
       let errorMessage = "Algo salió mal.";
       let details = "";
 

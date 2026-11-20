@@ -1,4 +1,5 @@
 import * as admin from 'firebase-admin';
+import * as logger from 'firebase-functions/logger';
 import { EMPTY_STATE, persistNotificationState, type NotificationState } from './notificationState';
 import {
   extractAssignedEngineer,
@@ -132,7 +133,7 @@ export async function loadState(): Promise<NotificationState> {
     const doc = await admin.firestore().collection('config').doc('notification_state').get();
     if (doc.exists) return parseNotificationState(doc.data());
   } catch (e) {
-    console.error('[notifications] Error cargando estado de Firestore:', e);
+    logger.error('[notifications] Error cargando estado de Firestore:', e);
     throw new Error('No se pudo leer la deduplicación; se cancela el envío para evitar avisos repetidos.');
   }
   return structuredClone(EMPTY_STATE);
@@ -146,7 +147,7 @@ export async function saveState(
     const document = admin.firestore().collection('config').doc('notification_state');
     await persistNotificationState(document, state, fields);
   } catch (e) {
-    console.error('[notifications] Error guardando estado en Firestore:', e);
+    logger.error('[notifications] Error guardando estado en Firestore:', e);
     throw new Error('No se pudo guardar el estado de notificaciones.');
   }
 }
@@ -222,12 +223,12 @@ export async function sendWebhook(url: string, content: string, embeds: DiscordE
   try {
     const res = await postWebhook(url, body);
     if (!res.ok) {
-      console.error(`[notifications] Discord webhook falló: HTTP ${res.status}`);
+      logger.error(`[notifications] Discord webhook falló: HTTP ${res.status}`);
       return false;
     }
     return true;
   } catch (e) {
-    console.error('[notifications] Error enviando webhook a Discord:', e instanceof Error ? e.name : 'Error');
+    logger.error('[notifications] Error enviando webhook a Discord:', e instanceof Error ? e.name : 'Error');
     return false;
   }
 }

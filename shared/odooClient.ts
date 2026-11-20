@@ -5,6 +5,8 @@ export interface OdooClientConfig {
   db: string;
   username: string;
   password: string;
+  /** Espera antes de reintentar una lectura (ms); default 500 + hasta 250 de jitter. */
+  retryDelayMs?: number;
 }
 
 interface OdooSession {
@@ -13,6 +15,11 @@ interface OdooSession {
 }
 
 class OdooSessionExpiredError extends Error {}
+/** Fallo pasajero (5xx o red caída): una lectura puede reintentarse una vez. */
+class OdooTransientError extends Error {}
+
+/** Solo métodos de lectura se reintentan; una escritura repetida podría duplicarse. */
+const READ_METHODS = new Set(['read', 'search', 'search_read', 'search_count', 'fields_get', 'name_search']);
 
 interface RawLine {
   id: number;
@@ -93,12 +100,14 @@ export class OdooClient {
   private sessionPromise: Promise<OdooSession> | null = null;
   private reauthing: Promise<OdooSession> | null = null;
   private sessionVersion = 0;
+  private readonly retryDelayMs: number;
 
   constructor(config: OdooClientConfig) {
     this.url = config.url.replace(/\/$/, '');
     this.db = config.db;
     this.username = config.username;
     this.password = config.password;
+    this.retryDelayMs = config.retryDelayMs ?? 500;
   }
 
   isConfigured(): boolean {
@@ -169,7 +178,9 @@ export class OdooClient {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
-      const response = await fetch(`${this.url}/web/dataset/call_kw`, {
+      let response: Response;
+      try {
+        response = await fetch(`${this.url}/web/dataset/call_kw`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -182,7 +193,15 @@ export class OdooClient {
           params: { model, method, args, kwargs },
         }),
         signal: controller.signal,
-      });
+        });
+      } catch (err) {
+        // TypeError = red caída/DNS; un timeout (AbortError) no se reintenta para no pasar del límite de la Function.
+        if (err instanceof TypeError) throw new OdooTransientError(`Odoo sin red: ${err.message}`);
+        throw err;
+      }
+      if (response.status >= 500) {
+        throw new OdooTransientError(`Odoo HTTP error: ${response.status} ${response.statusText}`);
+      }
       if (response.status === 401 || response.status === 403) {
         throw new OdooSessionExpiredError(`Odoo HTTP ${response.status} ${response.statusText}`);
       }
@@ -223,7 +242,7 @@ export class OdooClient {
     const initialSession = await this.getSession();
     const usedVersion = this.sessionVersion;
     try {
-      return await this.odooRpc<T>(initialSession, model, method, args, kwargs);
+      return await this.rpcWithRetry<T>(initialSession, model, method, args, kwargs);
     } catch (err) {
       if (!(err instanceof OdooSessionExpiredError)) throw err;
       console.warn('[Odoo] Sesión expirada — reautenticando…');
@@ -237,6 +256,20 @@ export class OdooClient {
         nextSession = await (this.reauthing ?? this.getSession());
       }
       return await this.odooRpc<T>(nextSession, model, method, args, kwargs);
+    }
+  }
+
+  private async rpcWithRetry<T>(
+    session: OdooSession, model: string, method: string, args: unknown[], kwargs: Record<string, unknown>,
+  ): Promise<T> {
+    try {
+      return await this.odooRpc<T>(session, model, method, args, kwargs);
+    } catch (err) {
+      if (!(err instanceof OdooTransientError) || !READ_METHODS.has(method)) throw err;
+      console.warn(`[Odoo] ${err.message} — reintentando ${model}.${method} una vez`);
+      const delay = this.retryDelayMs > 0 ? this.retryDelayMs + Math.random() * 250 : 0;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return await this.odooRpc<T>(session, model, method, args, kwargs);
     }
   }
 

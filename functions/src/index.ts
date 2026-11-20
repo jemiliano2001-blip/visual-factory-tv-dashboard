@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import * as logger from 'firebase-functions/logger';
 import express, { NextFunction, Request, Response } from 'express';
 import { OdooClient } from '../../shared/odooClient';
 import nodemailer from 'nodemailer';
@@ -86,6 +87,29 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
 const isActor = (a: unknown): a is RequestActor => typeof a === 'object' && a !== null && typeof (a as RequestActor).uid === 'string';
 const NO_ACTOR = 'Se requiere una cuenta de personal SMV.';
 
+// ─── Health check público ──────────────────────────────────────────────────────
+// Para monitores de uptime: va antes de la auth y solo dice si la API y Odoo
+// responden (sin datos). El resultado se reutiliza 60 s para que sondear seguido
+// no se traduzca en llamadas a Odoo.
+const HEALTH_TTL_MS = 60_000;
+let health: { at: number; odoo: Promise<boolean> } | null = null;
+async function probeOdoo(): Promise<boolean> {
+  try {
+    const session = await odooClient.getSession();
+    await odooClient.odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
+    return true;
+  } catch (err) {
+    logger.warn('[health] Odoo no responde:', err);
+    return false;
+  }
+}
+app.get('/api/health', async (_req: Request, res: Response) => {
+  if (!health || Date.now() - health.at > HEALTH_TTL_MS) health = { at: Date.now(), odoo: probeOdoo() };
+  const odoo = await health.odoo;
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(odoo ? 200 : 503).json({ ok: odoo, odoo });
+});
+
 // Todas las rutas /api exigen un ID token de Firebase válido de una cuenta real:
 // ya no hay sesión anónima (la TV entra con cuenta real) y los tokens anónimos
 // reciben 403. Evita exponer los datos de Odoo (clientes, productos, cantidades,
@@ -110,7 +134,7 @@ app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
     if (access.name) res.locals.actor = { ...actor, name: access.name };
     next();
   } catch (err) {
-    console.error('verificación de acceso al Hub falló:', err);
+    logger.error('verificación de acceso al Hub falló:', err);
     res.status(503).json({ error: 'No se pudo verificar tu acceso. Intenta de nuevo en un momento.' });
   }
 });
@@ -136,6 +160,8 @@ function createRateLimiter(maxRequests: number, windowMs: number) {
   };
 }
 const sensitiveRateLimit = createRateLimiter(15, 60_000);
+// Escrituras sin correo (marcar hecha, asignar/soltar): tope holgado contra bucles o abuso.
+const mutationRateLimit = createRateLimiter(60, 60_000);
 
 let cachedTransportKey = '';
 let cachedTransport: nodemailer.Transporter | null = null;
@@ -166,7 +192,7 @@ app.get('/api/odoo/status', async (_req: Request, res: Response) => {
     await odooClient.odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
     res.json({ connected: true, message: 'Conectado a Odoo' });
   } catch (err) {
-    console.error('[Odoo] Error en /api/odoo/status:', err);
+    logger.error('[Odoo] Error en /api/odoo/status:', err);
     res.status(503).json({ connected: false, message: 'No se pudo conectar con Odoo.' });
   }
 });
@@ -180,7 +206,7 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
     const { orders, truncated } = await odooClient.fetchInvoiceableOrdersCached();
     res.json({ orders, total: orders.length, truncated, lastUpdated: new Date().toISOString() });
   } catch (err) {
-    console.error('[Odoo] Error al obtener órdenes:', err);
+    logger.error('[Odoo] Error al obtener órdenes:', err);
     res.status(500).json({ error: 'Error al consultar las órdenes en Odoo.', orders: [] });
   }
 });
@@ -192,7 +218,7 @@ app.get('/api/order-assignments', async (_req: Request, res: Response) => {
   try {
     res.json(normalizeOrderAssignments((await assignmentsDoc().get()).data()));
   } catch (err) {
-    console.error('[Assignments] Error leyendo asignaciones:', err);
+    logger.error('[Assignments] Error leyendo asignaciones:', err);
     res.status(500).json({ error: 'No se pudieron leer las asignaciones.' });
   }
 });
@@ -219,13 +245,13 @@ const changeAssignments = (mutate: (current: OrderAssignmentsPayload, actor: Req
       });
       res.json(next);
     } catch (err) {
-      console.error('[Assignments] Error guardando asignaciones:', err);
+      logger.error('[Assignments] Error guardando asignaciones:', err);
       res.status(500).json({ error: 'No se pudieron guardar las asignaciones.' });
     }
   };
 
-app.post('/api/order-assignments/claim', changeAssignments((cur, actor, keys) => claimOrders(cur, actor, keys)));
-app.post('/api/order-assignments/release', changeAssignments((cur, actor, keys) => releaseOrders(cur, actor.uid, keys)));
+app.post('/api/order-assignments/claim', mutationRateLimit, changeAssignments((cur, actor, keys) => claimOrders(cur, actor, keys)));
+app.post('/api/order-assignments/release', mutationRateLimit, changeAssignments((cur, actor, keys) => releaseOrders(cur, actor.uid, keys)));
 
 // ─── Solicitudes de factura/remisión ──────────────────────────────────────────
 const requestsDoc = () => admin.firestore().doc('visual_factory_state/invoice_requests');
@@ -254,7 +280,7 @@ app.get('/api/team-access', sensitiveRateLimit, async (_req: Request, res: Respo
     const members = buildTeamAccess(hubSnap.docs.map(d => ({ uid: d.id, data: d.data() })), authUsers);
     res.json({ available: true, members });
   } catch (err) {
-    console.error('team-access falló:', err);
+    logger.error('team-access falló:', err);
     res.status(503).json({ error: 'No se pudo leer la lista de acceso. Intenta de nuevo en un momento.' });
   }
 });
@@ -271,7 +297,7 @@ app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
           fetchByIds: ids => odooClient.fetchOrdersByIds(ids),
         });
       } catch (err) {
-        console.warn('solicitudes: no se pudo consultar Odoo, se devuelve lo guardado:', err);
+        logger.warn('solicitudes: no se pudo consultar Odoo, se devuelve lo guardado:', err);
         res.json({ ...stored, progress: {} });
         return;
       }
@@ -287,7 +313,7 @@ app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
     }
     res.json({ ...out.state, progress: out.progress });
   } catch (err) {
-    console.error('[InvoiceRequests] Error en GET:', err);
+    logger.error('[InvoiceRequests] Error en GET:', err);
     res.status(500).json({ error: 'No se pudieron consultar las solicitudes.' });
   }
 });
@@ -331,14 +357,14 @@ app.post('/api/invoice-requests', sensitiveRateLimit, async (req: Request, res: 
           });
           emailed = true;
         } catch (err) {
-          console.error('correo de solicitud falló:', err);
+          logger.error('correo de solicitud falló:', err);
         }
       }
     }
     const notified = result.created.length > 0 ? await sendInvoiceRequestsNotice(result.created, actor) : false;
     res.json({ state: result.state, created: result.created, skipped: result.skipped, notified, emailed });
   } catch (err) {
-    console.error('[InvoiceRequests] Error en POST:', err);
+    logger.error('[InvoiceRequests] Error en POST:', err);
     const msg = err instanceof Error ? err.message : '';
     if (msg.includes('tamaño máximo')) {
       res.status(409).json({ error: msg });
@@ -348,7 +374,7 @@ app.post('/api/invoice-requests', sensitiveRateLimit, async (req: Request, res: 
   }
 });
 
-app.post('/api/invoice-requests/:id/done', async (req: Request, res: Response) => {
+app.post('/api/invoice-requests/:id/done', mutationRateLimit, async (req: Request, res: Response) => {
   const actor = res.locals.actor;
   if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
   let validationError: string | null = null;
@@ -370,13 +396,13 @@ app.post('/api/invoice-requests/:id/done', async (req: Request, res: Response) =
         res.status(404).json({ error: validationError });
         return;
       }
-      console.error('[InvoiceRequests] Error validando POST done:', validationError);
+      logger.error('[InvoiceRequests] Error validando POST done:', validationError);
       res.status(500).json({ error: 'No se pudo actualizar la solicitud.' });
       return;
     }
     res.json(next);
   } catch (err) {
-    console.error('[InvoiceRequests] Error en POST done:', err);
+    logger.error('[InvoiceRequests] Error en POST done:', err);
     res.status(500).json({ error: 'No se pudo actualizar la solicitud.' });
   }
 });
@@ -390,12 +416,12 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     res.status(400).json({ error: 'JSON inválido en la solicitud.' });
     return;
   }
-  console.error('[Functions API] Error no controlado:', err);
+  logger.error('[Functions API] Error no controlado:', err);
   res.status(500).json({ error: 'Error interno del servidor.' });
 });
 
 // ─── Export API ───────────────────────────────────────────────────────────────
-export const api = onRequest({ region: 'us-central1', timeoutSeconds: 60, memory: '256MiB' }, app);
+export const api = onRequest({ region: 'us-central1', timeoutSeconds: 60, memory: '256MiB', maxInstances: 10 }, app);
 
 // ─── Scheduled Notifications ──────────────────────────────────────────────────
 const TIME_ZONE = 'America/Chicago';
@@ -405,7 +431,7 @@ async function runNotificationTask(task: (orders: NotifOrder[], channels: Webhoo
   const enabled = process.env.NOTIFICATIONS_ENABLED !== 'false';
 
   if (!mainUrl || !enabled) {
-    console.log('[notifications] Desactivado (DISCORD_WEBHOOK_URL no configurado o NOTIFICATIONS_ENABLED=false)');
+    logger.info('[notifications] Desactivado (DISCORD_WEBHOOK_URL no configurado o NOTIFICATIONS_ENABLED=false)');
     return;
   }
 
@@ -414,7 +440,7 @@ async function runNotificationTask(task: (orders: NotifOrder[], channels: Webhoo
     const channels = buildWebhookChannels(mainUrl);
     await task(orders, channels);
   } catch (err) {
-    console.error('[notifications] Error ejecutando tarea:', err);
+    logger.error('[notifications] Error ejecutando tarea:', err);
   }
 }
 

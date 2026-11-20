@@ -125,7 +125,9 @@ export default function App() {
                   {/* TV dashboard: exige cuenta real de personal SMV (la TV usa una cuenta de solo lectura). */}
                   <Route index element={
                     <ProtectedRoute>
-                      <TVDashboard />
+                      <ErrorBoundary>
+                        <TVDashboard />
+                      </ErrorBoundary>
                     </ProtectedRoute>
                   } />
 
@@ -133,13 +135,17 @@ export default function App() {
                       restringido — cualquier cuenta real (no anónima) entra, igual que /stats. */}
                   <Route path="admin" element={
                     <ProtectedRoute>
-                      <AdminPanel />
+                      <ErrorBoundary>
+                        <AdminPanel />
+                      </ErrorBoundary>
                     </ProtectedRoute>
                   } />
 
                   <Route path="stats" element={
                     <ProtectedRoute>
-                      <StatsDashboard />
+                      <ErrorBoundary>
+                        <StatsDashboard />
+                      </ErrorBoundary>
                     </ProtectedRoute>
                   } />
 

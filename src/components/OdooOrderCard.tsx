@@ -8,6 +8,7 @@ import { getCardPresentation, isLargeTVCard } from '../services/cardPresentation
 import { CARD_FIT_CLASSES, getCardFit } from '../services/cardFit';
 import { useElementSize } from '../hooks/useElementSize';
 import SmartText from './SmartText';
+import ErrorBoundary from './ErrorBoundary';
 import { Badge } from './ui/badge';
 import { getSmartCompanyName } from '../utils/customerNames';
 
@@ -60,7 +61,7 @@ const DELIVERY_STATE_COLOR: Record<string, string> = {
 
 const DELIVERY_STATE_ORDER = ['done', 'assigned', 'waiting', 'confirmed', 'draft'];
 
-const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
+const OdooOrderCardContent: React.FC<OdooOrderCardProps> = ({
   order,
   isWide,
   isDense = false,
@@ -297,5 +298,22 @@ const OdooOrderCard: React.FC<OdooOrderCardProps> = ({
   );
 };
 
+
+function CardFallback({ name }: { name: string }) {
+  return (
+    <div
+      role="status"
+      className="h-full rounded-2xl border border-destructive/30 bg-card p-4 text-lg text-muted-foreground"
+    >
+      No se pudo mostrar la orden <span className="font-mono-data text-foreground">{name}</span>
+    </div>
+  );
+}
+
+const OdooOrderCard: React.FC<OdooOrderCardProps> = (props) => (
+  <ErrorBoundary resetKey={props.order} fallback={<CardFallback name={props.order.name} />}>
+    <OdooOrderCardContent {...props} />
+  </ErrorBoundary>
+);
 
 export default OdooOrderCard;

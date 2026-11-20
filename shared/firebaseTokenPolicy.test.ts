@@ -31,7 +31,7 @@ test('el cliente no crea sesiones anónimas automáticas (A2)', () => {
 });
 
 test('la TV en "/" exige usuario real igual que /admin y /stats (A1)', () => {
-  assert.match(leer('src', 'App.tsx'), /<ProtectedRoute>\s*<TVDashboard\s*\/>\s*<\/ProtectedRoute>/);
+  assert.match(leer('src', 'App.tsx'), /<ProtectedRoute>\s*(?:<ErrorBoundary>\s*)?<TVDashboard\s*\/>\s*(?:<\/ErrorBoundary>\s*)?<\/ProtectedRoute>/);
 });
 
 test('el servidor rechaza tokens anónimos con 403 (A1)', () => {

@@ -212,3 +212,53 @@ test('reautentica una sola vez ante llamadas concurrentes con 401 o respuesta HT
     globalThis.fetch = originalFetch;
   }
 });
+
+function fetchWithRpc(rpc: (n: number) => Response | Promise<Response>) {
+  let rpcCalls = 0;
+  const fake = (async (input: string | URL | Request) => {
+    if (String(input).endsWith('/web/session/authenticate')) {
+      return new Response(JSON.stringify({ result: { uid: 1 } }), {
+        status: 200, headers: { 'content-type': 'application/json', 'set-cookie': 'session_id=s1; Path=/' },
+      });
+    }
+    rpcCalls++;
+    return rpc(rpcCalls);
+  }) as typeof fetch;
+  return { fake, calls: () => rpcCalls };
+}
+const ok = () => new Response(JSON.stringify({ result: 'ok' }), { status: 200, headers: { 'content-type': 'application/json' } });
+
+test('una lectura reintenta una vez ante un 503 o una caída de red de Odoo', async () => {
+  const originalFetch = globalThis.fetch;
+  for (const fail of [() => new Response('down', { status: 503 }), () => { throw new TypeError('fetch failed'); }]) {
+    const f = fetchWithRpc(n => (n === 1 ? fail() : ok()));
+    globalThis.fetch = f.fake;
+    try {
+      const client = new OdooClient({ url: 'http://odoo.test', db: 'db', username: 'u', password: 'p', retryDelayMs: 0 });
+      assert.equal(await client.odooCall<string>('sale.order', 'search_read'), 'ok');
+      assert.equal(f.calls(), 2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+});
+
+test('no reintenta escrituras, errores de Odoo ni un segundo fallo', async () => {
+  const originalFetch = globalThis.fetch;
+  const cases: Array<{ method: string; rpc: () => Response; calls: number }> = [
+    { method: 'write', rpc: () => new Response('down', { status: 503 }), calls: 1 },
+    { method: 'read', rpc: () => new Response(JSON.stringify({ error: { message: 'Access denied' } }), { status: 200 }), calls: 1 },
+    { method: 'read', rpc: () => new Response('down', { status: 503 }), calls: 2 },
+  ];
+  for (const c of cases) {
+    const f = fetchWithRpc(c.rpc);
+    globalThis.fetch = f.fake;
+    try {
+      const client = new OdooClient({ url: 'http://odoo.test', db: 'db', username: 'u', password: 'p', retryDelayMs: 0 });
+      await assert.rejects(client.odooCall('sale.order', c.method));
+      assert.equal(f.calls(), c.calls, c.method);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+});

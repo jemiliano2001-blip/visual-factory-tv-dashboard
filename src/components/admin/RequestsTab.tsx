@@ -148,6 +148,7 @@ export default function RequestsTab() {
   const markDone = useMarkInvoiceRequestDone();
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [view, setView] = useState<'pending' | 'done'>('pending');
   const { orders } = useOdooOrders();
   const metaByOrder = useMemo(() => new Map(orders.map(o => [o.id, extractOrderNoteMeta(o)])), [orders]);
 
@@ -232,10 +233,16 @@ export default function RequestsTab() {
         </div>
       ) : (
         <>
-          <section aria-labelledby="req-pend" className="space-y-3">
-            <h2 id="req-pend" className="text-base font-bold text-foreground">
+          <div role="group" aria-label="Ver solicitudes" className="grid max-w-md grid-cols-2 gap-2">
+            <Button type="button" size="lg" variant={view === 'pending' ? 'default' : 'outline'} aria-pressed={view === 'pending'} onClick={() => setView('pending')}>
               Pendientes (<span className="font-mono-data">{pending.length}</span>)
-            </h2>
+            </Button>
+            <Button type="button" size="lg" variant={view === 'done' ? 'default' : 'outline'} aria-pressed={view === 'done'} onClick={() => setView('done')}>
+              Hechas (<span className="font-mono-data">{done.length}</span>)
+            </Button>
+          </div>
+          {view === 'pending' ? (
+          <section aria-label="Solicitudes pendientes" className="space-y-3">
             {pending.length === 0 && <p className="text-sm text-muted-foreground">No hay solicitudes pendientes.</p>}
             <ul className="space-y-3">
               {pending.map(r => (
@@ -262,11 +269,13 @@ export default function RequestsTab() {
               ))}
             </ul>
           </section>
-          <section aria-labelledby="req-done" className="space-y-3">
-            <h2 id="req-done" className="text-base font-bold text-foreground">Hechas (las {MAX_DONE_SHOWN} más recientes)</h2>
+          ) : (
+          <section aria-label="Solicitudes hechas" className="space-y-3">
+            <p className="text-sm text-muted-foreground">Se muestran las {MAX_DONE_SHOWN} más recientes.</p>
             {done.length === 0 && <p className="text-sm text-muted-foreground">Todavía no hay solicitudes hechas.</p>}
             <ul className="space-y-3">{done.map(r => <RequestCard key={r.id} request={r} meta={metaByOrder.get(r.orderId)} />)}</ul>
           </section>
+          )}
         </>
       )}
     </div>
