@@ -39,7 +39,11 @@ interface OrdersTableProps {
   getEngineerName: (order: OdooSaleOrder) => string | null;
   /** True si la orden es de la persona que tiene la sesión abierta. */
   isMine: (order: OdooSaleOrder) => boolean;
+  /** True si la orden es de otro ingeniero pero la sesión actual la sigue en "Mis órdenes". */
+  isFollowedByMe?: (order: OdooSaleOrder) => boolean;
   onClaim: (orderKeys: string[]) => void;
+  onFollow?: (orderKeys: string[]) => void;
+  onOpenAssign?: (orderKeys: string[]) => void;
   onRelease: (orderKeys: string[]) => void;
   /** Solicitudes de factura/remisión pendientes por id de orden. */
   pendingByOrder?: Map<number, InvoiceRequest[]>;
@@ -72,7 +76,10 @@ export default function OrdersTable({
   onRowSelectionChange,
   getEngineerName,
   isMine,
+  isFollowedByMe,
   onClaim,
+  onFollow,
+  onOpenAssign,
   onRelease,
   pendingByOrder,
   density = 'comfortable',
@@ -192,20 +199,58 @@ export default function OrdersTable({
     columnHelper.display({
       id: 'engineer',
       header: 'Ingeniero SMV',
-      cell: ({ row }) => (
-        <div className="flex min-w-[130px] flex-col items-start gap-1">
-          <span className="text-foreground">{getEngineerName(row.original) ?? 'Sin asignar'}</span>
-          {isMine(row.original) ? (
-            <Button type="button" variant="ghost" className="-ml-3 min-h-11" onClick={() => onRelease([row.original.name])}>
-              Soltar
-            </Button>
-          ) : (
-            <Button type="button" variant="ghost" className="-ml-3 min-h-11 text-primary hover:text-primary" onClick={() => onClaim([row.original.name])}>
-              Asignármela
-            </Button>
-          )}
-        </div>
-      ),
+      cell: ({ row }) => {
+        const order = row.original;
+        const engineerName = getEngineerName(order);
+        const mine = isMine(order);
+        const followed = isFollowedByMe?.(order) ?? false;
+        const inMyTray = mine || followed;
+        const hasOtherOwner = engineerName !== null && !mine;
+        return (
+          <div className="flex min-w-[150px] flex-col items-start gap-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-foreground">{engineerName ?? 'Sin asignar'}</span>
+              {followed && <Badge variant="muted">En mis órdenes</Badge>}
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              {inMyTray ? (
+                <>
+                  <Button type="button" variant="ghost" className="-ml-3 min-h-11 px-3" onClick={() => onRelease([order.name])}>
+                    Soltar
+                  </Button>
+                  {onOpenAssign && (
+                    <Button type="button" variant="ghost" className="min-h-11 px-3 text-primary hover:text-primary" onClick={() => onOpenAssign([order.name])}>
+                      Asignar a…
+                    </Button>
+                  )}
+                </>
+              ) : hasOtherOwner && onFollow ? (
+                <>
+                  <Button type="button" variant="ghost" className="-ml-3 min-h-11 px-3 text-primary hover:text-primary" onClick={() => onFollow([order.name])}>
+                    Seguir
+                  </Button>
+                  {onOpenAssign && (
+                    <Button type="button" variant="ghost" className="min-h-11 px-3 text-muted-foreground hover:text-foreground" onClick={() => onOpenAssign([order.name])}>
+                      Cambiar…
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Button type="button" variant="ghost" className="-ml-3 min-h-11 px-3 text-primary hover:text-primary" onClick={() => onClaim([order.name])}>
+                    Asignármela
+                  </Button>
+                  {onOpenAssign && (
+                    <Button type="button" variant="ghost" className="min-h-11 px-3 text-muted-foreground hover:text-foreground" onClick={() => onOpenAssign([order.name])}>
+                      Asignar a…
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        );
+      },
     }),
     columnHelper.accessor('partner_name', {
       id: 'partner_name',
@@ -273,7 +318,7 @@ export default function OrdersTable({
         (parseOdooDate(a.original.commitment_date)?.getTime() ?? Infinity) -
         (parseOdooDate(b.original.commitment_date)?.getTime() ?? Infinity),
     }),
-  ], [groupByClient, getEngineerName, isMine, onClaim, onRelease, pendingByOrder, onOpenDetail]);
+  ], [groupByClient, getEngineerName, isMine, isFollowedByMe, onClaim, onFollow, onOpenAssign, onRelease, pendingByOrder, onOpenDetail]);
 
   const table = useReactTable({
     data,
@@ -339,7 +384,10 @@ export default function OrdersTable({
                 showCompany={!groupByClient}
                 engineerName={getEngineerName(row.original)}
                 mine={isMine(row.original)}
+                followed={isFollowedByMe?.(row.original) ?? false}
                 onClaim={onClaim}
+                onFollow={onFollow}
+                onOpenAssign={onOpenAssign}
                 onRelease={onRelease}
                 requests={pendingByOrder?.get(row.original.id)}
                 onOpenDetail={onOpenDetail}
@@ -438,7 +486,7 @@ export default function OrdersTable({
 
 /** Una orden como tarjeta de teléfono: todo el dato visible en una columna, sin scroll lateral. */
 function OrderCard({
-  order, selected, onSelect, expanded, onToggleExpanded, showCompany, engineerName, mine, onClaim, onRelease, requests, onOpenDetail,
+  order, selected, onSelect, expanded, onToggleExpanded, showCompany, engineerName, mine, followed, onClaim, onFollow, onOpenAssign, onRelease, requests, onOpenDetail,
 }: {
   order: OdooSaleOrder;
   selected: boolean;
@@ -448,7 +496,10 @@ function OrderCard({
   showCompany: boolean;
   engineerName: string | null;
   mine: boolean;
+  followed?: boolean;
   onClaim: (orderKeys: string[]) => void;
+  onFollow?: (orderKeys: string[]) => void;
+  onOpenAssign?: (orderKeys: string[]) => void;
   onRelease: (orderKeys: string[]) => void;
   requests?: InvoiceRequest[];
   onOpenDetail?: (order: OdooSaleOrder) => void;
@@ -459,6 +510,8 @@ function OrderCard({
   const pct = getDeliveryProgress(order);
   const missing = getOrderMissingQty(order);
   const { poNumber, clientContact } = extractOrderNoteMeta(order);
+  const inMyTray = mine || Boolean(followed);
+  const hasOtherOwner = engineerName !== null && !mine;
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
       <div className="space-y-2 p-4">
@@ -496,12 +549,30 @@ function OrderCard({
           )}
           {clientContact && <span className="text-xs text-muted-foreground">Req: {clientContact}</span>}
         </div>
-        <div className="flex flex-wrap items-center gap-x-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-sm text-foreground">Ing: {engineerName ?? 'Sin asignar'}</span>
-          {mine ? (
-            <Button type="button" variant="ghost" className="min-h-11" onClick={() => onRelease([order.name])}>Soltar</Button>
+          {followed && <Badge variant="muted">En mis órdenes</Badge>}
+          {inMyTray ? (
+            <>
+              <Button type="button" variant="ghost" className="min-h-11 px-3" onClick={() => onRelease([order.name])}>Soltar</Button>
+              {onOpenAssign && (
+                <Button type="button" variant="ghost" className="min-h-11 px-3 text-primary hover:text-primary" onClick={() => onOpenAssign([order.name])}>Asignar a…</Button>
+              )}
+            </>
+          ) : hasOtherOwner && onFollow ? (
+            <>
+              <Button type="button" variant="ghost" className="min-h-11 px-3 text-primary hover:text-primary" onClick={() => onFollow([order.name])}>Seguir</Button>
+              {onOpenAssign && (
+                <Button type="button" variant="ghost" className="min-h-11 px-3 text-muted-foreground hover:text-foreground" onClick={() => onOpenAssign([order.name])}>Cambiar…</Button>
+              )}
+            </>
           ) : (
-            <Button type="button" variant="ghost" className="min-h-11 text-primary hover:text-primary" onClick={() => onClaim([order.name])}>Asignármela</Button>
+            <>
+              <Button type="button" variant="ghost" className="min-h-11 px-3 text-primary hover:text-primary" onClick={() => onClaim([order.name])}>Asignármela</Button>
+              {onOpenAssign && (
+                <Button type="button" variant="ghost" className="min-h-11 px-3 text-muted-foreground hover:text-foreground" onClick={() => onOpenAssign([order.name])}>Asignar a…</Button>
+              )}
+            </>
           )}
         </div>
         <div>

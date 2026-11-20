@@ -12,7 +12,8 @@ import { crearVerificadorHub } from '../../shared/hubAccess';
 import { buildTeamAccess, isAdminClaim, type AuthUserInfo } from '../../shared/teamAccess';
 import { buildMailEnvelope, buildRequestsEmail } from '../../shared/invoiceRequest';
 import {
-  claimOrders, normalizeOrderAssignments, parseOrderKeys, releaseOrders, type OrderAssignmentsPayload,
+  assignOrders, claimOrders, followOrders, normalizeOrderAssignments, parseAssignBody, parseOrderKeys, releaseOrders,
+  type OrderAssignmentsPayload,
 } from '../../shared/orderAssignments';
 import {
   createInvoiceRequests, loadOrderSnapshots, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody,
@@ -251,7 +252,38 @@ const changeAssignments = (mutate: (current: OrderAssignmentsPayload, actor: Req
   };
 
 app.post('/api/order-assignments/claim', mutationRateLimit, changeAssignments((cur, actor, keys) => claimOrders(cur, actor, keys)));
+app.post('/api/order-assignments/follow', mutationRateLimit, changeAssignments((cur, actor, keys) => followOrders(cur, actor, keys)));
 app.post('/api/order-assignments/release', mutationRateLimit, changeAssignments((cur, actor, keys) => releaseOrders(cur, actor.uid, keys)));
+app.post('/api/order-assignments/assign', mutationRateLimit, async (req: Request, res: Response) => {
+  const actor = res.locals.actor;
+  if (!isActor(actor)) {
+    res.status(403).json({ error: NO_ACTOR });
+    return;
+  }
+  let parsed: ReturnType<typeof parseAssignBody>;
+  try {
+    parsed = parseAssignBody(req.body);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Datos de asignación inválidos.' });
+    return;
+  }
+  try {
+    const next = await admin.firestore().runTransaction(async tx => {
+      const updated = assignOrders(
+        normalizeOrderAssignments((await tx.get(assignmentsDoc())).data()),
+        actor,
+        parsed.orderKeys,
+        parsed.target,
+      );
+      tx.set(assignmentsDoc(), updated);
+      return updated;
+    });
+    res.json(next);
+  } catch (err) {
+    logger.error('[Assignments] Error asignando ingeniero:', err);
+    res.status(400).json({ error: err instanceof Error ? err.message : 'No se pudieron guardar las asignaciones.' });
+  }
+});
 
 // ─── Solicitudes de factura/remisión ──────────────────────────────────────────
 const requestsDoc = () => admin.firestore().doc('visual_factory_state/invoice_requests');

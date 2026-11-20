@@ -5,7 +5,7 @@
  */
 import { getIdTokenOrThrow } from '../firebase';
 import {
-  normalizeOrderAssignments, type OrderAssignmentsPayload,
+  normalizeOrderAssignments, type AssignTarget, type OrderAssignmentsPayload,
 } from '../../shared/orderAssignments';
 
 const CACHE_KEY = 'visual_factory_order_assignments_v1';
@@ -28,7 +28,7 @@ export function cacheAssignments(payload: OrderAssignmentsPayload): void {
   }
 }
 
-async function request(path: string, body?: { orderKeys: string[] }): Promise<OrderAssignmentsPayload> {
+async function request(path: string, body?: Record<string, unknown>): Promise<OrderAssignmentsPayload> {
   const headers: Record<string, string> = { Authorization: `Bearer ${await getIdTokenOrThrow()}` };
   if (body) headers['Content-Type'] = 'application/json';
   const response = await fetch(`${PROXY_BASE}/api/order-assignments${path}`, {
@@ -51,5 +51,12 @@ export const fetchOrderAssignments = () => request('');
 /** La persona toma las órdenes para sí; el servidor la identifica por su cuenta. */
 export const claimOrdersRemote = (orderKeys: string[]) => request('/claim', { orderKeys });
 
-/** La persona suelta las órdenes que tiene asignadas. */
+/** La persona asigna las órdenes a un ingeniero (existente o nuevo por nombre) y las conserva en su bandeja. */
+export const assignOrdersRemote = (orderKeys: string[], target: AssignTarget) =>
+  request('/assign', { orderKeys, ...target });
+
+/** La persona agrega las órdenes a su bandeja "Mis órdenes" sin quitarle la asignación al ingeniero actual. */
+export const followOrdersRemote = (orderKeys: string[]) => request('/follow', { orderKeys });
+
+/** La persona suelta las órdenes que tiene asignadas o en seguimiento. */
 export const releaseOrdersRemote = (orderKeys: string[]) => request('/release', { orderKeys });

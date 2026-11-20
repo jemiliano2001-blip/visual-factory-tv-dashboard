@@ -16,16 +16,35 @@ import {
   type AdminFilters,
 } from '../services/adminFilters';
 import {
-  cacheAssignments, claimOrdersRemote, fetchOrderAssignments, loadCachedAssignments, releaseOrdersRemote,
+  assignOrdersRemote,
+  cacheAssignments,
+  claimOrdersRemote,
+  fetchOrderAssignments,
+  followOrdersRemote,
+  loadCachedAssignments,
+  releaseOrdersRemote,
 } from '../services/orderAssignments';
 import {
-  actorEngineerId, claimOrders, getOrderEngineerId, releaseOrders, type OrderAssignmentsPayload,
+  SUBTAB_ALL,
+  actorEngineerId,
+  assignOrders,
+  buildMyOrdersSubtabs,
+  claimOrders,
+  followOrders,
+  getOrderEngineerId,
+  isOrderFollowedBy,
+  isOrderInEngineerTray,
+  matchesMyOrdersSubtab,
+  releaseOrders,
+  type AssignTarget,
+  type OrderAssignmentsPayload,
 } from '../../shared/orderAssignments';
 import { auth } from '../firebase';
 import PendingTab from '../components/admin/PendingTab';
 import OrdersTable from '../components/admin/OrdersTable';
 import AdminToolbar, { type TableDensity } from '../components/admin/AdminToolbar';
 import SelectionBar from '../components/admin/SelectionBar';
+import { AssignEngineerDialog, MyOrdersSubtabBar } from '../components/admin/AssignEngineerDialog';
 import ConfigTab from '../components/admin/ConfigTab';
 import RequestsTab from '../components/admin/RequestsTab';
 import TruncatedNotice from '../components/admin/TruncatedNotice';
@@ -42,7 +61,7 @@ import { useMobile } from '../hooks/useMobile';
 import { useDataFreshness } from '../hooks/useDataFreshness';
 import { isEditableTarget, resolveAdminShortcut } from '../utils/keyboardShortcuts';
 import {
-  WifiOff, AlertTriangle, RefreshCw, Eye, FileText, UserCheck, UserMinus, Copy, ChevronDown, ChevronRight, X,
+  WifiOff, AlertTriangle, RefreshCw, Eye, FileText, UserCheck, UserMinus, UserPlus, Copy, ChevronDown, ChevronRight, X,
 } from 'lucide-react';
 
 const OrderDetailsModal = lazy(() =>
@@ -115,6 +134,8 @@ export default function AdminPanel() {
   const [requestOpen, setRequestOpen] = useState(false);
   const [quickRequestOrder, setQuickRequestOrder] = useState<OdooSaleOrder | null>(null);
   const [detailOrder, setDetailOrder] = useState<OdooSaleOrder | null>(null);
+  const [assignDialogKeys, setAssignDialogKeys] = useState<string[] | null>(null);
+  const [mySubtab, setMySubtab] = useState<string>(SUBTAB_ALL);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -250,6 +271,10 @@ export default function AdminPanel() {
     [engineerNames, getEngineerId],
   );
   const isMine = useCallback((o: OdooSaleOrder) => myEngineerId !== null && getEngineerId(o) === myEngineerId, [getEngineerId, myEngineerId]);
+  const isFollowedByMe = useCallback(
+    (o: OdooSaleOrder) => isOrderFollowedBy(team.followers, myEngineerId, o),
+    [team.followers, myEngineerId],
+  );
 
   const releaseMine = useCallback((orderKeys: string[], options?: { silent?: boolean }) => {
     if (!me || orderKeys.length === 0) return;
@@ -306,6 +331,46 @@ export default function AdminPanel() {
     void mutation;
   }, [me, myEngineerId, orders, changeTeam, showToast, dismissToast, releaseMine]);
 
+  const assignToEngineer = useCallback((orderKeys: string[], target: AssignTarget, label: string) => {
+    if (!me || orderKeys.length === 0) return;
+    const mutation = changeTeam(
+      state => assignOrders(state, { uid: me.uid, name: me.displayName, email: me.email }, orderKeys, target),
+      () => assignOrdersRemote(orderKeys, target),
+    );
+    const count = orderKeys.length;
+    showToast({
+      message: count === 1 ? `Orden asignada a ${label}` : `${count} órdenes asignadas a ${label}`,
+      action: {
+        label: 'Deshacer',
+        onClick: () => {
+          dismissToast();
+          releaseMine(orderKeys, { silent: true });
+        },
+      },
+    });
+    void mutation;
+  }, [me, changeTeam, showToast, dismissToast, releaseMine]);
+
+  const followForMe = useCallback((orderKeys: string[]) => {
+    if (!me || orderKeys.length === 0) return;
+    const mutation = changeTeam(
+      state => followOrders(state, { uid: me.uid, name: me.displayName, email: me.email }, orderKeys),
+      () => followOrdersRemote(orderKeys),
+    );
+    const count = orderKeys.length;
+    showToast({
+      message: count === 1 ? 'Orden agregada a Mis órdenes' : `${count} órdenes agregadas a Mis órdenes`,
+      action: {
+        label: 'Deshacer',
+        onClick: () => {
+          dismissToast();
+          releaseMine(orderKeys, { silent: true });
+        },
+      },
+    });
+    void mutation;
+  }, [me, changeTeam, showToast, dismissToast, releaseMine]);
+
   const engineerCounts = useMemo(() => {
     const counts = new Map<string, number>();
     let unassigned = 0;
@@ -324,15 +389,43 @@ export default function AdminPanel() {
     [orders]
   );
 
+  const isMyOrdersFilter = Boolean(myEngineerId && engineerFilter === myEngineerId);
+  useEffect(() => {
+    if (!isMyOrdersFilter) setMySubtab(SUBTAB_ALL);
+  }, [isMyOrdersFilter]);
+
+  const myTrayCount = useMemo(
+    () => (myEngineerId ? orders.filter(o => isOrderInEngineerTray(team, myEngineerId, o)).length : 0),
+    [orders, team, myEngineerId],
+  );
+
+  const myOrdersSubtabs = useMemo(
+    () => (isMyOrdersFilter ? buildMyOrdersSubtabs(team, myEngineerId, orders) : []),
+    [isMyOrdersFilter, team, myEngineerId, orders],
+  );
+
+  const effectiveMySubtab = useMemo(
+    () => (myOrdersSubtabs.some(t => t.id === mySubtab) ? mySubtab : SUBTAB_ALL),
+    [myOrdersSubtabs, mySubtab],
+  );
+
   const filteredOrders = useMemo(() => {
     let result = orders;
-    if (engineerFilter === UNASSIGNED_ENGINEER) result = result.filter(o => getEngineerName(o) === null);
-    else if (engineerFilter) result = result.filter(o => getEngineerId(o) === engineerFilter);
+    if (engineerFilter === UNASSIGNED_ENGINEER) {
+      result = result.filter(o => getEngineerName(o) === null);
+    } else if (isMyOrdersFilter) {
+      result = result.filter(o => matchesMyOrdersSubtab(team, myEngineerId, effectiveMySubtab, o));
+    } else if (engineerFilter) {
+      result = result.filter(o => getEngineerId(o) === engineerFilter);
+    }
     if (clientFilter) result = result.filter(o => o.partner_name === clientFilter);
     if (statusFilter !== 'all') result = result.filter(o => getOrderStatus(o).level === statusFilter);
     if (search.trim()) result = result.filter(createOrderSearchMatcher(search));
     return result;
-  }, [orders, engineerFilter, clientFilter, statusFilter, search, getEngineerId, getEngineerName]);
+  }, [
+    orders, engineerFilter, isMyOrdersFilter, team, myEngineerId, effectiveMySubtab,
+    clientFilter, statusFilter, search, getEngineerId, getEngineerName,
+  ]);
 
   // Solo lo que se ve en la tabla: una orden seleccionada y luego oculta por un filtro
   // no se envía, no se asigna, no se exporta ni se cuenta.
@@ -349,9 +442,16 @@ export default function AdminPanel() {
     ? (orders.find(o => o.id === detailOrder.id) ?? detailOrder)
     : null;
 
+  const isAssignDialogOpen = assignDialogKeys !== null && assignDialogKeys.length > 0;
+  const assignCurrentEngineerId = useMemo(() => {
+    if (!assignDialogKeys || assignDialogKeys.length !== 1) return null;
+    const key = assignDialogKeys[0];
+    return team.assignments[key] ?? null;
+  }, [assignDialogKeys, team.assignments]);
+
   const hasToolbar = getSection(section).hasToolbar;
   const filterEmpty = hasToolbar && !isLoading && orders.length > 0
-    && filteredOrders.length === 0 && hasActiveFilters(filters);
+    && filteredOrders.length === 0 && (hasActiveFilters(filters) || effectiveMySubtab !== SUBTAB_ALL);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -362,7 +462,7 @@ export default function AdminPanel() {
         metaKey: e.metaKey,
         altKey: e.altKey,
         editable: isEditableTarget(e.target),
-        dialogOpen: Boolean(activeDetailOrder || isRequestDialogOpen),
+        dialogOpen: Boolean(activeDetailOrder || isRequestDialogOpen || isAssignDialogOpen),
         menuOpen: contextMenu !== null,
         hasSearchInput: hasToolbar && searchInputRef.current !== null,
       });
@@ -374,11 +474,16 @@ export default function AdminPanel() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeDetailOrder, isRequestDialogOpen, contextMenu, hasToolbar]);
+  }, [activeDetailOrder, isRequestDialogOpen, isAssignDialogOpen, contextMenu, hasToolbar]);
 
   const claimSelected = () => {
     claimForMe(selectedOrders.map(o => o.name));
     setRowSelection({});
+  };
+
+  const openAssignSelected = () => {
+    if (selectedOrders.length === 0) return;
+    setAssignDialogKeys(selectedOrders.map(o => o.name));
   };
 
   const copyFromMenu = useCallback(async (text: string, label: string) => {
@@ -415,12 +520,22 @@ export default function AdminPanel() {
     ];
 
     if (me) {
+      const followed = isFollowedByMe(order);
+      const inMyTray = mine || followed;
+      const hasOtherOwner = getEngineerName(order) !== null && !mine;
       entries.push({
         type: 'item',
-        id: mine ? 'release' : 'claim',
-        label: mine ? 'Soltar' : 'Asignármela',
-        icon: mine ? <UserMinus aria-hidden="true" /> : <UserCheck aria-hidden="true" />,
-        onSelect: () => (mine ? releaseMine([order.name]) : claimForMe([order.name])),
+        id: inMyTray ? 'release' : hasOtherOwner ? 'follow' : 'claim',
+        label: inMyTray ? 'Soltar' : hasOtherOwner ? 'Seguir en Mis órdenes' : 'Asignármela',
+        icon: inMyTray ? <UserMinus aria-hidden="true" /> : <UserCheck aria-hidden="true" />,
+        onSelect: () => (inMyTray ? releaseMine([order.name]) : hasOtherOwner ? followForMe([order.name]) : claimForMe([order.name])),
+      });
+      entries.push({
+        type: 'item',
+        id: 'assign-engineer',
+        label: 'Asignar a ingeniero…',
+        icon: <UserPlus aria-hidden="true" />,
+        onSelect: () => setAssignDialogKeys([order.name]),
       });
     }
 
@@ -455,7 +570,7 @@ export default function AdminPanel() {
     }
 
     return entries;
-  }, [contextMenu, isMine, me, releaseMine, claimForMe, copyFromMenu]);
+  }, [contextMenu, isMine, isFollowedByMe, getEngineerName, me, releaseMine, followForMe, claimForMe, copyFromMenu]);
 
   // ── Export Excel ─────────────────────────────────────────────────────────────
 
@@ -530,18 +645,33 @@ export default function AdminPanel() {
                     exportDisabled={filteredOrders.length === 0}
                     myEngineerId={myEngineerId}
                     myEngineerName={myEngineerName}
-                    myOrdersCount={myEngineerId ? (engineerCounts.counts.get(myEngineerId) ?? 0) : 0}
+                    myOrdersCount={myTrayCount}
                     searchInputRef={searchInputRef}
                     density={density}
                     onToggleDensity={() => setDensity(d => (d === 'comfortable' ? 'compact' : 'comfortable'))}
                   />
+                  {isMyOrdersFilter && (
+                    <MyOrdersSubtabBar
+                      subtabs={myOrdersSubtabs}
+                      activeSubtab={effectiveMySubtab}
+                      onSelectSubtab={setMySubtab}
+                    />
+                  )}
                 </div>
               )}
 
               {filterEmpty && (
                 <div className="mt-6 flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-12 text-center">
                   <p className="text-base font-semibold text-foreground">Ninguna orden coincide con estos filtros</p>
-                  <Button type="button" variant="secondary" className={BIG_BUTTON} onClick={() => updateFilters({ search: '', client: '', engineer: '', status: 'all' })}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className={BIG_BUTTON}
+                    onClick={() => {
+                      setMySubtab(SUBTAB_ALL);
+                      updateFilters({ search: '', client: '', engineer: '', status: 'all' });
+                    }}
+                  >
                     Limpiar filtros
                   </Button>
                 </div>
@@ -570,7 +700,10 @@ export default function AdminPanel() {
                     onRowSelectionChange={setRowSelection}
                     getEngineerName={getEngineerName}
                     isMine={isMine}
+                    isFollowedByMe={isFollowedByMe}
                     onClaim={claimForMe}
+                    onFollow={followForMe}
+                    onOpenAssign={me ? keys => setAssignDialogKeys(keys) : undefined}
                     onRelease={releaseMine}
                     pendingByOrder={pendingByOrder}
                     density={density}
@@ -609,9 +742,24 @@ export default function AdminPanel() {
             setRequestOpen(true);
           }}
           onClaim={claimSelected}
+          onAssign={openAssignSelected}
           claimDisabled={!me}
           onExport={handleExport}
           onClear={() => setRowSelection({})}
+        />
+
+        <AssignEngineerDialog
+          open={isAssignDialogOpen}
+          orderKeys={assignDialogKeys ?? []}
+          engineers={team.engineers}
+          myEngineerId={myEngineerId}
+          myEngineerName={myEngineerName}
+          currentEngineerId={assignCurrentEngineerId}
+          onAssign={(keys, target, label) => {
+            assignToEngineer(keys, target, label);
+            if (selectedCount > 0) setRowSelection({});
+          }}
+          onClose={() => setAssignDialogKeys(null)}
         />
 
         <RequestDialog

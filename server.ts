@@ -17,7 +17,8 @@ import { randomUUID } from 'node:crypto';
 import { OdooClient } from './shared/odooClient.ts';
 import { crearAuthApi, extractBearerToken } from './shared/firebaseTokenPolicy.ts';
 import {
-  claimOrders, normalizeOrderAssignments, parseOrderKeys, releaseOrders, type OrderAssignmentsPayload,
+  assignOrders, claimOrders, followOrders, normalizeOrderAssignments, parseAssignBody, parseOrderKeys, releaseOrders,
+  type OrderAssignmentsPayload,
 } from './shared/orderAssignments.ts';
 import {
   createInvoiceRequests, loadOrderSnapshots, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody,
@@ -279,7 +280,30 @@ const changeAssignments = (mutate: (current: OrderAssignmentsPayload, actor: Req
   };
 
 app.post('/api/order-assignments/claim', changeAssignments((cur, actor, keys) => claimOrders(cur, actor, keys)));
+app.post('/api/order-assignments/follow', changeAssignments((cur, actor, keys) => followOrders(cur, actor, keys)));
 app.post('/api/order-assignments/release', changeAssignments((cur, actor, keys) => releaseOrders(cur, actor.uid, keys)));
+app.post('/api/order-assignments/assign', (req: Request, res: Response) => {
+  const actor = res.locals.actor;
+  if (!isActor(actor)) {
+    res.status(403).json({ error: NO_ACTOR });
+    return;
+  }
+  let parsed: ReturnType<typeof parseAssignBody>;
+  try {
+    parsed = parseAssignBody(req.body);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Datos de asignación inválidos.' });
+    return;
+  }
+  try {
+    const next = assignOrders(readAssignments(), actor, parsed.orderKeys, parsed.target);
+    writeJsonAtomic(ASSIGNMENTS_FILE, next);
+    res.json(next);
+  } catch (err) {
+    console.error('[Assignments] Error asignando ingeniero:', err);
+    res.status(400).json({ error: err instanceof Error ? err.message : 'No se pudieron guardar las asignaciones.' });
+  }
+});
 
 // ─── Solicitudes de factura/remisión ──────────────────────────────────────────
 // Persistencia local en archivo (ignorado por git); en Firebase vive en Firestore.

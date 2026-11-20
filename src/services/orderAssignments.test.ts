@@ -1,7 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  DEFAULT_ENGINEERS, actorEngineerId, claimOrders, getOrderEngineerId, normalizeOrderAssignments, parseOrderKeys, releaseOrders,
+  DEFAULT_ENGINEERS,
+  SUBTAB_ALL,
+  SUBTAB_DIRECT,
+  actorEngineerId,
+  assignOrders,
+  buildMyOrdersSubtabs,
+  claimOrders,
+  followOrders,
+  getOrderEngineerId,
+  isOrderFollowedBy,
+  isOrderInEngineerTray,
+  manualEngineerId,
+  matchesMyOrdersSubtab,
+  normalizeOrderAssignments,
+  parseAssignBody,
+  parseOrderKeys,
+  releaseOrders,
 } from '../../shared/orderAssignments';
 
 test('normalize siempre incluye los ingenieros por defecto y filtra lo inválido', () => {
@@ -85,4 +101,105 @@ test('nombre de 1 carácter sobrevive claimOrders -> normalizeOrderAssignments y
   for (const bad of [[''], ['   '], ['__proto__'], ['constructor'], ['prototype']]) {
     assert.throws(() => parseOrderKeys({ orderKeys: bad }), /orderKeys inválido/);
   }
+});
+
+test('assignOrders permite a Lorena escribir un ingeniero sin cuenta y mantenerlo en su bandeja y subpestañas', () => {
+  const lorena = { uid: 'L1', name: 'Lorena', email: 'lorena@smv.com' };
+  let state = normalizeOrderAssignments(null);
+  state = claimOrders(state, lorena, ['S01']);
+  state = assignOrders(state, lorena, ['S02', 'S03'], { engineerName: 'Rogelio' });
+
+  const rogelioId = manualEngineerId('Rogelio');
+  assert.equal(rogelioId, 'm-rogelio');
+  assert.equal(state.assignments.S01, 'u-L1');
+  assert.equal(state.assignments.S02, 'm-rogelio');
+  assert.equal(state.assignments.S03, 'm-rogelio');
+  assert.deepEqual(state.followers['u-L1'], ['S02', 'S03']);
+
+  // Persiste tras serializar y normalizar (m-rogelio no choca con el legacy "rogelio").
+  const reloaded = normalizeOrderAssignments(JSON.parse(JSON.stringify(state)));
+  assert.equal(reloaded.assignments.S02, 'm-rogelio');
+  assert.deepEqual(reloaded.followers['u-L1'], ['S02', 'S03']);
+
+  const orders = [
+    { id: 1, name: 'S01' },
+    { id: 2, name: 'S02' },
+    { id: 3, name: 'S03' },
+  ];
+  assert.equal(isOrderInEngineerTray(reloaded, 'u-L1', orders[0]), true);
+  assert.equal(isOrderInEngineerTray(reloaded, 'u-L1', orders[1]), true);
+  assert.equal(isOrderFollowedBy(reloaded.followers, 'u-L1', orders[1]), true);
+
+  const subtabs = buildMyOrdersSubtabs(reloaded, 'u-L1', orders);
+  assert.deepEqual(subtabs, [
+    { id: SUBTAB_ALL, label: 'Todas', count: 3 },
+    { id: SUBTAB_DIRECT, label: 'Mías directas', count: 1 },
+    { id: 'm-rogelio', label: 'Rogelio', count: 2, isManual: true },
+  ]);
+
+  assert.deepEqual(
+    orders.filter(o => matchesMyOrdersSubtab(reloaded, 'u-L1', SUBTAB_ALL, o)).map(o => o.name),
+    ['S01', 'S02', 'S03'],
+  );
+  assert.deepEqual(
+    orders.filter(o => matchesMyOrdersSubtab(reloaded, 'u-L1', SUBTAB_DIRECT, o)).map(o => o.name),
+    ['S01'],
+  );
+  assert.deepEqual(
+    orders.filter(o => matchesMyOrdersSubtab(reloaded, 'u-L1', 'm-rogelio', o)).map(o => o.name),
+    ['S02', 'S03'],
+  );
+});
+
+test('followOrders y assignOrders con ingeniero con cuenta conservan al ingeniero y lo agregan a la subpestaña de Lorena', () => {
+  const carlos = { uid: 'C1', name: 'Carlos Núñez', email: 'carlos@smv.com' };
+  const lorena = { uid: 'L1', name: 'Lorena', email: 'lorena@smv.com' };
+  let state = normalizeOrderAssignments(null);
+
+  // Carlos se asigna S10 con su cuenta.
+  state = claimOrders(state, carlos, ['S10']);
+  // Lorena decide seguir S10 para verla en sus subpestañas sin quitársela a Carlos.
+  state = followOrders(state, lorena, ['S10']);
+  // Y además Lorena escribe "carlos nunez" en S11: reutiliza la cuenta u-C1 existente.
+  state = assignOrders(state, lorena, ['S11'], { engineerName: 'carlos nunez' });
+
+  assert.equal(state.assignments.S10, 'u-C1');
+  assert.equal(state.assignments.S11, 'u-C1');
+  assert.deepEqual(state.followers['u-L1'], ['S10', 'S11']);
+
+  const orders = [{ id: 10, name: 'S10' }, { id: 11, name: 'S11' }];
+  // Tanto Carlos como Lorena ven S10 y S11 en sus respectivas bandejas "Mis órdenes".
+  assert.equal(isOrderInEngineerTray(state, 'u-C1', orders[0]), true);
+  assert.equal(isOrderInEngineerTray(state, 'u-L1', orders[0]), true);
+
+  // Si Lorena suelta S10, deja de seguirla pero Carlos NO pierde su orden.
+  state = releaseOrders(state, 'L1', ['S10']);
+  assert.equal(state.assignments.S10, 'u-C1');
+  assert.equal(isOrderInEngineerTray(state, 'u-L1', orders[0]), false);
+  assert.equal(isOrderInEngineerTray(state, 'u-C1', orders[0]), true);
+});
+
+test('releaseOrders limpia la asignación cuando el ingeniero era manual (sin cuenta)', () => {
+  const lorena = { uid: 'L1', name: 'Lorena', email: 'lorena@smv.com' };
+  let state = normalizeOrderAssignments(null);
+  state = assignOrders(state, lorena, ['S20'], { engineerName: 'Marco' });
+  assert.equal(state.assignments.S20, 'm-marco');
+
+  state = releaseOrders(state, 'L1', ['S20']);
+  assert.equal(state.assignments.S20, undefined);
+  assert.equal(state.followers['u-L1'], undefined);
+});
+
+test('parseAssignBody valida claves y nombre o id del ingeniero', () => {
+  assert.deepEqual(
+    parseAssignBody({ orderKeys: ['S01'], engineerName: '  Ing. Marco  ' }),
+    { orderKeys: ['S01'], target: { engineerName: 'Ing. Marco' } },
+  );
+  assert.deepEqual(
+    parseAssignBody({ orderKeys: ['S01'], engineerId: 'u-C1' }),
+    { orderKeys: ['S01'], target: { engineerId: 'u-C1' } },
+  );
+  assert.throws(() => parseAssignBody({ orderKeys: ['S01'] }), /Indica el ingeniero/);
+  assert.throws(() => parseAssignBody({ orderKeys: ['S01'], engineerName: 'A' }), /entre 2 y 50/);
+  assert.throws(() => parseAssignBody({ orderKeys: ['S01'], engineerId: '__proto__' }), /Ingeniero inválido/);
 });
