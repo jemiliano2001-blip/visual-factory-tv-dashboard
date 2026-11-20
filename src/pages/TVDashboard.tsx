@@ -547,7 +547,7 @@ export default function TVDashboard() {
               <div className="h-10 w-64 bg-secondary/50 rounded-lg animate-pulse" />
             </div>
             <div
-              className="grid gap-6 flex-1"
+              className="grid gap-3 lg:gap-4 flex-1"
               style={{
                 gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
                 gridTemplateRows: isTVMode ? `repeat(${gridRows}, minmax(0, 1fr))` : undefined,

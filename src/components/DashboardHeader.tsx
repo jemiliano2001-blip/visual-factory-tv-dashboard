@@ -158,7 +158,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       {/* Right: controls + clock */}
       <div className="flex items-center gap-2 lg:gap-3">
         <div className="hidden md:flex items-center gap-1.5 font-mono-data text-[10px] font-bold uppercase tracking-wider">
-          <span className="rounded-md border border-input bg-white/[0.03] px-2 py-1 text-muted-foreground">
+          <span className="inline-flex h-9 items-center gap-1 rounded-md border border-input bg-white/[0.03] px-2.5 text-muted-foreground">
             {screenOrderCount}<span className="hidden lg:inline"> órdenes</span>
           </span>
           <button
@@ -166,11 +166,11 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             onClick={onShowOverdue}
             disabled={screenOverdueCount === 0}
             title={screenOverdueCount > 0 ? 'Mostrar órdenes vencidas' : 'No hay órdenes vencidas en esta pantalla'}
-            className="min-h-11 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-red-300 transition-colors hover:bg-red-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:border-input disabled:bg-white/[0.03] disabled:text-muted-foreground/70"
+            className="inline-flex h-9 items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-2.5 text-red-300 transition-colors hover:bg-red-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:border-input disabled:bg-white/[0.03] disabled:text-muted-foreground/70"
           >
             {screenOverdueCount}<span className="hidden lg:inline"> vencidas</span><span className="lg:hidden"> venc.</span>
           </button>
-          <span className={`rounded-md border px-2 py-1 ${
+          <span className={`inline-flex h-9 items-center gap-1 rounded-md border px-2.5 ${
             screenCriticalCount > 0
               ? 'border-orange-500/30 bg-orange-500/10 text-orange-300'
               : 'border-input bg-white/[0.03] text-muted-foreground/70'
@@ -183,7 +183,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           <button
             type="button"
             onClick={onClearFilter}
-            className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 rounded-lg font-mono-data font-bold text-[9px] uppercase tracking-wider hover:bg-indigo-500/25 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex h-9 items-center gap-1.5 px-3 bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 rounded-md font-mono-data font-bold text-[9px] uppercase tracking-wider hover:bg-indigo-500/25 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             title="Quitar filtros"
           >
             <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
@@ -219,11 +219,9 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 
         {/* Controles de escritorio — ocultos en móvil */}
         <div className="hidden md:flex items-center gap-2">
-          <div className="w-px h-6" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
           {iconBtn(onCycleAurora, auroraMode !== 'oled-minimal', `Fondo: ${AURORA_LABEL[auroraMode]} (clic para cambiar)`, <Palette className="w-4 h-4" />)}
           {iconBtn(onToggleFullscreen, isFullscreen, isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa', isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />)}
           {iconBtn(() => onViewModeChange(isTVMode ? 'desktop' : 'tv'), isTVMode, isTVMode ? 'Modo Escritorio' : 'Modo TV', <Monitor className="w-4 h-4" />)}
-          <div className="w-px h-6 ml-1" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
         </div>
 
         <DashboardClock />

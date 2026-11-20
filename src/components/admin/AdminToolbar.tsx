@@ -186,7 +186,7 @@ export default function AdminToolbar(p: AdminToolbarProps) {
           value={filters.search}
           onChange={search => onChange({ search })}
           inputRef={p.searchInputRef}
-          className={isMobile ? 'min-w-0' : 'min-w-[220px]'}
+          className={isMobile ? 'min-w-0' : 'min-w-[200px]'}
         />
         {!isMobile && (
           <>
@@ -194,7 +194,6 @@ export default function AdminToolbar(p: AdminToolbarProps) {
             <ClientSelect value={filters.client} onChange={client => onChange({ client })} clients={p.clients} className="min-h-11 w-[195px]" />
             <StatusSelect value={filters.status} onChange={status => onChange({ status })} className="min-h-11 w-[185px]" />
             {engineerSelect}
-            {excelButton}
           </>
         )}
         {isMobile ? (

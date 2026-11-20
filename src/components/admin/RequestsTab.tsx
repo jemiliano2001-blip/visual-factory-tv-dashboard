@@ -179,7 +179,7 @@ export default function RequestsTab() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {query.isError && (
         <div role="alert" className="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
           No se pudo actualizar la lista; se muestran las últimas solicitudes cargadas. {query.error instanceof Error ? query.error.message : ''}
@@ -234,17 +234,17 @@ export default function RequestsTab() {
       ) : (
         <>
           <div role="group" aria-label="Ver solicitudes" className="grid max-w-md grid-cols-2 gap-2">
-            <Button type="button" size="lg" variant={view === 'pending' ? 'default' : 'outline'} aria-pressed={view === 'pending'} onClick={() => setView('pending')}>
+            <Button type="button" className="min-h-11 px-4 text-sm font-semibold rounded-xl" variant={view === 'pending' ? 'default' : 'outline'} aria-pressed={view === 'pending'} onClick={() => setView('pending')}>
               Pendientes (<span className="font-mono-data">{pending.length}</span>)
             </Button>
-            <Button type="button" size="lg" variant={view === 'done' ? 'default' : 'outline'} aria-pressed={view === 'done'} onClick={() => setView('done')}>
+            <Button type="button" className="min-h-11 px-4 text-sm font-semibold rounded-xl" variant={view === 'done' ? 'default' : 'outline'} aria-pressed={view === 'done'} onClick={() => setView('done')}>
               Hechas (<span className="font-mono-data">{done.length}</span>)
             </Button>
           </div>
           {view === 'pending' ? (
           <section aria-labelledby="req-pend" className="space-y-3">
             <h2 id="req-pend" className="sr-only">Solicitudes pendientes</h2>
-            {pending.length === 0 && <p className="text-sm text-muted-foreground">No hay solicitudes pendientes.</p>}
+            {pending.length === 0 && <p className="rounded-2xl border border-border bg-card px-6 py-12 text-center text-sm text-muted-foreground">No hay solicitudes pendientes.</p>}
             <ul className="space-y-3">
               {pending.map(r => (
                 <RequestCard
@@ -274,7 +274,7 @@ export default function RequestsTab() {
           <section aria-labelledby="req-done" className="space-y-3">
             <h2 id="req-done" className="sr-only">Solicitudes hechas</h2>
             <p className="text-sm text-muted-foreground">Se muestran las {MAX_DONE_SHOWN} más recientes.</p>
-            {done.length === 0 && <p className="text-sm text-muted-foreground">Todavía no hay solicitudes hechas.</p>}
+            {done.length === 0 && <p className="rounded-2xl border border-border bg-card px-6 py-12 text-center text-sm text-muted-foreground">Todavía no hay solicitudes hechas.</p>}
             <ul className="space-y-3">{done.map(r => <RequestCard key={r.id} request={r} meta={metaByOrder.get(r.orderId)} />)}</ul>
           </section>
           )}

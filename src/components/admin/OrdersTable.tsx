@@ -90,8 +90,8 @@ export default function OrdersTable({
   const [sorting, setSorting] = useState<SortingState>([{ id: 'commitment_date', desc: false }]);
   const [expanded, setExpanded] = useState<ExpandedState>({});
   const isComfortable = density === 'comfortable';
-  const thPad = isComfortable ? 'px-3.5 py-3' : 'px-3 py-2.5';
-  const tdPad = isComfortable ? 'px-3.5 py-3.5' : 'px-3 py-2';
+  const thPad = isComfortable ? 'px-3 py-3' : 'px-3 py-2.5';
+  const tdPad = isComfortable ? 'px-3 py-3.5' : 'px-3 py-2';
 
   const data = useMemo(() => {
     if (!groupByClient) return orders;
@@ -191,7 +191,7 @@ export default function OrdersTable({
             ) : (
               <Badge variant="muted">Sin PO</Badge>
             )}
-            {clientContact && <div className="text-xs text-muted-foreground">Req: {clientContact}</div>}
+            {clientContact && <div title={clientContact} className="max-w-[140px] truncate text-xs text-muted-foreground">Req: {clientContact}</div>}
           </div>
         );
       },
@@ -207,41 +207,41 @@ export default function OrdersTable({
         const inMyTray = mine || followed;
         const hasOtherOwner = engineerName !== null && !mine;
         return (
-          <div className="flex min-w-[150px] flex-col items-start gap-1">
+          <div className="flex min-w-[165px] flex-col items-start gap-0.5">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-foreground">{engineerName ?? 'Sin asignar'}</span>
               {followed && <Badge variant="muted">En mis órdenes</Badge>}
             </div>
-            <div className="flex flex-wrap items-center gap-1">
+            <div className="-ml-2 pointer-fine:-ml-1.5 flex flex-wrap items-center gap-1">
               {inMyTray ? (
                 <>
-                  <Button type="button" variant="ghost" className="-ml-3 min-h-11 px-3" onClick={() => onRelease([order.name])}>
+                  <Button type="button" variant="ghost" className="min-h-11 px-2 pointer-fine:h-8 pointer-fine:min-h-8 pointer-fine:px-1.5 pointer-fine:text-xs" onClick={() => onRelease([order.name])}>
                     Soltar
                   </Button>
                   {onOpenAssign && (
-                    <Button type="button" variant="ghost" className="min-h-11 px-3 text-primary hover:text-primary" onClick={() => onOpenAssign([order.name])}>
+                    <Button type="button" variant="ghost" className="min-h-11 px-2 pointer-fine:h-8 pointer-fine:min-h-8 pointer-fine:px-1.5 pointer-fine:text-xs text-primary hover:text-primary" onClick={() => onOpenAssign([order.name])}>
                       Asignar a…
                     </Button>
                   )}
                 </>
               ) : hasOtherOwner && onFollow ? (
                 <>
-                  <Button type="button" variant="ghost" className="-ml-3 min-h-11 px-3 text-primary hover:text-primary" onClick={() => onFollow([order.name])}>
+                  <Button type="button" variant="ghost" className="min-h-11 px-2 pointer-fine:h-8 pointer-fine:min-h-8 pointer-fine:px-1.5 pointer-fine:text-xs text-primary hover:text-primary" onClick={() => onFollow([order.name])}>
                     Seguir
                   </Button>
                   {onOpenAssign && (
-                    <Button type="button" variant="ghost" className="min-h-11 px-3 text-muted-foreground hover:text-foreground" onClick={() => onOpenAssign([order.name])}>
+                    <Button type="button" variant="ghost" className="min-h-11 px-2 pointer-fine:h-8 pointer-fine:min-h-8 pointer-fine:px-1.5 pointer-fine:text-xs text-muted-foreground hover:text-foreground" onClick={() => onOpenAssign([order.name])}>
                       Cambiar…
                     </Button>
                   )}
                 </>
               ) : (
                 <>
-                  <Button type="button" variant="ghost" className="-ml-3 min-h-11 px-3 text-primary hover:text-primary" onClick={() => onClaim([order.name])}>
+                  <Button type="button" variant="ghost" className="min-h-11 px-2 pointer-fine:h-8 pointer-fine:min-h-8 pointer-fine:px-1.5 pointer-fine:text-xs text-primary hover:text-primary" onClick={() => onClaim([order.name])}>
                     Asignármela
                   </Button>
                   {onOpenAssign && (
-                    <Button type="button" variant="ghost" className="min-h-11 px-3 text-muted-foreground hover:text-foreground" onClick={() => onOpenAssign([order.name])}>
+                    <Button type="button" variant="ghost" className="min-h-11 px-2 pointer-fine:h-8 pointer-fine:min-h-8 pointer-fine:px-1.5 pointer-fine:text-xs text-muted-foreground hover:text-foreground" onClick={() => onOpenAssign([order.name])}>
                       Asignar a…
                     </Button>
                   )}
@@ -267,7 +267,7 @@ export default function OrdersTable({
       id: 'main_product',
       header: 'Producto / Descripción',
       cell: ({ row }) => (
-        <div className="max-w-[240px]">
+        <div className="max-w-[140px]">
           <span className="line-clamp-2 text-foreground/90">{row.original.main_product}</span>
           <span className="text-xs text-muted-foreground">{row.original.lines_count} {row.original.lines_count === 1 ? 'línea' : 'líneas'}</span>
         </div>
@@ -280,7 +280,7 @@ export default function OrdersTable({
         const pct = getDeliveryProgress(row.original);
         const missing = getOrderMissingQty(row.original);
         return (
-          <div className="min-w-[110px]">
+          <div className="min-w-[96px]">
             <div className="mb-1 flex justify-between font-mono-data text-xs tabular-nums text-muted-foreground">
               <span>Entregado</span>
               <span>{pct}%</span>

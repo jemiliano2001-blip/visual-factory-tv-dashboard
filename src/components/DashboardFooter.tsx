@@ -66,7 +66,7 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
-              className={`px-3 py-1.5 rounded-lg font-bold shadow-lg border ${
+              className={`pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap px-3 py-1.5 rounded-lg font-bold shadow-lg border ${
                 toast.type === 'error'
                   ? 'bg-red-500/20 text-red-300 border-red-500/30'
                   : toast.type === 'success'

@@ -46,7 +46,7 @@ export function OrderSearchInput({
         }}
         placeholder="Buscar SO, PO del cliente, OT o ingeniero…"
         aria-describedby="order-search-help"
-        className={value ? 'pl-10 pr-10' : 'pl-10'}
+        className={value ? 'min-h-11 pl-10 pr-10' : 'min-h-11 pl-10'}
       />
       {value && (
         <button

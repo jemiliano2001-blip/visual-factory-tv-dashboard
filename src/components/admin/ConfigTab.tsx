@@ -7,7 +7,7 @@ import TeamAccess from './TeamAccess';
 export default function ConfigTab({ orders }: { orders: readonly OdooSaleOrder[] }) {
   const { loading, canEdit } = useCanEditSchedules();
   return (
-    <div className="space-y-10">
+    <div className="space-y-5">
       <ScheduleList orders={orders} canEdit={canEdit} permissionLoading={loading} />
       {canEdit && <TeamAccess />}
     </div>

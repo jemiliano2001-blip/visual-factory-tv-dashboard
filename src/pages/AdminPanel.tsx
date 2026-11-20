@@ -61,7 +61,7 @@ import { useMobile } from '../hooks/useMobile';
 import { useDataFreshness } from '../hooks/useDataFreshness';
 import { isEditableTarget, resolveAdminShortcut } from '../utils/keyboardShortcuts';
 import {
-  WifiOff, AlertTriangle, RefreshCw, Eye, FileText, UserCheck, UserMinus, UserPlus, Copy, ChevronDown, ChevronRight, X,
+  WifiOff, AlertTriangle, RefreshCw, Download, Eye, FileText, UserCheck, UserMinus, UserPlus, Copy, ChevronDown, ChevronRight, X,
 } from 'lucide-react';
 
 const OrderDetailsModal = lazy(() =>
@@ -604,10 +604,18 @@ export default function AdminPanel() {
                   </p>
                 )}
               </div>
-              <Button type="button" variant="secondary" className={BIG_BUTTON} onClick={() => refetch()} disabled={isFetching}>
-                <RefreshCw className={isFetching ? 'animate-spin text-primary' : ''} />
-                Actualizar
-              </Button>
+              <div className="flex items-center gap-2">
+                {hasToolbar && (
+                  <Button type="button" variant="secondary" className={`${BIG_BUTTON} hidden md:inline-flex`} onClick={handleExport} disabled={filteredOrders.length === 0}>
+                    <Download />
+                    {selectedCount > 0 ? `Excel (${selectedCount})` : 'Excel'}
+                  </Button>
+                )}
+                <Button type="button" variant="secondary" className={BIG_BUTTON} onClick={() => refetch()} disabled={isFetching}>
+                  <RefreshCw className={isFetching ? 'animate-spin text-primary' : ''} />
+                  Actualizar
+                </Button>
+              </div>
             </div>
 
             {error && !isLoading && (
@@ -678,7 +686,7 @@ export default function AdminPanel() {
               )}
 
               {!filterEmpty && activeTab === 'orders' && (
-              <div className="mt-4">
+              <div className="mt-5">
                 {isLoading ? (
                   <LoadingState view={view} isMobile={isMobile} />
                 ) : view === 'pending' ? (

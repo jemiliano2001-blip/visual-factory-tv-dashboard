@@ -49,7 +49,7 @@ export default function AppShellChrome() {
       {/* Sidebar — oculto en móvil, visible en md+ */}
       <aside className="relative z-20 hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-card/70 backdrop-blur-xl">
         {/* Marca */}
-        <div className="flex items-center gap-3 border-b border-border px-5 py-5">
+        <div className="flex items-center gap-3 border-b border-border px-6 py-5">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 ring-1 ring-primary/25">
             <Tv className="size-5 text-primary" />
           </div>
@@ -69,7 +69,7 @@ export default function AppShellChrome() {
           {navItem('/stats', <BarChart3 className="size-[18px]" />, 'Estadísticas')}
 
           <div className="mt-4 border-t border-border pt-4">
-            <p className="mb-2 px-3 text-xs font-medium text-muted-foreground">
+            <p className="mb-1 px-3 text-xs font-medium text-muted-foreground">
               Vistas en vivo
             </p>
             <Link

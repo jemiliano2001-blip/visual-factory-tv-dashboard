@@ -96,7 +96,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                 value={textFilter}
                 onChange={(e) => onText(e.target.value)}
                 placeholder="SO, PO, OT o ingeniero…"
-                className="h-10 pl-9 bg-transparent border-border focus-visible:border-primary/40 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="h-11 pl-9 bg-transparent border-border focus-visible:border-primary/40 focus-visible:ring-0 focus-visible:ring-offset-0"
               />
             </div>
 
@@ -296,7 +296,7 @@ const TVControlBar: React.FC<TVControlBarProps> = ({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="size-8 rounded-lg text-muted-foreground hover:text-foreground ml-1"
+                  className="size-10 rounded-lg text-muted-foreground hover:text-foreground ml-1"
                   onClick={handleDismiss}
                   title="Ocultar barra"
                 >

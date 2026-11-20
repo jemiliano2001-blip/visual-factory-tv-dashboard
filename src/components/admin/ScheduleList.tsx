@@ -184,9 +184,9 @@ export default function ScheduleList({ orders, canEdit, permissionLoading }: Pro
       </div>
 
       {configs === null ? (
-        <p role="status" className="py-8 text-center text-muted-foreground">Cargando horarios…</p>
+        <p role="status" className="rounded-2xl border border-border bg-card px-6 py-12 text-center text-sm text-muted-foreground">Cargando horarios…</p>
       ) : shown.length === 0 ? (
-        <p className="py-8 text-center text-muted-foreground">
+        <p className="rounded-2xl border border-border bg-card px-6 py-12 text-center text-sm text-muted-foreground">
           {rows.length === 0 ? 'No hay clientes ni horarios todavía.' : 'Ningún cliente coincide con la búsqueda.'}
         </p>
       ) : (
