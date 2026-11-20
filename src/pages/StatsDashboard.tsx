@@ -32,18 +32,18 @@ import { loadErrorLabel } from '../services/orderLoadError';
 import { getSmartCompanyName } from '../utils/customerNames';
 import { UNASSIGNED_ENGINEER } from '../services/adminFilters';
 
-const AGING_COLORS = ['#10b981', '#f59e0b', '#ef4444'];
+const AGING_COLORS = ['var(--color-success)', 'var(--color-warning)', 'var(--color-destructive)'];
 const CHART_TOOLTIP_STYLE: React.CSSProperties = {
-  backgroundColor: '#16161d',
-  border: '1px solid rgba(255,255,255,0.08)',
+  backgroundColor: 'var(--color-popover)',
+  border: '1px solid var(--color-border)',
   borderRadius: 12,
   fontFamily: 'var(--font-sans)',
   fontSize: 13,
-  color: '#f4f4f5',
+  color: 'var(--color-popover-foreground)',
 };
-const CHART_CURSOR = { fill: 'rgba(255,255,255,0.04)' };
-const AXIS_TICK = { fontSize: 12, fill: '#9ca3af', fontFamily: 'var(--font-sans)' };
-const MONO_TICK = { fontSize: 12, fill: '#9ca3af', fontFamily: 'var(--font-mono)' };
+const CHART_CURSOR = { fill: 'color-mix(in srgb, var(--color-foreground) 6%, transparent)' };
+const AXIS_TICK = { fontSize: 12, fill: 'var(--color-muted-foreground)', fontFamily: 'var(--font-sans)' };
+const MONO_TICK = { fontSize: 12, fill: 'var(--color-muted-foreground)', fontFamily: 'var(--font-mono)' };
 
 export default function StatsDashboard() {
   const { orders, error, isLoading, isFetching, lastUpdated, refetch, truncated } = useOdooOrders();
@@ -115,12 +115,12 @@ export default function StatsDashboard() {
       else lateOver30++;
     }
     return [
-      { key: 'on-time', label: 'En tiempo', count: statusCounts['on-time'], color: 'bg-success', hex: '#10b981', filter: 'on-time' },
-      { key: 'warning', label: 'Por vencer (próx. días)', count: statusCounts.warning, color: 'bg-warning', hex: '#f59e0b', filter: 'warning' },
+      { key: 'on-time', label: 'En tiempo', count: statusCounts['on-time'], color: 'bg-success', hex: 'var(--color-success)', filter: 'on-time' },
+      { key: 'warning', label: 'Por vencer (próx. días)', count: statusCounts.warning, color: 'bg-warning', hex: 'var(--color-warning)', filter: 'warning' },
       { key: 'late-7', label: 'Atraso reciente (1–7 días)', count: late1to7, color: 'bg-amber-400', hex: '#fbbf24', filter: 'overdue' },
       { key: 'late-30', label: 'Atraso medio (8–30 días)', count: late8to30, color: 'bg-orange-500', hex: '#f97316', filter: 'overdue' },
-      { key: 'late-chronic', label: 'Atraso crítico (> 30 días)', count: lateOver30, color: 'bg-destructive', hex: '#ef4444', filter: 'overdue' },
-      { key: 'none', label: 'Sin fecha compromiso', count: statusCounts.none, color: 'bg-muted-foreground', hex: '#71717a', filter: 'none' },
+      { key: 'late-chronic', label: 'Atraso crítico (> 30 días)', count: lateOver30, color: 'bg-destructive', hex: 'var(--color-destructive)', filter: 'overdue' },
+      { key: 'none', label: 'Sin fecha compromiso', count: statusCounts.none, color: 'bg-muted-foreground', hex: 'var(--color-muted-foreground)', filter: 'none' },
     ];
   }, [orders, statusCounts]);
 
@@ -196,11 +196,11 @@ export default function StatsDashboard() {
       else b.prep++;
     });
     return [
-      { name: 'Sin remisión', value: b.sin, color: '#71717a' },
-      { name: 'En preparación', value: b.prep, color: '#f59e0b' },
-      { name: 'Lista p/ enviar', value: b.lista, color: '#3b82f6' },
-      { name: 'Entrega parcial', value: b.parcial, color: '#22d3ee' },
-      { name: 'Entregada 100%', value: b.entregada, color: '#10b981' },
+      { name: 'Sin remisión', value: b.sin, color: 'var(--color-muted-foreground)' },
+      { name: 'En preparación', value: b.prep, color: 'var(--color-warning)' },
+      { name: 'Lista p/ enviar', value: b.lista, color: 'var(--color-info)' },
+      { name: 'Entrega parcial', value: b.parcial, color: 'var(--color-data)' },
+      { name: 'Entregada 100%', value: b.entregada, color: 'var(--color-success)' },
     ];
   }, [orders]);
 
@@ -537,9 +537,9 @@ export default function StatsDashboard() {
               >
                 <ResponsiveContainer width="100%" height={250}>
                   <BarChart data={pipelineData} layout="vertical" margin={{ left: 10, right: 16 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" horizontal={false} />
-                    <XAxis type="number" stroke="#71717a" allowDecimals={false} tick={MONO_TICK} />
-                    <YAxis type="category" dataKey="name" stroke="#71717a" width={115} tick={AXIS_TICK} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" horizontal={false} />
+                    <XAxis type="number" stroke="var(--color-muted-foreground)" allowDecimals={false} tick={MONO_TICK} />
+                    <YAxis type="category" dataKey="name" stroke="var(--color-muted-foreground)" width={115} tick={AXIS_TICK} />
                     <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={CHART_CURSOR} />
                     <Bar dataKey="value" name="Órdenes" radius={[0, 8, 8, 0]}>
                       {pipelineData.map((d, i) => <Cell key={i} fill={d.color} />)}
@@ -555,11 +555,11 @@ export default function StatsDashboard() {
               >
                 <ResponsiveContainer width="100%" height={250}>
                   <BarChart data={weeklyDeliveries} margin={{ left: -10, right: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                    <XAxis dataKey="name" stroke="#71717a" tick={AXIS_TICK} />
-                    <YAxis stroke="#71717a" allowDecimals={false} tick={MONO_TICK} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                    <XAxis dataKey="name" stroke="var(--color-muted-foreground)" tick={AXIS_TICK} />
+                    <YAxis stroke="var(--color-muted-foreground)" allowDecimals={false} tick={MONO_TICK} />
                     <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={CHART_CURSOR} />
-                    <Bar dataKey="value" name="Remisiones" fill="#10b981" radius={[8, 8, 0, 0]} />
+                    <Bar dataKey="value" name="Remisiones" fill="var(--color-success)" radius={[8, 8, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </SectionCard>
@@ -571,9 +571,9 @@ export default function StatsDashboard() {
               >
                 <ResponsiveContainer width="100%" height={250}>
                   <BarChart data={agingData} margin={{ left: -10, right: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                    <XAxis dataKey="name" stroke="#71717a" tick={AXIS_TICK} />
-                    <YAxis stroke="#71717a" allowDecimals={false} tick={MONO_TICK} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                    <XAxis dataKey="name" stroke="var(--color-muted-foreground)" tick={AXIS_TICK} />
+                    <YAxis stroke="var(--color-muted-foreground)" allowDecimals={false} tick={MONO_TICK} />
                     <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={CHART_CURSOR} />
                     <Bar dataKey="value" name="Órdenes" radius={[8, 8, 0, 0]}>
                       {agingData.map((_, i) => <Cell key={i} fill={AGING_COLORS[i % AGING_COLORS.length]} />)}

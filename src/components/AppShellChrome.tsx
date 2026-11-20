@@ -14,13 +14,14 @@ export default function AppShellChrome() {
   const navigate = useNavigate();
   const [theme, toggleTheme] = useAdminTheme();
   const onAdmin = location.pathname === '/admin';
+  const themed = onAdmin || location.pathname === '/stats';
 
-  // El modo claro solo existe en /admin; en otras rutas se quita el atributo.
+  // El modo claro solo existe en /admin y /stats; en otras rutas se quita el atributo.
   useEffect(() => {
-    if (!onAdmin || theme !== 'light') return;
+    if (!themed || theme !== 'light') return;
     document.documentElement.dataset.theme = 'light';
     return () => { delete document.documentElement.dataset.theme; };
-  }, [onAdmin, theme]);
+  }, [themed, theme]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, setUser);
@@ -98,7 +99,7 @@ export default function AppShellChrome() {
 
         {/* Usuario */}
         <div className="space-y-2 border-t border-border px-3 py-4">
-          {onAdmin && (
+          {themed && (
             <button
               type="button"
               onClick={toggleTheme}
@@ -176,6 +177,14 @@ export default function AppShellChrome() {
           <Tv className="size-[22px]" />
           <span className="text-[11px] font-medium">TV Live</span>
         </Link>
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="relative flex flex-1 cursor-pointer flex-col items-center justify-center gap-1 py-2.5 min-h-[58px] text-muted-foreground transition-colors"
+        >
+          {theme === 'light' ? <Moon className="size-[22px]" /> : <Sun className="size-[22px]" />}
+          <span className="text-[11px] font-medium">{theme === 'light' ? 'Oscuro' : 'Claro'}</span>
+        </button>
       </nav>
       )}
     </div>

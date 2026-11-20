@@ -81,8 +81,8 @@
   }
 }
 
-/* Modo claro: solo /admin (ver useAdminTheme). Sobrescribe los mismos tokens;
-   TV, login y estadísticas nunca reciben data-theme y siguen oscuros. */
+/* Modo claro: solo /admin y /stats (ver useAdminTheme). Sobrescribe los mismos tokens;
+   TV y login nunca reciben data-theme y siguen oscuros. */
 :root[data-theme="light"] {
   color-scheme: light;
   --color-background: #f4f4f6;
