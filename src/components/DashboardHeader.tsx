@@ -1,5 +1,5 @@
 import React from 'react';
-import { Monitor, Maximize, Minimize, Palette, ChevronRight, Clock } from 'lucide-react';
+import { Monitor, Maximize, Minimize, Palette, ChevronRight, Clock, TreePine, Sparkles, Crown, Heart, Flower2 } from 'lucide-react';
 import { OdooConnectionStatus } from '../services/odoo';
 import OdooStatusBadge from './OdooStatusBadge';
 import { ViewMode } from './OdooOrderCard';
@@ -7,6 +7,12 @@ import CompanyBadge from './CompanyBadge';
 import { getSmartCompanyName } from '../utils/customerNames';
 import DashboardClock from './DashboardClock';
 import { AURORA_LABEL, type AuroraMode } from '../services/auroraMode';
+import { holidayGreeting, type HolidayIcon, type HolidayTheme } from '../services/holidayTheme';
+import HolidayGarland from './HolidayGarland';
+
+const HOLIDAY_ICONS: Record<HolidayIcon, React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>> = {
+  TreePine, Sparkles, Crown, Heart, Flower2,
+};
 
 // ─── Breadcrumbs ────────────────────────────────────────────────────────────────
 
@@ -47,6 +53,9 @@ interface DashboardHeaderProps {
   onViewModeChange: (mode: ViewMode) => void;
   auroraMode: AuroraMode;
   onCycleAurora: () => void;
+  /** Festivo vigente (solo TV de escritorio); muestra un saludo junto al título. */
+  holiday?: HolidayTheme | null;
+  holidayDate?: Date;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   // Filtro de estado
@@ -83,6 +92,8 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   onViewModeChange,
   auroraMode,
   onCycleAurora,
+  holiday = null,
+  holidayDate,
   isFullscreen,
   onToggleFullscreen,
   statusFilter,
@@ -117,6 +128,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       }`}
       style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
     >
+      {holiday && <HolidayGarland kind={holiday.garland} />}
       {/* La pantalla TV prioriza el cliente visible; la marca queda para vistas sin empresa. */}
       <div className="flex min-w-0 max-w-[52vw] flex-col lg:max-w-[60vw]">
       <div className="flex min-w-0 items-center gap-2.5 lg:gap-4">
@@ -154,6 +166,19 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       </div>
       <Breadcrumbs current={currentPageNum} total={totalPages} />
       </div>
+
+      {holiday && (() => {
+        const Icon = HOLIDAY_ICONS[holiday.icon];
+        return (
+          <div
+            className="hidden lg:flex shrink-0 items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-semibold text-foreground"
+            style={{ borderColor: `rgba(${holiday.accent}, 0.35)`, backgroundColor: `rgba(${holiday.accent}, 0.10)` }}
+          >
+            <span style={{ color: `rgb(${holiday.accent})` }}><Icon className="h-4 w-4" aria-hidden /></span>
+            <span>{holidayGreeting(holiday, holidayDate ?? new Date())}</span>
+          </div>
+        );
+      })()}
 
       {/* Right: controls + clock */}
       <div className="flex items-center gap-2 lg:gap-3">

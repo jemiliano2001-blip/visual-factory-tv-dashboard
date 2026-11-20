@@ -34,6 +34,9 @@ import { INITIAL_ROTATION_PAUSED, shouldAutoRotate } from '../services/rotationP
 import { computeTVGrid } from '../services/tvGrid';
 import { isEditableTarget, resolveTVShortcut } from '../utils/keyboardShortcuts';
 import GeminiOledBackground from '../components/GeminiOledBackground';
+import HolidayIntro from '../components/HolidayIntro';
+import { useActiveHoliday } from '../hooks/useActiveHoliday';
+import { useHolidayIntro } from '../hooks/useHolidayIntro';
 import { type AuroraMode, isAuroraUrgent, nextAuroraMode, normalizeAuroraMode } from '../services/auroraMode';
 
 const OrderDetailsModal = lazy(() =>
@@ -115,6 +118,7 @@ export default function TVDashboard() {
   const [companyConfigs, setCompanyConfigs] = useState<CompanyConfig[]>([]);
   const [storedAuroraMode, setAuroraMode] = usePersistedState<AuroraMode>('vftv:tv:aurora', 'gemini-flow');
   const auroraMode = normalizeAuroraMode(storedAuroraMode);
+  const { holiday, now: holidayNow, forced: holidayForced } = useActiveHoliday();
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [selectedOrder, setSelectedOrder]   = useState<OdooSaleOrder | null>(null);
   const [viewMode, setViewMode]             = usePersistedState<ViewMode>('vftv:tv:viewMode', 'tv');
@@ -137,6 +141,7 @@ export default function TVDashboard() {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isMobile = useMobile();
+  const holidayIntro = useHolidayIntro(holiday, holidayNow, holidayForced, !isMobile);
   // En móvil siempre modo escritorio: sin paginación ni auto-rotación
   const effectiveViewMode: ViewMode = isMobile ? 'desktop' : viewMode;
   const isTVMode = effectiveViewMode === 'tv';
@@ -478,7 +483,7 @@ export default function TVDashboard() {
       {/* Fondo aurora (no en móvil). En modo reactivo se acelera y mete carmesí si más
           de la mitad de lo visible está vencido. El modo se alterna desde el header. */}
       {!isMobile && (
-        <GeminiOledBackground mode={auroraMode} urgent={isAuroraUrgent(auroraMode, ambientOverdueShare)} />
+        <GeminiOledBackground mode={auroraMode} urgent={isAuroraUrgent(auroraMode, ambientOverdueShare)} holiday={holiday} />
       )}
 
       {/* ── Header ─────────────────────────────────────────────────────────────── */}
@@ -506,6 +511,8 @@ export default function TVDashboard() {
         onViewModeChange={setViewMode}
         auroraMode={auroraMode}
         onCycleAurora={() => setAuroraMode(nextAuroraMode(auroraMode))}
+        holiday={isMobile ? null : holiday}
+        holidayDate={holidayNow}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
         statusFilter={statusFilter}
@@ -729,7 +736,11 @@ export default function TVDashboard() {
         currentPageIndex={safePageIndex}
         onPageChange={setCurrentPageIndex}
         toast={toast}
+        holiday={isMobile ? null : holiday}
       />
+      {holidayIntro.show && holiday && (
+        <HolidayIntro holiday={holiday} date={holidayNow} onDone={holidayIntro.dismiss} />
+      )}
     </div>
   );
 }

@@ -242,6 +242,115 @@
   to { transform: translate3d(-70vw, 0, 0); }
 }
 
+/* ── Temas festivos (HolidayParticles): solo transform/opacity; sin movimiento no se ven ── */
+.holiday-particle {
+  position: absolute;
+  left: var(--x);
+  top: 0;
+  width: var(--size);
+  height: var(--size);
+  opacity: 0;
+  background: rgb(var(--tone));
+  display: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .holiday-particle {
+    display: block;
+    will-change: transform, opacity;
+    animation: holiday-fall var(--dur) linear var(--delay) infinite;
+  }
+  .holiday-particle--nieve { border-radius: 9999px; }
+  .holiday-particle--petalos { border-radius: 9999px 0 9999px 0; width: calc(var(--size) * 1.6); }
+  .holiday-particle--corazones {
+    clip-path: polygon(50% 25%, 65% 8%, 85% 8%, 100% 28%, 100% 50%, 50% 95%, 0% 50%, 0% 28%, 15% 8%, 35% 8%);
+    width: calc(var(--size) * 1.6);
+    height: calc(var(--size) * 1.45);
+  }
+  .holiday-particle--confeti {
+    width: var(--size);
+    height: calc(var(--size) * 0.5);
+  }
+  .holiday-particle--destellos {
+    top: var(--y);
+    border-radius: 1px;
+    animation: holiday-twinkle calc(var(--dur) / 4) ease-in-out var(--delay) infinite;
+  }
+  .holiday-intro { animation: holiday-intro-life 3.5s ease-in-out forwards; }
+  .holiday-intro-pop { animation: holiday-intro-pop 3.5s ease-out forwards; }
+  .holiday-burst { animation: holiday-burst 3.5s ease-out forwards; }
+  .holiday-bulb { animation: holiday-blink 1.8s ease-in-out infinite; }
+  .holiday-sway { transform-origin: top center; animation: holiday-sway 5s ease-in-out infinite alternate; }
+  .holiday-sway-x { animation: holiday-sway-x 7s ease-in-out infinite alternate; }
+  .holiday-window { animation: holiday-blink 3s ease-in-out infinite; }
+  .holiday-star { transform-box: fill-box; transform-origin: center; animation: holiday-star 2.4s ease-in-out infinite; }
+  .holiday-firework { transform-box: fill-box; transform-origin: center; animation: holiday-firework 5s ease-out infinite; }
+  .holiday-bob { animation: holiday-bob 4s ease-in-out infinite alternate; }
+  .holiday-float { animation: holiday-float 5s ease-in-out infinite alternate; }
+  .holiday-sway-up { transform-box: fill-box; transform-origin: bottom center; animation: holiday-sway 5s ease-in-out infinite alternate; }
+}
+.holiday-burst {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  opacity: 0;
+  background: rgb(var(--tone));
+}
+@keyframes holiday-fall {
+  0% { transform: translate3d(0, -4vh, 0) rotate(0deg); opacity: 0; }
+  10% { opacity: 0.6; }
+  90% { opacity: 0.5; }
+  100% { transform: translate3d(6vw, 104vh, 0) rotate(240deg); opacity: 0; }
+}
+@keyframes holiday-twinkle {
+  0%, 100% { transform: scale(0.4) rotate(45deg); opacity: 0; }
+  50% { transform: scale(1.3) rotate(45deg); opacity: 0.5; }
+}
+@keyframes holiday-intro-life {
+  0% { opacity: 0; }
+  12%, 80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes holiday-intro-pop {
+  0% { transform: scale(0.6); }
+  20% { transform: scale(1.08); }
+  30%, 100% { transform: scale(1); }
+}
+@keyframes holiday-burst {
+  0%, 10% { opacity: 0; transform: translate3d(0, 0, 0); }
+  18% { opacity: 1; }
+  70%, 100% { opacity: 0; transform: translate3d(var(--dx), var(--dy), 0) rotate(200deg); }
+}
+@keyframes holiday-blink {
+  50% { opacity: 0.25; }
+}
+@keyframes holiday-sway {
+  from { transform: rotate(-4deg); }
+  to { transform: rotate(4deg); }
+}
+@keyframes holiday-sway-x {
+  from { transform: translateX(-8px); }
+  to { transform: translateX(8px); }
+}
+@keyframes holiday-star {
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+@keyframes holiday-firework {
+  0% { opacity: 0; transform: scale(0.2); }
+  20% { opacity: 1; }
+  70%, 100% { opacity: 0; transform: scale(1.3); }
+}
+@keyframes holiday-bob {
+  from { transform: translateY(0); }
+  to { transform: translateY(-3px); }
+}
+@keyframes holiday-float {
+  from { transform: translateY(0); }
+  to { transform: translateY(-4px); }
+}
+
 @media print {
   /* El Layout usa h-screen + overflow-hidden/auto: sin esto la impresión
      se recorta a una sola hoja. Alto automático y sin clipping en todo. */

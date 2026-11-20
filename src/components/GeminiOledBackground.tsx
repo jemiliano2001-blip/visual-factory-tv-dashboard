@@ -1,5 +1,7 @@
 import React from 'react';
 import type { AuroraMode } from '../services/auroraMode';
+import type { HolidayTheme } from '../services/holidayTheme';
+import HolidayParticles from './HolidayParticles';
 
 // Los colores "ciclan" deslizando una tira de degradado dentro de cada foco: así
 // toda la animación es transform (compositor), sin repintar bajo el blur.
@@ -48,15 +50,21 @@ interface GeminiOledBackgroundProps {
   mode: AuroraMode;
   /** Más de la mitad de lo visible está vencido (solo cuenta en modo reactivo). */
   urgent: boolean;
+  /** Festivo vigente: cambia la paleta y suma partículas. El carmesí de "urgente" sigue ganando. */
+  holiday?: HolidayTheme | null;
 }
 
-const GeminiOledBackground: React.FC<GeminiOledBackgroundProps> = ({ mode, urgent }) => (
+const GeminiOledBackground: React.FC<GeminiOledBackgroundProps> = ({ mode, urgent, holiday = null }) => {
+  const top = holiday?.palette.top ?? TOP;
+  const wave1 = holiday?.palette.wave1 ?? WAVE_1;
+  const wave2 = holiday?.palette.wave2 ?? WAVE_2;
+  return (
   <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-black">
     <Blob
       className="-top-[180px] left-[-12.5%] h-[380px] w-[125%] blur-[105px]"
       move="aurora-sway"
       seconds={urgent ? 8 : 12}
-      colors={urgent ? [...TOP.slice(0, 3), CRIMSON, ...TOP.slice(3), CORAL] : TOP}
+      colors={urgent ? [...top.slice(0, 3), CRIMSON, ...top.slice(3), CORAL] : top}
       staticMode={mode === 'oled-minimal'}
     />
     {mode !== 'oled-minimal' && (
@@ -65,18 +73,20 @@ const GeminiOledBackground: React.FC<GeminiOledBackgroundProps> = ({ mode, urgen
           className="left-0 top-[28%] h-[550px] w-[750px] blur-[140px]"
           move="aurora-ltr"
           seconds={urgent ? 12 : 18}
-          colors={urgent ? [...WAVE_1.slice(0, 2), CRIMSON, ...WAVE_1.slice(2)] : WAVE_1}
+          colors={urgent ? [...wave1.slice(0, 2), CRIMSON, ...wave1.slice(2)] : wave1}
         />
         <Blob
           className="right-0 top-[42%] h-[500px] w-[700px] blur-[140px]"
           move="aurora-rtl"
           seconds={urgent ? 14 : 22}
-          colors={urgent ? [...WAVE_2, CORAL] : WAVE_2}
+          colors={urgent ? [...wave2, CORAL] : wave2}
         />
       </>
     )}
+    {holiday && mode !== 'oled-minimal' && <HolidayParticles kind={holiday.particle} />}
     <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_40%,rgba(0,0,0,0.8)_100%)]" />
   </div>
-);
+  );
+};
 
 export default GeminiOledBackground;
