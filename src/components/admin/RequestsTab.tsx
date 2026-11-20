@@ -242,7 +242,8 @@ export default function RequestsTab() {
             </Button>
           </div>
           {view === 'pending' ? (
-          <section aria-label="Solicitudes pendientes" className="space-y-3">
+          <section aria-labelledby="req-pend" className="space-y-3">
+            <h2 id="req-pend" className="sr-only">Solicitudes pendientes</h2>
             {pending.length === 0 && <p className="text-sm text-muted-foreground">No hay solicitudes pendientes.</p>}
             <ul className="space-y-3">
               {pending.map(r => (
@@ -270,7 +271,8 @@ export default function RequestsTab() {
             </ul>
           </section>
           ) : (
-          <section aria-label="Solicitudes hechas" className="space-y-3">
+          <section aria-labelledby="req-done" className="space-y-3">
+            <h2 id="req-done" className="sr-only">Solicitudes hechas</h2>
             <p className="text-sm text-muted-foreground">Se muestran las {MAX_DONE_SHOWN} más recientes.</p>
             {done.length === 0 && <p className="text-sm text-muted-foreground">Todavía no hay solicitudes hechas.</p>}
             <ul className="space-y-3">{done.map(r => <RequestCard key={r.id} request={r} meta={metaByOrder.get(r.orderId)} />)}</ul>

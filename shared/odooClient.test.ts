@@ -262,3 +262,16 @@ test('no reintenta escrituras, errores de Odoo ni un segundo fallo', async () =>
     }
   }
 });
+
+test('un AbortError (timeout) no se reintenta aunque sea una lectura', async () => {
+  const originalFetch = globalThis.fetch;
+  const f = fetchWithRpc(() => { throw new DOMException('aborted', 'AbortError'); });
+  globalThis.fetch = f.fake;
+  try {
+    const client = new OdooClient({ url: 'http://odoo.test', db: 'db', username: 'u', password: 'p', retryDelayMs: 0 });
+    await assert.rejects(client.odooCall('sale.order', 'read'), /aborted/);
+    assert.equal(f.calls(), 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
