@@ -4,16 +4,45 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 
 /**
- * La base `(default)` de smv-brain la comparten el Dashboard y SMV Vision, y un deploy de reglas REEMPLAZA
- * las anteriores. Las reglas vigentes viven en el repo de SMV Vision (incluyen el bloque `company_configs`
- * de este Dashboard). Si este repo vuelve a desplegar `firestore`, un `firebase deploy` completo dejaría a
- * Vision sin acceso a sus datos.
+ * Desde la Fase 4 este repo es el dueño de las reglas de Firestore `(default)` (antes vivían en SMV Vision).
+ * La base `(default)` es compartida y un deploy de reglas REEMPLAZA las anteriores, así que:
+ *  - `firebase.json` declara `firestore` con estas reglas e índices;
+ *  - las reglas incluyen todas las colecciones que usan las apps vivas (si falta una, queda denegada);
+ *  - Storage NO se declara aquí: sus reglas desplegadas son las de SMV Hub;
+ *  - `npm run deploy` nunca arrastra `firestore`: el deploy de reglas es un comando aparte y explícito.
  */
-test('el Dashboard no despliega reglas de Firestore (las dueñas son las de SMV Vision)', () => {
-  const config = JSON.parse(readFileSync(resolve(import.meta.dirname, '..', 'firebase.json'), 'utf8')) as Record<string, unknown>;
-  assert.equal(
-    'firestore' in config,
-    false,
-    'firebase.json no debe declarar "firestore": las reglas de (default) se despliegan desde SMV Vision',
-  );
+const root = resolve(import.meta.dirname, '..');
+const read = (file: string) => readFileSync(resolve(root, file), 'utf8');
+const config = JSON.parse(read('firebase.json')) as Record<string, { rules?: string; indexes?: string; database?: string } | unknown>;
+
+test('firebase.json declara firestore (default) con las reglas e índices de este repo', () => {
+  const firestore = config.firestore as { rules?: string; indexes?: string; database?: string };
+  assert.equal(firestore?.rules, 'firestore.rules');
+  assert.equal(firestore?.indexes, 'firestore.indexes.json');
+  assert.equal(firestore?.database, '(default)');
+});
+
+test('firebase.json no declara storage: sus reglas son las de SMV Hub', () => {
+  assert.equal('storage' in config, false);
+});
+
+test('el script deploy no incluye firestore', () => {
+  const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
+  assert.ok(!/firestore/.test(pkg.scripts.deploy), 'npm run deploy no debe desplegar reglas compartidas');
+});
+
+test('las reglas cubren las colecciones de las apps vivas y cierran lo demás', () => {
+  const rules = read('firestore.rules');
+  const collections = [
+    'company_configs', 'user_settings', 'toolcribParts', 'toolcribDrawings', 'toolcribPrintLogs', 'partAliases',
+    'odooSaleOrders', 'syncMeta', 'workOrders', 'analysisRuns', 'purchases', 'toolingPurchases', 'toolcribSets', 'toolcribPartNotes',
+    'work_orders', 'work_orders_history',
+  ];
+  for (const name of collections) assert.ok(rules.includes(`match /${name}/`), `falta la colección ${name}`);
+  assert.ok(/match \/\{document=\*\*\}\s*\{\s*allow read, write: if false;/.test(rules), 'falta el catch-all cerrado');
+});
+
+test('ninguna regla abre acceso a sesiones anónimas', () => {
+  const rules = read('firestore.rules');
+  assert.ok(!/allow [^;]*:\s*if\s+request\.auth\s*!=\s*null\s*;/.test(rules), 'hay una regla que acepta cualquier auth (incluye anónimos)');
 });
