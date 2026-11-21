@@ -46,3 +46,16 @@ test('ninguna regla abre acceso a sesiones anónimas', () => {
   const rules = read('firestore.rules');
   assert.ok(!/allow [^;]*:\s*if\s+request\.auth\s*!=\s*null\s*;/.test(rules), 'hay una regla que acepta cualquier auth (incluye anónimos)');
 });
+
+test('los módulos apagados de Vision son solo lectura (sin create, update ni delete abiertos)', () => {
+  const rules = read('firestore.rules');
+  for (const name of ['analysisRuns', 'purchases', 'toolingPurchases', 'toolcribSets', 'toolcribPartNotes']) {
+    const start = rules.indexOf(`match /${name}/`);
+    assert.ok(start >= 0, `falta ${name}`);
+    const rest = rules.slice(start);
+    const block = rest.slice(0, rest.indexOf('\n    }') + 6);
+    assert.ok(/allow write: if false;/.test(block), `${name} debe cerrar write`);
+    assert.ok(!/allow (create|update|delete)\b/.test(block), `${name} no debe abrir create/update/delete`);
+    assert.ok(/allow read: if isSignedIn\(\);/.test(block), `${name} conserva lectura para cuentas reales`);
+  }
+});

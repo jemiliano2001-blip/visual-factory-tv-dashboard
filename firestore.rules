@@ -66,119 +66,6 @@ service cloud.firestore {
           && (!('updatedAtUTC' in affected) || ('updatedAtUTC' in data && data.updatedAtUTC is timestamp));
     }
 
-    // Modelo `purchases/{purchaseId}`:
-    // nombre (1..300), tipo, sku (<=200), proveedor (<=200), link (<=1000),
-    // notas (<=2000), createdAtUTC, updatedAtUTC.
-    function isValidPurchaseFields(data) {
-      return (!('nombre' in data) || isStringRange(data.nombre, 1, 300))
-          && (!('tipo' in data) || data.tipo in ['metal', 'ensamble', 'herramienta', 'otro'])
-          && (!('sku' in data) || isStringMax(data.sku, 200))
-          && (!('proveedor' in data) || isStringMax(data.proveedor, 200))
-          && (!('link' in data) || isStringMax(data.link, 1000))
-          && (!('notas' in data) || isStringMax(data.notas, 2000))
-          && (!('createdAtUTC' in data) || data.createdAtUTC is timestamp)
-          && (!('updatedAtUTC' in data) || data.updatedAtUTC is timestamp);
-    }
-
-    function isValidPurchaseCreate() {
-      let allowed = ['nombre', 'tipo', 'sku', 'proveedor', 'link', 'notas', 'createdAtUTC', 'updatedAtUTC'];
-      let data = request.resource.data;
-      return data.keys().hasOnly(allowed)
-          && data.keys().hasAll(allowed)
-          && isValidPurchaseFields(data);
-    }
-
-    function isValidPurchaseUpdate() {
-      let updatable = ['nombre', 'tipo', 'sku', 'proveedor', 'link', 'notas', 'updatedAtUTC'];
-      let data = request.resource.data;
-      return data.diff(resource.data).affectedKeys().hasOnly(updatable)
-          && (!('nombre' in resource.data) || 'nombre' in data)
-          && (!('tipo' in resource.data) || 'tipo' in data)
-          && 'updatedAtUTC' in data
-          && data.updatedAtUTC is timestamp
-          && isValidPurchaseFields(data);
-    }
-
-    // Modelo `toolingPurchases/{itemId}` (19 campos):
-    // requiere codigoISO (1..200) o descripcion (1..500), categoria, materialISO,
-    // moneda, strings acotados, campos numéricos y timestamps.
-    function isValidToolingCategory(val) {
-      return val in [
-        'inserto_torneado',
-        'inserto_fresado',
-        'inserto_roscado',
-        'inserto_ranurado',
-        'endmill',
-        'porta_torno',
-        'cono_fresadora',
-        'boquilla_collet',
-        'broca',
-        'machuelo',
-        'refaccion_torx'
-      ];
-    }
-
-    function isValidToolingFields(data) {
-      let hasIdentifier = ('codigoISO' in data && data.codigoISO is string && data.codigoISO.size() >= 1)
-                       || ('descripcion' in data && data.descripcion is string && data.descripcion.size() >= 1);
-      return hasIdentifier
-          && (!('codigoISO' in data) || isStringMax(data.codigoISO, 200))
-          && (!('descripcion' in data) || isStringMax(data.descripcion, 500))
-          && (!('categoria' in data) || isValidToolingCategory(data.categoria))
-          && (!('marca' in data) || isStringMax(data.marca, 500))
-          && (!('grado' in data) || isStringMax(data.grado, 500))
-          && (!('rompevirutas' in data) || isStringMax(data.rompevirutas, 500))
-          && (!('materialISO' in data) || data.materialISO in ['P', 'M', 'K', 'N', 'S', 'H', 'Universal'])
-          && (!('proveedor' in data) || isStringMax(data.proveedor, 500))
-          && (!('precioUnitario' in data) || data.precioUnitario is number)
-          && (!('precioCaja' in data) || data.precioCaja is number)
-          && (!('moneda' in data) || data.moneda in ['MXN', 'USD'])
-          && (!('linkCompra' in data) || isStringMax(data.linkCompra, 1000))
-          && (!('maquinaAsignada' in data) || isStringMax(data.maquinaAsignada, 500))
-          && (!('calificacion' in data) || data.calificacion is number)
-          && (!('rendimientoNotas' in data) || isStringMax(data.rendimientoNotas, 500))
-          && (!('stockActual' in data) || data.stockActual is number)
-          && (!('stockMinimo' in data) || data.stockMinimo is number)
-          && (!('createdAtUTC' in data) || data.createdAtUTC is timestamp)
-          && (!('updatedAtUTC' in data) || data.updatedAtUTC is timestamp);
-    }
-
-    function isValidToolingCreate() {
-      let allowed = [
-        'codigoISO', 'descripcion', 'categoria', 'marca', 'grado',
-        'rompevirutas', 'materialISO', 'proveedor', 'precioUnitario',
-        'precioCaja', 'moneda', 'linkCompra', 'maquinaAsignada',
-        'calificacion', 'rendimientoNotas', 'stockActual', 'stockMinimo',
-        'createdAtUTC', 'updatedAtUTC'
-      ];
-      let data = request.resource.data;
-      return data.keys().hasOnly(allowed)
-          && 'categoria' in data
-          && 'materialISO' in data
-          && 'moneda' in data
-          && 'createdAtUTC' in data
-          && 'updatedAtUTC' in data
-          && isValidToolingFields(data);
-    }
-
-    function isValidToolingUpdate() {
-      let updatable = [
-        'codigoISO', 'descripcion', 'categoria', 'marca', 'grado',
-        'rompevirutas', 'materialISO', 'proveedor', 'precioUnitario',
-        'precioCaja', 'moneda', 'linkCompra', 'maquinaAsignada',
-        'calificacion', 'rendimientoNotas', 'stockActual', 'stockMinimo',
-        'updatedAtUTC'
-      ];
-      let data = request.resource.data;
-      return data.diff(resource.data).affectedKeys().hasOnly(updatable)
-          && (!('categoria' in resource.data) || 'categoria' in data)
-          && (!('materialISO' in resource.data) || 'materialISO' in data)
-          && (!('moneda' in resource.data) || 'moneda' in data)
-          && 'updatedAtUTC' in data
-          && data.updatedAtUTC is timestamp
-          && isValidToolingFields(data);
-    }
-
     // Modelo `partAliases/{aliasId}`:
     // pattern (1..300), partNumber (1..200), drawingId (<=200),
     // createdByUid (== auth.uid), createdAtUTC, updatedAtUTC.
@@ -194,55 +81,6 @@ service cloud.firestore {
           && data.createdByUid is string
           && data.createdByUid == request.auth.uid
           && data.createdAtUTC is timestamp
-          && data.updatedAtUTC is timestamp;
-    }
-
-    // Modelo `toolcribSets/{setId}`:
-    // nombre (1..200), tipo ('par'|'hoja'|'complemento'|'variante'),
-    // miembros (lista 2..20), updatedByUid, updatedAtUTC.
-    function isValidToolcribSetBase(data) {
-      let allowed = ['nombre', 'tipo', 'miembros', 'updatedByUid', 'updatedAtUTC'];
-      return data.keys().hasOnly(allowed)
-          && isStringRange(data.nombre, 1, 200)
-          && data.tipo in ['par', 'hoja', 'complemento', 'variante']
-          && data.miembros is list
-          && data.miembros.size() >= 2
-          && data.miembros.size() <= 20
-          && data.updatedAtUTC is timestamp;
-    }
-
-    function isValidToolcribSetCreate() {
-      let allowed = ['nombre', 'tipo', 'miembros', 'updatedByUid', 'updatedAtUTC'];
-      let data = request.resource.data;
-      return isValidToolcribSetBase(data)
-          && data.keys().hasAll(allowed)
-          && data.updatedByUid is string
-          && data.updatedByUid == request.auth.uid;
-    }
-
-    function isValidToolcribSetUpdate() {
-      let allowed = ['nombre', 'tipo', 'miembros', 'updatedByUid', 'updatedAtUTC'];
-      let data = request.resource.data;
-      let affected = data.diff(resource.data).affectedKeys();
-      // reconcileSets actualiza sets hermanos enviando solo { miembros, updatedAtUTC }.
-      return isValidToolcribSetBase(data)
-          && affected.hasOnly(allowed)
-          && (!('updatedByUid' in data) || data.updatedByUid is string)
-          && (!('updatedByUid' in affected) || data.updatedByUid == request.auth.uid);
-    }
-
-    // Modelo `toolcribPartNotes/{noteId}`:
-    // partNumber (1..200), notas (lista <=50), updatedByUid (== auth.uid), updatedAtUTC.
-    function isValidToolcribPartNotes() {
-      let allowed = ['partNumber', 'notas', 'updatedByUid', 'updatedAtUTC'];
-      let data = request.resource.data;
-      return data.keys().hasOnly(allowed)
-          && data.keys().hasAll(allowed)
-          && isStringRange(data.partNumber, 1, 200)
-          && data.notas is list
-          && data.notas.size() <= 50
-          && data.updatedByUid is string
-          && data.updatedByUid == request.auth.uid
           && data.updatedAtUTC is timestamp;
     }
 
@@ -291,25 +129,21 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    match /analysisRuns/{runId} {
+    match /analysisRuns/{id} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn()
-                    && request.resource.data.userUid == request.auth.uid;
-      allow update, delete: if false;
+      allow write: if false; // módulo apagado de Vision: datos conservados, sin escritura
     }
 
     // ── Catálogo de compras (CRUD completo desde ComprasPanel) ────────────
-    match /purchases/{purchaseId} {
-      allow read, delete: if isSignedIn();
-      allow create: if isSignedIn() && isValidPurchaseCreate();
-      allow update: if isSignedIn() && isValidPurchaseUpdate();
+    match /purchases/{id} {
+      allow read: if isSignedIn();
+      allow write: if false; // módulo apagado de Vision: datos conservados, sin escritura
     }
 
     // ── Bóveda de herramental (CRUD desde Herramental → Mi Bóveda) ─────
-    match /toolingPurchases/{itemId} {
-      allow read, delete: if isSignedIn();
-      allow create: if isSignedIn() && isValidToolingCreate();
-      allow update: if isSignedIn() && isValidToolingUpdate();
+    match /toolingPurchases/{id} {
+      allow read: if isSignedIn();
+      allow write: if false; // módulo apagado de Vision: datos conservados, sin escritura
     }
 
     // ── Memoria de alias de piezas (puente orden-plano) ───────────────────
@@ -319,14 +153,13 @@ service cloud.firestore {
     }
 
     // ── Juegos (pares/hojas/complementos) y notas permanentes por pieza ───
-    match /toolcribSets/{setId} {
-      allow read, delete: if isSignedIn();
-      allow create: if isSignedIn() && isValidToolcribSetCreate();
-      allow update: if isSignedIn() && isValidToolcribSetUpdate();
+    match /toolcribSets/{id} {
+      allow read: if isSignedIn();
+      allow write: if false; // módulo apagado de Vision: datos conservados, sin escritura
     }
-    match /toolcribPartNotes/{noteId} {
-      allow read, delete: if isSignedIn();
-      allow create, update: if isSignedIn() && isValidToolcribPartNotes();
+    match /toolcribPartNotes/{id} {
+      allow read: if isSignedIn();
+      allow write: if false; // módulo apagado de Vision: datos conservados, sin escritura
     }
 
     // ── Dashboard (Visual Factory TV) — misma base (default) ──────────────
