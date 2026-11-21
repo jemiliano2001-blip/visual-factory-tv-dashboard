@@ -1,83 +1,390 @@
-// REFERENCIA — este archivo NO se despliega desde el Dashboard.
-// La base (default) de smv-brain la comparten Dashboard y SMV Vision; las reglas vigentes se despliegan desde
-// apps/smv-vision/firestore.rules, que incluye una copia fiel del bloque company_configs de aquí.
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Base (default) de smv-brain. DUEÑO: visual-factory-tv-dashboard (desde la Fase 4; antes SMV Vision).
+    // SMV-Hub usa la base nombrada "compras-americanas" con reglas aparte y es dueño de las reglas de Storage.
+    // NUNCA desplegar las reglas del Hub sobre (default): dejan sin acceso a toolcrib*, company_configs, etc.
+    // Deploy: `firebase deploy --only firestore:rules --project smv-brain` (aparte; `npm run deploy` no lo incluye).
+    //
+    // App privada — solo usuarios autenticados (cuentas creadas a mano en
+    // Firebase Console → Authentication). No hay registro público.
+    //
+    // Principio: mínimo privilegio por colección. Las colecciones que solo
+    // escribe el backend (Cloud Function) usan el Admin SDK, que IGNORA
+    // estas reglas — por eso aquí quedan como solo lectura.
+    // Las reglas garantizan identidad (uid), superficie de escritura y
+    // validación de forma, tipos y límites de tamaño para las colecciones
+    // editables desde la app (además de los validators TS en cliente).
 
-    // ===============================================================
-    // Helper Functions
-    // ===============================================================
-
-    function isAuthenticated() {
-      return request.auth != null;
+    // La base (default) de smv-brain la comparte el Dashboard, que exige la autenticación
+    // ANÓNIMA habilitada (TV pública). Un anónimo no es usuario de Vision: sin esto podía leer
+    // OTs y planos y crear/editar/borrar compras (probado en tests/firestore-rules.emulator.test.ts).
+    function isSignedIn() {
+      return request.auth != null
+          && request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
 
-    // Usuarios reales (email/password o Google) — excluye anónimos
-    function isRealUser() {
-      return request.auth != null &&
-        request.auth.token.firebase.sign_in_provider != 'anonymous';
+    // ── Helpers genéricos y validadores de esquema (SMV-VISION) ──────────
+    function isStringRange(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
     }
 
-    // Correo verificado: Google siempre lo es; Email/Password solo tras verificación
-    function isVerifiedUser() {
-      return isRealUser() && request.auth.token.email_verified == true;
+    function isStringMax(val, maxLen) {
+      return val is string && val.size() <= maxLen;
     }
 
-    function isAdmin() {
-      return isVerifiedUser() && request.auth.token.admin == true;
+    // Modelo `toolcribParts/{partId}`:
+    // partNumber (1..200), customer (1..120), description (<=500),
+    // status ('active'|'inactive'|'archived'), createdAtUTC, updatedAtUTC.
+    function isValidToolcribPartStatus(val) {
+      return val in ['active', 'inactive', 'archived'];
     }
 
-    function hasOnlyAllowedFields(allowedFields) {
-      return request.resource.data.keys().hasOnly(allowedFields);
+    function isValidToolcribPartCreate() {
+      let allowed = ['partNumber', 'customer', 'description', 'status', 'createdAtUTC', 'updatedAtUTC'];
+      let data = request.resource.data;
+      return data.keys().hasOnly(allowed)
+          && data.keys().hasAll(allowed)
+          && isStringRange(data.partNumber, 1, 200)
+          && isStringRange(data.customer, 1, 120)
+          && isStringMax(data.description, 500)
+          && isValidToolcribPartStatus(data.status)
+          && data.createdAtUTC is timestamp
+          && data.updatedAtUTC is timestamp;
     }
 
-    function hasRequiredFields(requiredFields) {
-      return request.resource.data.keys().hasAll(requiredFields);
+    function isValidToolcribPartUpdate() {
+      let updatable = ['partNumber', 'customer', 'description', 'status', 'updatedAtUTC'];
+      let data = request.resource.data;
+      let affected = data.diff(resource.data).affectedKeys();
+      // Solo valida campos presentes en affectedKeys() para no romper docs legacy del bootstrap.
+      return affected.hasOnly(updatable)
+          && (!('partNumber' in affected) || ('partNumber' in data && isStringRange(data.partNumber, 1, 200)))
+          && (!('customer' in affected) || ('customer' in data && isStringRange(data.customer, 1, 120)))
+          && (!('description' in affected) || ('description' in data && isStringMax(data.description, 500)))
+          && (!('status' in affected) || ('status' in data && isValidToolcribPartStatus(data.status)))
+          && (!('updatedAtUTC' in affected) || ('updatedAtUTC' in data && data.updatedAtUTC is timestamp));
     }
 
-    function isValidString(field, minLen, maxLen) {
-      return request.resource.data[field] is string &&
-             request.resource.data[field].size() >= minLen &&
-             request.resource.data[field].size() <= maxLen;
+    // Modelo `purchases/{purchaseId}`:
+    // nombre (1..300), tipo, sku (<=200), proveedor (<=200), link (<=1000),
+    // notas (<=2000), createdAtUTC, updatedAtUTC.
+    function isValidPurchaseFields(data) {
+      return (!('nombre' in data) || isStringRange(data.nombre, 1, 300))
+          && (!('tipo' in data) || data.tipo in ['metal', 'ensamble', 'herramienta', 'otro'])
+          && (!('sku' in data) || isStringMax(data.sku, 200))
+          && (!('proveedor' in data) || isStringMax(data.proveedor, 200))
+          && (!('link' in data) || isStringMax(data.link, 1000))
+          && (!('notas' in data) || isStringMax(data.notas, 2000))
+          && (!('createdAtUTC' in data) || data.createdAtUTC is timestamp)
+          && (!('updatedAtUTC' in data) || data.updatedAtUTC is timestamp);
     }
 
-    function isTimestamp(field) {
-      return request.resource.data[field] is timestamp;
+    function isValidPurchaseCreate() {
+      let allowed = ['nombre', 'tipo', 'sku', 'proveedor', 'link', 'notas', 'createdAtUTC', 'updatedAtUTC'];
+      let data = request.resource.data;
+      return data.keys().hasOnly(allowed)
+          && data.keys().hasAll(allowed)
+          && isValidPurchaseFields(data);
     }
 
-    // ===============================================================
-    // Domain Validators
-    // ===============================================================
+    function isValidPurchaseUpdate() {
+      let updatable = ['nombre', 'tipo', 'sku', 'proveedor', 'link', 'notas', 'updatedAtUTC'];
+      let data = request.resource.data;
+      return data.diff(resource.data).affectedKeys().hasOnly(updatable)
+          && (!('nombre' in resource.data) || 'nombre' in data)
+          && (!('tipo' in resource.data) || 'tipo' in data)
+          && 'updatedAtUTC' in data
+          && data.updatedAtUTC is timestamp
+          && isValidPurchaseFields(data);
+    }
 
-    function isValidCompanyConfig() {
+    // Modelo `toolingPurchases/{itemId}` (19 campos):
+    // requiere codigoISO (1..200) o descripcion (1..500), categoria, materialISO,
+    // moneda, strings acotados, campos numéricos y timestamps.
+    function isValidToolingCategory(val) {
+      return val in [
+        'inserto_torneado',
+        'inserto_fresado',
+        'inserto_roscado',
+        'inserto_ranurado',
+        'endmill',
+        'porta_torno',
+        'cono_fresadora',
+        'boquilla_collet',
+        'broca',
+        'machuelo',
+        'refaccion_torx'
+      ];
+    }
+
+    function isValidToolingFields(data) {
+      let hasIdentifier = ('codigoISO' in data && data.codigoISO is string && data.codigoISO.size() >= 1)
+                       || ('descripcion' in data && data.descripcion is string && data.descripcion.size() >= 1);
+      return hasIdentifier
+          && (!('codigoISO' in data) || isStringMax(data.codigoISO, 200))
+          && (!('descripcion' in data) || isStringMax(data.descripcion, 500))
+          && (!('categoria' in data) || isValidToolingCategory(data.categoria))
+          && (!('marca' in data) || isStringMax(data.marca, 500))
+          && (!('grado' in data) || isStringMax(data.grado, 500))
+          && (!('rompevirutas' in data) || isStringMax(data.rompevirutas, 500))
+          && (!('materialISO' in data) || data.materialISO in ['P', 'M', 'K', 'N', 'S', 'H', 'Universal'])
+          && (!('proveedor' in data) || isStringMax(data.proveedor, 500))
+          && (!('precioUnitario' in data) || data.precioUnitario is number)
+          && (!('precioCaja' in data) || data.precioCaja is number)
+          && (!('moneda' in data) || data.moneda in ['MXN', 'USD'])
+          && (!('linkCompra' in data) || isStringMax(data.linkCompra, 1000))
+          && (!('maquinaAsignada' in data) || isStringMax(data.maquinaAsignada, 500))
+          && (!('calificacion' in data) || data.calificacion is number)
+          && (!('rendimientoNotas' in data) || isStringMax(data.rendimientoNotas, 500))
+          && (!('stockActual' in data) || data.stockActual is number)
+          && (!('stockMinimo' in data) || data.stockMinimo is number)
+          && (!('createdAtUTC' in data) || data.createdAtUTC is timestamp)
+          && (!('updatedAtUTC' in data) || data.updatedAtUTC is timestamp);
+    }
+
+    function isValidToolingCreate() {
+      let allowed = [
+        'codigoISO', 'descripcion', 'categoria', 'marca', 'grado',
+        'rompevirutas', 'materialISO', 'proveedor', 'precioUnitario',
+        'precioCaja', 'moneda', 'linkCompra', 'maquinaAsignada',
+        'calificacion', 'rendimientoNotas', 'stockActual', 'stockMinimo',
+        'createdAtUTC', 'updatedAtUTC'
+      ];
+      let data = request.resource.data;
+      return data.keys().hasOnly(allowed)
+          && 'categoria' in data
+          && 'materialISO' in data
+          && 'moneda' in data
+          && 'createdAtUTC' in data
+          && 'updatedAtUTC' in data
+          && isValidToolingFields(data);
+    }
+
+    function isValidToolingUpdate() {
+      let updatable = [
+        'codigoISO', 'descripcion', 'categoria', 'marca', 'grado',
+        'rompevirutas', 'materialISO', 'proveedor', 'precioUnitario',
+        'precioCaja', 'moneda', 'linkCompra', 'maquinaAsignada',
+        'calificacion', 'rendimientoNotas', 'stockActual', 'stockMinimo',
+        'updatedAtUTC'
+      ];
+      let data = request.resource.data;
+      return data.diff(resource.data).affectedKeys().hasOnly(updatable)
+          && (!('categoria' in resource.data) || 'categoria' in data)
+          && (!('materialISO' in resource.data) || 'materialISO' in data)
+          && (!('moneda' in resource.data) || 'moneda' in data)
+          && 'updatedAtUTC' in data
+          && data.updatedAtUTC is timestamp
+          && isValidToolingFields(data);
+    }
+
+    // Modelo `partAliases/{aliasId}`:
+    // pattern (1..300), partNumber (1..200), drawingId (<=200),
+    // createdByUid (== auth.uid), createdAtUTC, updatedAtUTC.
+    // Nota: savePartAlias usa setDoc(..., { merge: true }) enviando todos los campos.
+    function isValidPartAlias() {
+      let allowed = ['pattern', 'partNumber', 'drawingId', 'createdByUid', 'createdAtUTC', 'updatedAtUTC'];
+      let data = request.resource.data;
+      return data.keys().hasOnly(allowed)
+          && data.keys().hasAll(allowed)
+          && isStringRange(data.pattern, 1, 300)
+          && isStringRange(data.partNumber, 1, 200)
+          && isStringMax(data.drawingId, 200)
+          && data.createdByUid is string
+          && data.createdByUid == request.auth.uid
+          && data.createdAtUTC is timestamp
+          && data.updatedAtUTC is timestamp;
+    }
+
+    // Modelo `toolcribSets/{setId}`:
+    // nombre (1..200), tipo ('par'|'hoja'|'complemento'|'variante'),
+    // miembros (lista 2..20), updatedByUid, updatedAtUTC.
+    function isValidToolcribSetBase(data) {
+      let allowed = ['nombre', 'tipo', 'miembros', 'updatedByUid', 'updatedAtUTC'];
+      return data.keys().hasOnly(allowed)
+          && isStringRange(data.nombre, 1, 200)
+          && data.tipo in ['par', 'hoja', 'complemento', 'variante']
+          && data.miembros is list
+          && data.miembros.size() >= 2
+          && data.miembros.size() <= 20
+          && data.updatedAtUTC is timestamp;
+    }
+
+    function isValidToolcribSetCreate() {
+      let allowed = ['nombre', 'tipo', 'miembros', 'updatedByUid', 'updatedAtUTC'];
+      let data = request.resource.data;
+      return isValidToolcribSetBase(data)
+          && data.keys().hasAll(allowed)
+          && data.updatedByUid is string
+          && data.updatedByUid == request.auth.uid;
+    }
+
+    function isValidToolcribSetUpdate() {
+      let allowed = ['nombre', 'tipo', 'miembros', 'updatedByUid', 'updatedAtUTC'];
+      let data = request.resource.data;
+      let affected = data.diff(resource.data).affectedKeys();
+      // reconcileSets actualiza sets hermanos enviando solo { miembros, updatedAtUTC }.
+      return isValidToolcribSetBase(data)
+          && affected.hasOnly(allowed)
+          && (!('updatedByUid' in data) || data.updatedByUid is string)
+          && (!('updatedByUid' in affected) || data.updatedByUid == request.auth.uid);
+    }
+
+    // Modelo `toolcribPartNotes/{noteId}`:
+    // partNumber (1..200), notas (lista <=50), updatedByUid (== auth.uid), updatedAtUTC.
+    function isValidToolcribPartNotes() {
+      let allowed = ['partNumber', 'notas', 'updatedByUid', 'updatedAtUTC'];
+      let data = request.resource.data;
+      return data.keys().hasOnly(allowed)
+          && data.keys().hasAll(allowed)
+          && isStringRange(data.partNumber, 1, 200)
+          && data.notas is list
+          && data.notas.size() <= 50
+          && data.updatedByUid is string
+          && data.updatedByUid == request.auth.uid
+          && data.updatedAtUTC is timestamp;
+    }
+
+    // ── Escritas solo por Admin SDK (sync Odoo / Cloud Function) ──────────
+    match /odooSaleOrders/{orderId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /syncMeta/{docId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /workOrders/{otId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ── Catálogo Tool Crib (lectura + altas/ediciones desde la app) ───────
+    match /toolcribParts/{partId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidToolcribPartCreate();
+      allow update: if isSignedIn() && isValidToolcribPartUpdate();
+      allow delete: if false; // el dedupe borra vía Admin SDK
+    }
+
+    match /toolcribDrawings/{drawingId} {
+      allow read: if isSignedIn();
+      // El uploader firma el documento con su propio uid.
+      allow create: if isSignedIn()
+                    && request.resource.data.createdByUid == request.auth.uid;
+      // Un update nunca puede tocar la firma de procedencia (los planos
+      // antiguos del bootstrap no traen el campo — diff() los tolera).
+      allow update: if isSignedIn()
+                    && !request.resource.data.diff(resource.data)
+                        .affectedKeys().hasAny(['createdByUid']);
+      allow delete: if false; // el dedupe borra vía Admin SDK
+    }
+
+    // ── Logs de auditoría: solo altas, inmutables, uid no falsificable ────
+    match /toolcribPrintLogs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.printedByUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /analysisRuns/{runId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.userUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ── Catálogo de compras (CRUD completo desde ComprasPanel) ────────────
+    match /purchases/{purchaseId} {
+      allow read, delete: if isSignedIn();
+      allow create: if isSignedIn() && isValidPurchaseCreate();
+      allow update: if isSignedIn() && isValidPurchaseUpdate();
+    }
+
+    // ── Bóveda de herramental (CRUD desde Herramental → Mi Bóveda) ─────
+    match /toolingPurchases/{itemId} {
+      allow read, delete: if isSignedIn();
+      allow create: if isSignedIn() && isValidToolingCreate();
+      allow update: if isSignedIn() && isValidToolingUpdate();
+    }
+
+    // ── Memoria de alias de piezas (puente orden-plano) ───────────────────
+    match /partAliases/{aliasId} {
+      allow read, delete: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidPartAlias();
+    }
+
+    // ── Juegos (pares/hojas/complementos) y notas permanentes por pieza ───
+    match /toolcribSets/{setId} {
+      allow read, delete: if isSignedIn();
+      allow create: if isSignedIn() && isValidToolcribSetCreate();
+      allow update: if isSignedIn() && isValidToolcribSetUpdate();
+    }
+    match /toolcribPartNotes/{noteId} {
+      allow read, delete: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidToolcribPartNotes();
+    }
+
+    // ── Dashboard (Visual Factory TV) — misma base (default) ──────────────
+    // Bloque del Dashboard (company_configs, user_settings): este archivo es la única fuente.
+    function dashIsVerifiedAdmin() {
+      return request.auth != null
+          && request.auth.token.firebase.sign_in_provider != 'anonymous'
+          && request.auth.token.email_verified == true
+          && request.auth.token.admin == true;
+    }
+    function dashIsValidCompanyConfig() {
       let allowedFields = ['company_name', 'delivery_schedule', 'updatedAt'];
-      return hasOnlyAllowedFields(allowedFields) &&
-             hasRequiredFields(allowedFields) &&
-             isValidString('company_name', 1, 100) &&
-             isValidString('delivery_schedule', 1, 500) &&
-             isTimestamp('updatedAt');
+      return request.resource.data.keys().hasOnly(allowedFields)
+          && request.resource.data.keys().hasAll(allowedFields)
+          && request.resource.data.company_name is string
+          && request.resource.data.company_name.size() >= 1
+          && request.resource.data.company_name.size() <= 100
+          && request.resource.data.delivery_schedule is string
+          && request.resource.data.delivery_schedule.size() >= 1
+          && request.resource.data.delivery_schedule.size() <= 500
+          && request.resource.data.updatedAt is timestamp;
     }
-
-    // ===============================================================
-    // Rules
-    // ===============================================================
-
     match /company_configs/{configId} {
-      allow read: if isRealUser();
-      allow create: if isAdmin() && isValidCompanyConfig();
-      allow update: if isAdmin() && isValidCompanyConfig();
-      allow delete: if isAdmin();
+      allow read: if isSignedIn(); // el Dashboard exige cuenta real; anónimos excluidos
+      allow create, update: if dashIsVerifiedAdmin() && dashIsValidCompanyConfig();
+      allow delete: if dashIsVerifiedAdmin();
     }
-
-    // Las órdenes ahora viven en Odoo. Los datos históricos de estas
-    // colecciones se conservan en Firestore pero quedan inaccesibles.
     match /work_orders/{orderId} {
       allow read, write: if false;
     }
-
     match /work_orders_history/{historyId} {
+      allow read, write: if false;
+    }
+
+    // Configuración por cuenta: cada uid lee y escribe solo su documento (campos exactos).
+    function dashIsValidUserSettings() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['startView', 'followedClients', 'print', 'appearance', 'updatedAt'])
+          && d.keys().hasAll(['startView', 'followedClients', 'print', 'appearance', 'updatedAt'])
+          && d.startView in ['company', 'toolcrib', 'requests', 'config']
+          && d.followedClients is list && d.followedClients.size() <= 10
+          && d.print is map && d.print.keys().hasOnly(['copies', 'boardTicket'])
+          && d.print.keys().hasAll(['copies', 'boardTicket'])
+          && d.print.copies is int && d.print.copies >= 1 && d.print.copies <= 5
+          && d.print.boardTicket is bool
+          && d.appearance is map && d.appearance.keys().hasOnly(['theme', 'density'])
+          && d.appearance.keys().hasAll(['theme', 'density'])
+          && d.appearance.theme in ['dark', 'light']
+          && d.appearance.density in ['comfortable', 'compact']
+          && d.updatedAt is timestamp;
+    }
+    match /user_settings/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow create, update: if isSignedIn() && request.auth.uid == uid && dashIsValidUserSettings();
+    }
+
+    // ── Todo lo demás: denegado ────────────────────────────────────────────
+    match /{document=**} {
       allow read, write: if false;
     }
   }

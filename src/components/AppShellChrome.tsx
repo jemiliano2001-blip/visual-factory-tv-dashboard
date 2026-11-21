@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { auth } from '../firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { LayoutDashboard, BarChart3, LogOut, Tv, Sun, Moon } from 'lucide-react';
-import { useAdminTheme } from '../hooks/useAdminTheme';
+import { setAdminTheme, useAdminTheme } from '../hooks/useAdminTheme';
+import { useUserSettings } from '../hooks/useUserSettings';
 import { AdminSidebarSections, AdminMobileNav } from './admin/AdminNav';
 import { Button } from './ui/button';
 
@@ -13,6 +14,21 @@ export default function AppShellChrome() {
   const location = useLocation();
   const navigate = useNavigate();
   const [theme, toggleTheme] = useAdminTheme();
+  const account = useUserSettings();
+  // El tema guardado en la cuenta se aplica una vez al cargar; después manda lo que se elija aquí.
+  const themeApplied = useRef(false);
+  useEffect(() => {
+    if (!account.loaded || themeApplied.current) return;
+    themeApplied.current = true;
+    setAdminTheme(account.settings.appearance.theme);
+  }, [account.loaded, account.settings.appearance.theme]);
+  const onToggleTheme = () => {
+    toggleTheme();
+    if (account.loaded) {
+      const next = theme === 'light' ? 'dark' : 'light';
+      account.update({ appearance: { ...account.settings.appearance, theme: next } }).catch(() => undefined);
+    }
+  };
   const onAdmin = location.pathname === '/admin';
   const themed = onAdmin || location.pathname === '/stats';
 
@@ -102,7 +118,7 @@ export default function AppShellChrome() {
           {themed && (
             <button
               type="button"
-              onClick={toggleTheme}
+              onClick={onToggleTheme}
               className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               {theme === 'light' ? <Moon className="size-[18px]" /> : <Sun className="size-[18px]" />}
