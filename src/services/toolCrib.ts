@@ -31,8 +31,6 @@ export function extractPartNumber(lineName: string): string | null {
   return part ? part : null;
 }
 
-const SERVICE_LINE = /servicio/i;
-
 function orderLines(order: OdooSaleOrder): OdooOrderLine[] {
   return order.lines && order.lines.length > 0
     ? order.lines
@@ -50,7 +48,6 @@ export function collectToolCribLines(
     .flatMap(order => {
       const requested = (requestsByOrder?.get(order.id)?.length ?? 0) > 0;
       return orderLines(order)
-        .filter(line => !SERVICE_LINE.test(line.name))
         .map((line): ToolCribLine => {
           const missing = Math.max(0, line.qty - line.delivered);
           return {

@@ -93,17 +93,16 @@ test('collectToolCribLines: partida sin corchetes se conserva con partNumber nul
   assert.equal(out[0].partNumber, null);
 });
 
-test('collectToolCribLines: omite partidas de servicio y clientes que no son Tool Crib', () => {
+test('collectToolCribLines: conserva partidas con "servicio" en el texto y omite clientes que no son Tool Crib', () => {
   const suprajit = order({
     lines: [
-      { name: 'SERVICIO DE MAQUINADO', qty: 1, delivered: 0 },
-      { name: 'Servicio de corte', qty: 1, delivered: 0 },
-      { name: '[A-1] Pieza', qty: 1, delivered: 0 },
+      { name: 'Servicio de maquinado', qty: 1, delivered: 0 },
+      { name: '[A-1] Buje para servicio pesado', qty: 1, delivered: 0 },
     ],
   });
   const bosch = order({ id: 2, partner_name: 'BOSCH' });
   const out = collectToolCribLines([suprajit, bosch]);
-  assert.deepEqual(out.map(l => l.line.name), ['[A-1] Pieza']);
+  assert.deepEqual(out.map(l => l.line.name), ['Servicio de maquinado', '[A-1] Buje para servicio pesado']);
 });
 
 test('collectToolCribLines: la orden más urgente va primero y se respeta el orden de Odoo dentro de la orden', () => {
