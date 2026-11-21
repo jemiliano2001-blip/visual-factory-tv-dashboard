@@ -16,8 +16,9 @@ import {
   type OrderAssignmentsPayload,
 } from '../../shared/orderAssignments';
 import {
-  createInvoiceRequests, loadOrderSnapshots, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody,
-  reconcileWithOdoo, type OdooOrderSnapshot, type RequestActor,
+  backfillRequestMeta, createInvoiceRequests, loadOrderSnapshots, markInvoiceRequestDone, missingMetaOrderIds,
+  normalizeInvoiceRequests, parseCreateRequestsBody, reconcileWithOdoo,
+  type OdooOrderMetaSnapshot, type OdooOrderSnapshot, type RequestActor,
 } from '../../shared/invoiceRequests';
 import { isKnownSatCode } from '../../shared/satCatalogServer';
 import {
@@ -334,16 +335,36 @@ app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
         return;
       }
     }
-    let out = reconcileWithOdoo(stored, orders, new Date().toISOString());
-    if (out.state !== stored) {
-      out = await admin.firestore().runTransaction(async tx => {
-        const current = normalizeInvoiceRequests((await tx.get(requestsDoc())).data());
-        const next = reconcileWithOdoo(current, orders, new Date().toISOString());
-        if (next.state !== current) tx.set(requestsDoc(), next.state);
-        return next;
-      });
+    const loadedIds = new Set(orders.map(o => o.id));
+    const metaIds = missingMetaOrderIds(stored, loadedIds);
+    let metaOrders: OdooOrderMetaSnapshot[] = orders;
+    const checkedIds = new Set<number>(loadedIds);
+    if (odooClient.isConfigured() && metaIds.length > 0) {
+      try {
+        const extraMeta = await odooClient.fetchOrderMetaByIds(metaIds);
+        metaOrders = [...orders, ...extraMeta];
+        for (const id of metaIds) checkedIds.add(id);
+      } catch (err) {
+        logger.warn('solicitudes: no se pudieron completar metadatos desde Odoo:', err);
+      }
     }
-    res.json({ ...out.state, progress: out.progress });
+    const now = new Date().toISOString();
+    const rec = reconcileWithOdoo(stored, orders, now);
+    let finalState = backfillRequestMeta(rec.state, metaOrders, checkedIds, now);
+    let finalProgress = rec.progress;
+    if (finalState !== stored) {
+      const txOut = await admin.firestore().runTransaction(async tx => {
+        const current = normalizeInvoiceRequests((await tx.get(requestsDoc())).data());
+        const txNow = new Date().toISOString();
+        const txRec = reconcileWithOdoo(current, orders, txNow);
+        const txState = backfillRequestMeta(txRec.state, metaOrders, checkedIds, txNow);
+        if (txState !== current) tx.set(requestsDoc(), txState);
+        return { state: txState, progress: txRec.progress };
+      });
+      finalState = txOut.state;
+      finalProgress = txOut.progress;
+    }
+    res.json({ ...finalState, progress: finalProgress });
   } catch (err) {
     logger.error('[InvoiceRequests] Error en GET:', err);
     res.status(500).json({ error: 'No se pudieron consultar las solicitudes.' });

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
 import type { OdooSaleOrder } from '../services/odoo';
+import { extractOrderNoteMeta } from '../services/orderNoteParser';
 import { auth } from '../firebase';
 import { useMobile } from '../hooks/useMobile';
 import { useInvoiceRequests, useSubmitInvoiceRequests } from '../hooks/useInvoiceRequests';
@@ -98,7 +99,7 @@ function OrderRequestCard({ order, pendingForOrder, avail, choice, onType, onQty
   onAll: () => void;
   catalog: SatCatalog | null;
 }) {
-  const reference = order.customer_reference?.trim();
+  const reference = extractOrderNoteMeta(order).poNumber;
   const ohd = isOhdPartner(order.partner_name);
   const canAsk = choice.type !== null && (
     !byPieces(order, choice.type)

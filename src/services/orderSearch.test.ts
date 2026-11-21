@@ -45,3 +45,17 @@ test('busca PO del cliente numérico con y sin prefijo, separado de la SO', () =
   assert.equal(matchesOrderSearch({ ...poOrder, customer_reference: null, name: 'SO20264321' }, 'PO20264321'), false);
   assert.equal(matchesOrderSearch({ ...poOrder, customer_reference: '20269999', note: 'Lote 20264321' }, 'PO20264321'), false);
 });
+
+test('busca por purchase_order (origin) y requisitor aunque falten en referencia y nota', () => {
+  const fromFields = {
+    ...order,
+    customer_reference: null,
+    purchase_order: '00089905',
+    requisitor: 'OZIEL MUÑOZ',
+    note: null,
+    lines: [],
+  };
+  for (const query of ['00089905', 'PO00089905', 'PO 00089905', 'oziel munoz']) {
+    assert.equal(matchesOrderSearch(fromFields, query), true, query);
+  }
+});

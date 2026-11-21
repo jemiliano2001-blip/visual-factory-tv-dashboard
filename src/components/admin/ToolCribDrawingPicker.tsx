@@ -1,6 +1,6 @@
 /** Elegir un plano de la biblioteca (guarda alias) o subir uno nuevo para una partida Tool Crib. */
 import { useMemo, useState } from 'react';
-import type { ToolCribLine } from '../../services/toolCrib';
+import { toolCribCustomerKey, type ToolCribLine } from '../../services/toolCrib';
 import type { DrawingResolution, DrawingView } from '../../services/toolCribMatching';
 import { savePartAlias } from '../../services/toolCribLibrary';
 import { uploadDrawing } from '../../services/toolCribUpload';
@@ -30,14 +30,15 @@ function PickerContent({ line, resolution, library, onClose, onSaved }: Omit<Pro
   const [partNumber, setPartNumber] = useState(line.partNumber ?? '');
   const [revision, setRevision] = useState('A');
   const pattern = line.partNumber ?? line.line.name;
+  const customer = toolCribCustomerKey(line.order.partner_name) ?? 'SUPRAJIT';
 
   const candidates = resolution.kind === 'ambiguous' ? resolution.candidates : [];
   const results = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const rest = library.filter(v => !candidates.some(c => c.drawingId === v.drawingId));
+    const rest = library.filter(v => v.customer === customer && !candidates.some(c => c.drawingId === v.drawingId));
     const filtered = q ? rest.filter(v => `${v.partNumber} ${v.description}`.toLowerCase().includes(q)) : rest;
     return [...candidates, ...filtered].slice(0, 50);
-  }, [library, candidates, search]);
+  }, [library, candidates, search, customer]);
 
   async function run(job: () => Promise<void>) {
     setBusy(true);
@@ -111,7 +112,7 @@ function PickerContent({ line, resolution, library, onClose, onSaved }: Omit<Pro
           <div className="flex justify-end">
             <Button
               disabled={busy || !file || !check?.ok}
-              onClick={() => file && run(() => uploadDrawing({ file, partNumber, revision, description: line.line.name, aliasPattern: pattern }))}
+              onClick={() => file && run(() => uploadDrawing({ customer, file, partNumber, revision, description: line.line.name, aliasPattern: pattern }))}
             >
               {busy ? 'Subiendo…' : 'Subir y ligar'}
             </Button>

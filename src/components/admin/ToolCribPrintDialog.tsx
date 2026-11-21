@@ -8,6 +8,7 @@ import { formatPrintedLabel, type PrintState } from '../../services/toolCribPrin
 import { fetchPdfBytes, runPrint, validatePrintInput } from '../../services/toolCribPrintRun';
 import { buildPrintPdf, openPdfForPrint } from '../../services/planoOt';
 import { recordPrintLog } from '../../services/toolCribLibrary';
+import { extractOrderNoteMeta } from '../../services/orderNoteParser';
 import { auth } from '../../firebase';
 import { useMobile } from '../../hooks/useMobile';
 import { Button } from '../ui/button';
@@ -35,6 +36,7 @@ function PrintContent({ line, view, state, onClose, onPrinted }: Omit<Props, 'op
 
   const reprint = state.kind === 'printed';
   const check = validatePrintInput({ cantidad, copies });
+  const poNumber = extractOrderNoteMeta(line.order).poNumber;
 
   async function submit() {
     if (!check.ok) { setError(check.error); return; }
@@ -52,7 +54,7 @@ function PrintContent({ line, view, state, onClose, onPrinted }: Omit<Props, 'op
               soNumber: line.order.name,
               cantidad: String(check.cantidad),
               fecha: format(new Date(), 'dd/MM/yyyy'),
-              poNumber: line.order.customer_reference ?? '',
+              poNumber: poNumber ?? '',
               partNumber: view.partNumber,
               customer: line.order.partner_name,
               piezaDescripcion: line.line.name,
@@ -81,7 +83,7 @@ function PrintContent({ line, view, state, onClose, onPrinted }: Omit<Props, 'op
       )}
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
         <dt className="text-muted-foreground">SO</dt><dd className="font-mono-data font-semibold">{line.order.name}</dd>
-        <dt className="text-muted-foreground">PO</dt><dd className="font-mono-data">{line.order.customer_reference || 'Sin PO'}</dd>
+        <dt className="text-muted-foreground">PO</dt><dd className="font-mono-data">{poNumber || 'Sin PO'}</dd>
         <dt className="text-muted-foreground">Plano</dt><dd className="font-mono-data">{view.partNumber} · rev. {view.revision || '—'}</dd>
       </dl>
       <div className="grid grid-cols-2 gap-3">

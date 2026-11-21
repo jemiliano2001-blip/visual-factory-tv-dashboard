@@ -2,6 +2,8 @@ import type { OdooSaleOrder } from './odoo';
 
 type SearchableOrder = Pick<OdooSaleOrder, 'name' | 'partner_name' | 'main_product' | 'salesperson' | 'note'> & {
   customer_reference?: string | null;
+  purchase_order?: string | null;
+  requisitor?: string | null;
   lines?: Array<{ name: string }>;
 };
 
@@ -31,6 +33,9 @@ export function createOrderSearchMatcher(query: string): (order: SearchableOrder
     const fields = [
       order.name, order.partner_name, order.main_product, order.customer_reference,
       order.customer_reference ? `PO ${order.customer_reference}` : null,
+      order.purchase_order,
+      order.purchase_order ? `PO ${order.purchase_order}` : null,
+      order.requisitor,
       order.salesperson, ...(order.lines ?? []).map(line => line.name), plainNote(order.note),
     ].filter((value): value is string => typeof value === 'string' && Boolean(value));
     const texts = fields.flatMap(value => [normalizeSearchText(value), normalizeSearchText(value, false)]);

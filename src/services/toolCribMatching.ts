@@ -4,7 +4,7 @@
  * Cambio deliberado: si dos partes distintas empatan en el mejor puntaje, la
  * partida queda "ambigua" en vez de tomar la primera en silencio.
  */
-import type { ToolCribLine } from './toolCrib';
+import { toolCribCustomerKey, type ToolCribLine } from './toolCrib';
 
 export const MIN_BLUEPRINT_MATCH_SCORE = 80;
 
@@ -153,7 +153,9 @@ export function resolveLineDrawing(
   library: readonly DrawingView[],
   aliases: readonly PartAlias[],
 ): DrawingResolution {
-  const views = collapseByPart(library);
+  // Solo planos del mismo cliente: el mismo número de parte puede existir en dos clientes.
+  const customer = toolCribCustomerKey(line.order.partner_name);
+  const views = collapseByPart(library.filter(v => v.customer === customer));
 
   const keys = [line.partNumber ?? '', line.line.name].map(normalizeAliasKey).filter(Boolean);
   const alias = aliases.find(a => keys.includes(normalizeAliasKey(a.pattern)));

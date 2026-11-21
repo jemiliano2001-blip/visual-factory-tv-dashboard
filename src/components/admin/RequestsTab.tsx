@@ -32,6 +32,7 @@ function matchesRequestSearch(request: InvoiceRequest, q: string, meta?: OrderNo
     meta?.clientContact ?? '',
     request.partnerName,
     request.customerReference ?? '',
+    request.requester ?? '',
     actorLabel(request.requestedBy),
     request.requestedBy.email ?? '',
     request.note ?? '',
@@ -63,9 +64,9 @@ function RequestsSkeleton() {
 }
 
 function RequestCard({ request, meta, action, progress }: { request: InvoiceRequest; meta?: OrderNoteMeta; action?: React.ReactNode; progress?: LineProgress[] }) {
-  // PO y requisitor salen de la orden en Odoo (nota o client_order_ref), igual que en Órdenes.
+  // PO y requisitor salen de la orden en Odoo (nota, client_order_ref, origin/requisitor) o de lo guardado en la solicitud.
   const poNumber = meta?.poNumber ?? request.customerReference;
-  const requester = meta?.clientContact ?? null;
+  const requester = meta?.clientContact ?? request.requester ?? null;
   const isFactura = request.type === 'factura';
   return (
     <li className="rounded-2xl border border-border bg-card p-4 space-y-2.5">

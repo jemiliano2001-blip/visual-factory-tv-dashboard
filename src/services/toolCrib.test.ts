@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { InvoiceRequest } from '../../shared/invoiceRequests';
 import type { OdooSaleOrder } from './odoo';
-import { collectToolCribLines, extractPartNumber, isToolCribOrder } from './toolCrib';
+import { collectToolCribLines, extractPartNumber, isToolCribOrder, toolCribCustomerKey } from './toolCrib';
 
 const DAY_MS = 86_400_000;
 const daysFromNow = (days: number) => new Date(Date.now() + days * DAY_MS).toISOString();
@@ -117,4 +117,13 @@ test('collectToolCribLines: la orden más urgente va primero y se respeta el ord
   });
   const out = collectToolCribLines([aTiempo, vencida]);
   assert.deepEqual(out.map(l => l.line.name), ['[V-1] a', '[V-2] b', '[T-1] a']);
+});
+
+test('toolCribCustomerKey reconoce Suprajit, Kohler y Fisher y descarta lo demás', () => {
+  assert.equal(toolCribCustomerKey('SUPRAJIT MEXICO'), 'SUPRAJIT');
+  assert.equal(toolCribCustomerKey('Kohler México S.A.'), 'KOHLER');
+  assert.equal(toolCribCustomerKey('  fisher controls '), 'FISHER');
+  assert.equal(toolCribCustomerKey('BOSCH'), null);
+  assert.equal(isToolCribOrder(order({ partner_name: 'KOHLER MEXICO' })), true);
+  assert.equal(isToolCribOrder(order({ partner_name: 'FISHER CONTROLS' })), true);
 });

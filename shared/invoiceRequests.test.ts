@@ -520,3 +520,51 @@ test('rechaza demasiadas partidas por solicitud y recorta por bytes UTF-8', () =
   const out = normalizeInvoiceRequests({ requests, updatedAt: '' });
   assert.ok(new TextEncoder().encode(JSON.stringify(out)).length <= 800_000);
 });
+
+test('createInvoiceRequests guarda customerReference desde nota o purchase_order y requester desde nota o requisitor', () => {
+  const fromNote: RequestableOrder = {
+    id: 101, name: '2026/S02161', partner_name: 'OHD OPERATORS DE MEXICO',
+    customer_reference: null, purchase_order: 'ORIG-9', requisitor: 'Respaldo',
+    note: '<p>Ing. Julio Alfaro / PO. 20264693</p>',
+    lines: [{ id: 1, name: 'Fixture', qty: 1, delivered: 0 }],
+  };
+  const fromOdooFields: RequestableOrder = {
+    id: 102, name: '2026/S02244', partner_name: 'SUPRAJIT MEXICO',
+    customer_reference: null, purchase_order: 'PO. 00089905', requisitor: 'Ing. Fernando   Trujillo',
+    note: '<p>Tiempo de entrega 4 semanas</p>',
+    lines: [{ id: 2, name: 'Pieza', qty: 1, delivered: 0 }],
+  };
+  const emptyMeta: RequestableOrder = {
+    id: 103, name: '2026/S02245', partner_name: 'Cliente',
+    customer_reference: null, purchase_order: null, requisitor: null, note: null,
+    lines: [{ id: 3, name: 'Pieza', qty: 1, delivered: 0 }],
+  };
+  const res = createInvoiceRequests(empty, [
+    { orderId: 101, type: 'remision', lines: [{ lineId: 1, qty: 1 }], satKeys: [{ lineId: 1, code: '23153000' }] },
+    { orderId: 102, type: 'factura' },
+    { orderId: 103, type: 'factura' },
+  ], [fromNote, fromOdooFields, emptyMeta], ctx());
+  assert.equal(res.created[0].customerReference, '20264693');
+  assert.equal(res.created[0].requester, 'Ing. Julio Alfaro');
+  assert.equal(res.created[1].customerReference, '00089905');
+  assert.equal(res.created[1].requester, 'Ing. Fernando Trujillo');
+  assert.equal(res.created[2].customerReference, null);
+  assert.equal(res.created[2].requester, null);
+});
+
+test('normalizeInvoiceRequests valida requester y preserva ausencia en legados sin clave undefined', () => {
+  const normalized = normalizeInvoiceRequests({
+    updatedAt: 't',
+    requests: [
+      req({ id: 'legacy' }),
+      { ...req({ id: 'withName' }), requester: '  OZIEL  MUÑOZ  ' },
+      { ...req({ id: 'withNull' }), requester: null },
+      { ...req({ id: 'badType' }), requester: 123 },
+      { ...req({ id: 'tooLong' }), requester: 'x'.repeat(201) },
+    ],
+  });
+  assert.deepEqual(normalized.requests.map(r => r.id), ['legacy', 'withName', 'withNull']);
+  assert.equal(Object.hasOwn(normalized.requests[0], 'requester'), false);
+  assert.equal(normalized.requests[1].requester, 'OZIEL MUÑOZ');
+  assert.equal(normalized.requests[2].requester, null);
+});

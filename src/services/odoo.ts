@@ -42,6 +42,10 @@ export interface OdooSaleOrder {
   name: string;
   /** Referencia de compra del cliente (client_order_ref en Odoo), si existe */
   customer_reference: string | null;
+  /** Orden de compra en Odoo (campo origin), respaldo si falta en referencia y nota */
+  purchase_order?: string | null;
+  /** Requisitor en Odoo (campo requisitor), respaldo si falta en nota */
+  requisitor?: string | null;
   /** Nombre del cliente */
   partner_name: string;
   /** Descripción del producto principal */

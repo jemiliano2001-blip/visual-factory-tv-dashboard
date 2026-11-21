@@ -9,7 +9,7 @@ import {
 import { auth, db } from '../firebase';
 import { normalizeAliasKey, type DrawingView, type PartAlias } from './toolCribMatching';
 import type { PrintLog } from './toolCribPrintIndex';
-import { TOOL_CRIB_PARTNER_KEY } from './toolCrib';
+import { TOOL_CRIB_CUSTOMERS } from './toolCrib';
 
 export { buildPrintedIndex, printedKey, type PrintLog } from './toolCribPrintIndex';
 
@@ -25,10 +25,10 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const iso = (v: unknown): string | null =>
   v && typeof (v as Timestamp).toDate === 'function' ? (v as Timestamp).toDate().toISOString() : null;
 
-/** Partes activas de Suprajit con su plano activo más reciente (2 consultas, join en memoria). */
+/** Partes activas de los clientes Tool Crib con su plano activo más reciente (2 consultas, join en memoria). */
 export async function loadLibrary(): Promise<DrawingView[]> {
   const [parts, drawings] = await Promise.all([
-    getDocs(query(collection(db, PARTS), where('status', '==', 'active'), where('customer', '==', TOOL_CRIB_PARTNER_KEY), limit(LIMIT))),
+    getDocs(query(collection(db, PARTS), where('status', '==', 'active'), where('customer', 'in', [...TOOL_CRIB_CUSTOMERS]), limit(LIMIT))),
     getDocs(query(collection(db, DRAWINGS), where('isActive', '==', true), limit(LIMIT))),
   ]);
 

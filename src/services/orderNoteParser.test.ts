@@ -52,3 +52,42 @@ test('sin PO ni requisitor', () => {
     poNumber: null, clientContact: null, cleanNote: 'Entrega urgente',
   });
 });
+
+test('purchase_order (origin) respalda la PO si falta en referencia y nota', () => {
+  assert.equal(extractOrderNoteMeta({ purchase_order: '00089905', note: '<p>Ing. Fernando Trujillo</p>' }).poNumber, '00089905');
+  assert.equal(extractOrderNoteMeta({ purchase_order: 'PO. A21734 .', note: null }).poNumber, 'A21734');
+  assert.equal(extractOrderNoteMeta({ purchase_order: '  .  ' }).poNumber, null);
+});
+
+test('precedencia PO: customer_reference > nota > purchase_order', () => {
+  assert.equal(
+    extractOrderNoteMeta({ customer_reference: 'REF-1', note: 'Ing. Ana / PO.NOTE-2', purchase_order: 'ORIG-3' }).poNumber,
+    'REF-1',
+  );
+  assert.equal(
+    extractOrderNoteMeta({ customer_reference: null, note: 'Ing. Ana / PO.NOTE-2', purchase_order: 'ORIG-3' }).poNumber,
+    'NOTE-2',
+  );
+});
+
+test('requisitor respalda clientContact si no viene encabezado con diagonal y conserva cleanNote', () => {
+  assert.deepEqual(
+    extractOrderNoteMeta({ note: '<p>Ing. Marco García PO. 20264380</p>', requisitor: 'Ing. Marco García' }),
+    { poNumber: '20264380', clientContact: 'Ing. Marco García', cleanNote: 'Ing. Marco García PO. 20264380' },
+  );
+  assert.deepEqual(
+    extractOrderNoteMeta({ note: 'Entregar el 10/11/2026', requisitor: '  OZIEL   MUÑOZ  ' }),
+    { poNumber: null, clientContact: 'OZIEL MUÑOZ', cleanNote: 'Entregar el 10/11/2026' },
+  );
+  assert.deepEqual(
+    extractOrderNoteMeta({ note: null, requisitor: '   ' }),
+    { poNumber: null, clientContact: null, cleanNote: '' },
+  );
+});
+
+test('precedencia requisitor: encabezado de nota > campo requisitor de Odoo', () => {
+  assert.equal(
+    extractOrderNoteMeta({ note: 'VICTOR C./RUBEN C./PO.A21734', requisitor: 'VICTOR CRUZ' }).clientContact,
+    'VICTOR C.',
+  );
+});

@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  backfillRequestMeta,
   loadOrderSnapshots,
+  missingMetaOrderIds,
   ODOO_AUTO_ACTOR,
   reconcileWithOdoo,
   type InvoiceRequest,
   type InvoiceRequestsState,
+  type OdooOrderMetaSnapshot,
   type OdooOrderSnapshot,
   type RequestActor,
 } from './invoiceRequests.ts';
@@ -132,4 +135,44 @@ test('loadOrderSnapshots: usa el catálogo y busca por id solo las órdenes que 
   });
   assert.deepEqual(asked, [[20]]);
   assert.deepEqual(out.map(o => o.id).sort(), [10, 20]);
+});
+
+test('missingMetaOrderIds y backfillRequestMeta rellenan hechas legadas y pendientes sin repetir trabajo', () => {
+  const legacyDone: InvoiceRequest = {
+    ...req({ id: 'done-1', orderId: 20, type: 'factura', status: 'hecha', doneBy: actor, doneAt: 'ayer' }),
+  };
+  const legacyNoMeta: InvoiceRequest = {
+    ...req({ id: 'done-2', orderId: 21, type: 'factura', status: 'hecha', doneBy: actor, doneAt: 'ayer' }),
+  };
+  const legacyDeleted: InvoiceRequest = {
+    ...req({ id: 'done-3', orderId: 22, type: 'factura', status: 'hecha', doneBy: actor, doneAt: 'ayer' }),
+  };
+  const pendingIncomplete: InvoiceRequest = req({
+    id: 'pend-1', orderId: 10, type: 'factura', requester: null,
+  });
+  const s = state(legacyDone, legacyNoMeta, legacyDeleted, pendingIncomplete);
+
+  assert.deepEqual(missingMetaOrderIds(s, new Set([10])), [20, 21, 22]);
+
+  const snapshots: OdooOrderMetaSnapshot[] = [
+    { id: 10, customer_reference: null, purchase_order: 'A23700', requisitor: 'OZIEL  MUÑOZ', note: null },
+    { id: 20, customer_reference: null, purchase_order: '20264693', requisitor: null, note: '<p>Ing. Julio Alfaro / PO. 20264693</p>' },
+    { id: 21, customer_reference: null, purchase_order: null, requisitor: null, note: '<p>Sin datos</p>' },
+  ];
+  const checked = new Set([10, 20, 21, 22]);
+  const updated = backfillRequestMeta(s, snapshots, checked, NOW);
+
+  assert.notEqual(updated, s);
+  assert.equal(updated.updatedAt, NOW);
+  assert.equal(updated.requests[0].customerReference, '20264693');
+  assert.equal(updated.requests[0].requester, 'Ing. Julio Alfaro');
+  assert.equal(updated.requests[1].customerReference, null);
+  assert.equal(updated.requests[1].requester, null);
+  assert.equal(updated.requests[2].requester, null);
+  assert.equal(updated.requests[3].customerReference, 'A23700');
+  assert.equal(updated.requests[3].requester, 'OZIEL MUÑOZ');
+
+  // Segunda pasada: idempotente, no pide órdenes ni cambia referencia de estado.
+  assert.deepEqual(missingMetaOrderIds(updated, new Set([10])), []);
+  assert.equal(backfillRequestMeta(updated, snapshots, checked, 'despues'), updated);
 });

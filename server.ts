@@ -21,8 +21,9 @@ import {
   type OrderAssignmentsPayload,
 } from './shared/orderAssignments.ts';
 import {
-  createInvoiceRequests, loadOrderSnapshots, markInvoiceRequestDone, normalizeInvoiceRequests, parseCreateRequestsBody,
-  reconcileWithOdoo, type InvoiceRequestsState, type OdooOrderSnapshot, type RequestActor,
+  backfillRequestMeta, createInvoiceRequests, loadOrderSnapshots, markInvoiceRequestDone, missingMetaOrderIds,
+  normalizeInvoiceRequests, parseCreateRequestsBody, reconcileWithOdoo,
+  type InvoiceRequestsState, type OdooOrderMetaSnapshot, type OdooOrderSnapshot, type RequestActor,
 } from './shared/invoiceRequests.ts';
 import { isKnownSatCode } from './shared/satCatalogServer.ts';
 
@@ -336,11 +337,26 @@ app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
         return;
       }
     }
+    const loadedIds = new Set(orders.map(o => o.id));
+    const metaIds = missingMetaOrderIds(stored, loadedIds);
+    let metaOrders: OdooOrderMetaSnapshot[] = orders;
+    const checkedIds = new Set<number>(loadedIds);
+    if (odooClient.isConfigured() && metaIds.length > 0) {
+      try {
+        const extraMeta = await odooClient.fetchOrderMetaByIds(metaIds);
+        metaOrders = [...orders, ...extraMeta];
+        for (const id of metaIds) checkedIds.add(id);
+      } catch (err) {
+        console.warn('solicitudes: no se pudieron completar metadatos desde Odoo:', err);
+      }
+    }
     // Sin await entre leer y escribir: otra petición no puede intercalarse.
     const current = readRequests();
-    const out = reconcileWithOdoo(current, orders, new Date().toISOString());
-    if (out.state !== current) writeJsonAtomic(REQUESTS_FILE, out.state);
-    res.json({ ...out.state, progress: out.progress });
+    const now = new Date().toISOString();
+    const out = reconcileWithOdoo(current, orders, now);
+    const nextState = backfillRequestMeta(out.state, metaOrders, checkedIds, now);
+    if (nextState !== current) writeJsonAtomic(REQUESTS_FILE, nextState);
+    res.json({ ...nextState, progress: out.progress });
   } catch (err) {
     console.error('[InvoiceRequests] Error en GET:', err);
     res.status(500).json({ error: 'No se pudieron consultar las solicitudes.' });

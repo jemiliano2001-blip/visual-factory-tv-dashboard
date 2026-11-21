@@ -35,6 +35,8 @@ interface RawOrder {
   id: number;
   name: string;
   client_order_ref?: string | false;
+  origin?: string | false;
+  requisitor?: string | false;
   partner_id: [number, string] | false;
   date_order: string;
   commitment_date: string | false;
@@ -71,6 +73,8 @@ export interface NormalizedInvoiceableOrder {
   id: number;
   name: string;
   customer_reference: string | null;
+  purchase_order: string | null;
+  requisitor: string | null;
   partner_name: string;
   main_product: string;
   date_order: string;
@@ -88,6 +92,23 @@ export interface NormalizedInvoiceableOrder {
   delivery_times: string | null;
   show_in_dashboard: boolean;
 }
+
+export interface OdooOrderMeta {
+  id: number;
+  customer_reference: string | null;
+  purchase_order: string | null;
+  requisitor: string | null;
+  note: string | null;
+}
+
+const cleanText = (v: unknown): string | null =>
+  (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+const cleanCompactText = (v: unknown): string | null => {
+  if (typeof v !== 'string') return null;
+  const compact = v.replace(/\s+/g, ' ').trim();
+  return compact || null;
+};
 
 /** Tope de órdenes por consulta; si Odoo tiene más, la respuesta lo avisa con `truncated`. */
 const MAX_INVOICEABLE_ORDERS = 1000;
@@ -327,11 +348,40 @@ export class OdooClient {
     return this.readNormalizedOrders(found);
   }
 
+  /** Lectura ligera de referencia, orden de compra, requisitor y nota para rellenar solicitudes sin cargar líneas ni traslados. */
+  async fetchOrderMetaByIds(ids: number[]): Promise<OdooOrderMeta[]> {
+    const unique = Array.from(new Set(ids.filter(id => Number.isInteger(id) && id > 0)));
+    if (!unique.length) return [];
+    const result: OdooOrderMeta[] = [];
+    for (let i = 0; i < unique.length; i += 500) {
+      const batch = unique.slice(i, i + 500);
+      const rows = await this.odooCall<Array<{
+        id: number;
+        client_order_ref?: string | false;
+        origin?: string | false;
+        requisitor?: string | false;
+        note?: string | false;
+      }>>('sale.order', 'search_read', [[['id', 'in', batch]]], {
+        fields: ['id', 'client_order_ref', 'origin', 'requisitor', 'note'],
+      });
+      for (const r of rows) {
+        result.push({
+          id: r.id,
+          customer_reference: typeof r.client_order_ref === 'string' ? r.client_order_ref : null,
+          purchase_order: cleanText(r.origin),
+          requisitor: cleanCompactText(r.requisitor),
+          note: typeof r.note === 'string' ? r.note : null,
+        });
+      }
+    }
+    return result;
+  }
+
   private async readNormalizedOrders(ids: number[]): Promise<NormalizedInvoiceableOrder[]> {
     if (!ids.length) return [];
     const orders = await this.odooCall<RawOrder[]>('sale.order', 'read', [ids], {
       fields: [
-        'name', 'client_order_ref', 'partner_id', 'date_order', 'commitment_date',
+        'name', 'client_order_ref', 'origin', 'requisitor', 'partner_id', 'date_order', 'commitment_date',
         'invoice_status', 'currency_id', 'order_line', 'state', 'user_id', 'note',
       ],
     });
@@ -467,6 +517,8 @@ export class OdooClient {
         id: order.id,
         name: order.name,
         customer_reference: typeof order.client_order_ref === 'string' ? order.client_order_ref : null,
+        purchase_order: cleanText(order.origin),
+        requisitor: cleanCompactText(order.requisitor),
         partner_name: order.partner_id ? order.partner_id[1] : 'Desconocido',
         main_product: lines[0]?.name ?? 'Sin descripción',
         date_order: order.date_order,

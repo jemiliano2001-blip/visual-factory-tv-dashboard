@@ -275,3 +275,61 @@ test('un AbortError (timeout) no se reintenta aunque sea una lectura', async () 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('readNormalizedOrders solicita y normaliza origin y requisitor', async () => {
+  const client = new OdooClient({ url: 'http://odoo.test', db: 'db', username: 'u', password: 'p' });
+  let requestedFields: unknown;
+  client.odooCall = async <T>(model: string, method: string, _args: unknown[] = [], kwargs: Record<string, unknown> = {}): Promise<T> => {
+    if (model === 'sale.order' && method === 'search') return [10, 11] as T;
+    if (model === 'sale.order' && method === 'read') {
+      requestedFields = kwargs.fields;
+      return [
+        {
+          id: 10, name: '2026/S02117', client_order_ref: false, origin: '  A23700  ', requisitor: 'OZIEL  MUÑOZ ',
+          partner_id: [1, 'Cliente'], date_order: '2026-11-21 10:00:00', commitment_date: false,
+          invoice_status: 'to invoice', currency_id: [1, 'MXN'], order_line: [], state: 'sale', user_id: false, note: false,
+        },
+        {
+          id: 11, name: '2026/S02118', client_order_ref: false, origin: false, requisitor: '   ',
+          partner_id: [1, 'Cliente'], date_order: '2026-11-21 10:00:00', commitment_date: false,
+          invoice_status: 'to invoice', currency_id: [1, 'MXN'], order_line: [], state: 'sale', user_id: false, note: false,
+        },
+      ] as T;
+    }
+    if (model === 'stock.picking') return [] as T;
+    if (model === 'res.partner') return [{ id: 1, name: 'Cliente', show_in_dashboard: true }] as T;
+    throw new Error(`Consulta inesperada: ${model}.${method}`);
+  };
+  const { orders } = await client.fetchInvoiceableOrders();
+  assert.ok(Array.isArray(requestedFields) && requestedFields.includes('origin') && requestedFields.includes('requisitor'));
+  assert.equal(orders[0].purchase_order, 'A23700');
+  assert.equal(orders[0].requisitor, 'OZIEL MUÑOZ');
+  assert.equal(orders[1].purchase_order, null);
+  assert.equal(orders[1].requisitor, null);
+});
+
+test('fetchOrderMetaByIds deduplica, ignora lista vacía y no consulta líneas ni traslados', async () => {
+  const client = new OdooClient({ url: 'http://odoo.test', db: 'db', username: 'u', password: 'p' });
+  const calls: Array<{ model: string; method: string; args: unknown[]; kwargs: Record<string, unknown> }> = [];
+  client.odooCall = async <T>(model: string, method: string, args: unknown[] = [], kwargs: Record<string, unknown> = {}): Promise<T> => {
+    calls.push({ model, method, args, kwargs });
+    return [
+      { id: 3355, client_order_ref: false, origin: ' A23700 ', requisitor: 'OZIEL  MUÑOZ', note: '<p>Nota</p>' },
+      { id: 3401, client_order_ref: 'REF-1', origin: false, requisitor: false, note: false },
+    ] as T;
+  };
+  assert.deepEqual(await client.fetchOrderMetaByIds([]), []);
+  assert.deepEqual(await client.fetchOrderMetaByIds([0, -1, 1.5]), []);
+  assert.equal(calls.length, 0);
+
+  const meta = await client.fetchOrderMetaByIds([3355, 3401, 3355]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].model, 'sale.order');
+  assert.equal(calls[0].method, 'search_read');
+  assert.deepEqual(calls[0].args, [[['id', 'in', [3355, 3401]]]]);
+  assert.deepEqual(calls[0].kwargs.fields, ['id', 'client_order_ref', 'origin', 'requisitor', 'note']);
+  assert.deepEqual(meta, [
+    { id: 3355, customer_reference: null, purchase_order: 'A23700', requisitor: 'OZIEL MUÑOZ', note: '<p>Nota</p>' },
+    { id: 3401, customer_reference: 'REF-1', purchase_order: null, requisitor: null, note: null },
+  ]);
+});

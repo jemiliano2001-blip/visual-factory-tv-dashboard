@@ -1,15 +1,16 @@
 /**
- * Alta de un plano nuevo: PDF a Storage `tool-crib/SUPRAJIT/` y documentos en
+ * Alta de un plano nuevo: PDF a Storage `tool-crib/<CLIENTE>/` y documentos en
  * `toolcribParts` / `toolcribDrawings` con los campos que exigen las reglas de Vision.
  */
 import { collection, doc, getDocs, query, serverTimestamp, where, writeBatch } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { auth, db, storage } from '../firebase';
-import { TOOL_CRIB_PARTNER_KEY } from './toolCrib';
+import type { ToolCribCustomer } from './toolCrib';
 import { savePartAlias } from './toolCribLibrary';
 import { validateUpload } from './toolCribUploadRules';
 
 export interface UploadInput {
+  customer: ToolCribCustomer;
   file: File;
   partNumber: string;
   revision: string;
@@ -31,7 +32,7 @@ export async function uploadDrawing(input: UploadInput): Promise<void> {
   const partNumber = input.partNumber.trim();
   const revision = input.revision.trim();
   const safe = partNumber.replace(/[^A-Za-z0-9._-]/g, '_');
-  const path = `tool-crib/${TOOL_CRIB_PARTNER_KEY}/${safe}_rev${revision.replace(/[^A-Za-z0-9._-]/g, '_')}_${Date.now()}.pdf`;
+  const path = `tool-crib/${input.customer}/${safe}_rev${revision.replace(/[^A-Za-z0-9._-]/g, '_')}_${Date.now()}.pdf`;
   const fileRef = ref(storage, path);
   await uploadBytes(fileRef, input.file, { contentType: 'application/pdf' });
   const pdfUrl = await getDownloadURL(fileRef);
@@ -40,7 +41,7 @@ export async function uploadDrawing(input: UploadInput): Promise<void> {
     const existing = await getDocs(query(
       collection(db, 'toolcribParts'),
       where('partNumber', '==', partNumber),
-      where('customer', '==', TOOL_CRIB_PARTNER_KEY),
+      where('customer', '==', input.customer),
     ));
     const batch = writeBatch(db);
     let partId: string;
@@ -49,7 +50,7 @@ export async function uploadDrawing(input: UploadInput): Promise<void> {
       partId = partRef.id;
       batch.set(partRef, {
         partNumber,
-        customer: TOOL_CRIB_PARTNER_KEY,
+        customer: input.customer,
         description: input.description.trim().slice(0, 500),
         status: 'active',
         createdAtUTC: serverTimestamp(),

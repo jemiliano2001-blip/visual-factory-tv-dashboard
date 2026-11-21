@@ -3,6 +3,7 @@
  * imports salvo otra lógica pura de shared (la consumen server.ts y las Functions en commonjs).
  */
 import { isOhdPartner, isSatOhdCode } from './satOhd';
+import { extractOrderNoteMeta } from './orderNoteParser';
 
 export type RequestType = 'factura' | 'remision';
 export interface RequestActor { uid: string; email: string | null; name: string | null }
@@ -18,6 +19,8 @@ export interface InvoiceRequest {
   orderName: string;
   partnerName: string;
   customerReference: string | null;
+  /** Requisitor del cliente: `undefined` = registro legado por rellenar, `null` = revisado sin requisitor. */
+  requester?: string | null;
   type: RequestType;
   lines?: InvoiceRequestLine[];
   /** Solo factura con partidas: false si cubre todo lo que faltaba por facturar. Ausente (viejas) = parcial si trae partidas. */
@@ -37,6 +40,9 @@ export interface RequestableOrder {
   name: string;
   partner_name: string;
   customer_reference?: string | null;
+  purchase_order?: string | null;
+  requisitor?: string | null;
+  note?: string | null;
   lines: Array<{ id?: number; name: string; qty: number; delivered: number; invoiced?: number; unit?: string | null }>;
 }
 export interface RequestDraft {
@@ -48,6 +54,7 @@ export interface RequestDraft {
 }
 
 export const MAX_REQUEST_NOTE = 500;
+const MAX_REQUESTER_LENGTH = 200;
 
 /** Sanea nota de solicitud: control chars → trim → vacío = undefined; >500 = Error. */
 export function sanitizeRequestNote(raw: unknown): string | undefined {
@@ -79,6 +86,11 @@ const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 const isPosInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
 const isPosNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
 const strOrNull = (v: unknown): string | null | undefined => (v === null || v === undefined ? null : typeof v === 'string' ? v : undefined);
+const clampRequester = (value: string | null): string | null => {
+  if (typeof value !== 'string') return null;
+  const compact = value.replace(/\s+/g, ' ').trim();
+  return compact ? compact.slice(0, MAX_REQUESTER_LENGTH) : null;
+};
 
 export function linePendingQty(line: { qty: number; delivered: number }): number {
   return round6(Math.max(0, line.qty - line.delivered));
@@ -151,6 +163,11 @@ function parseRequest(raw: unknown): InvoiceRequest | null {
     id: raw.id, orderId: raw.orderId, orderName: raw.orderName, partnerName: raw.partnerName,
     customerReference, type: raw.type, status: raw.status, requestedBy, requestedAt: raw.requestedAt,
   };
+  if (raw.requester !== undefined) {
+    const requester = strOrNull(raw.requester);
+    if (requester === undefined || (requester !== null && requester.length > MAX_REQUESTER_LENGTH)) return null;
+    out.requester = requester ? (requester.replace(/\s+/g, ' ').trim() || null) : null;
+  }
   if (raw.type === 'remision' || (raw.type === 'factura' && raw.lines !== undefined)) {
     if (!Array.isArray(raw.lines) || raw.lines.length === 0) return null;
     const lines: InvoiceRequestLine[] = [];
@@ -290,9 +307,12 @@ function buildRequest(draft: RequestDraft, order: RequestableOrder, pendingForOr
   } catch (err) {
     return { reason: err instanceof Error ? err.message : 'Nota inválida.' };
   }
+  const meta = extractOrderNoteMeta(order);
   const base: InvoiceRequest = {
     id, orderId: order.id, orderName: order.name, partnerName: order.partner_name,
-    customerReference: order.customer_reference ?? null, type: draft.type, status: 'pendiente',
+    customerReference: order.customer_reference?.trim() || meta.poNumber,
+    requester: clampRequester(meta.clientContact),
+    type: draft.type, status: 'pendiente',
     requestedBy: actor, requestedAt: now,
     ...(note ? { note } : {}),
   };
@@ -392,7 +412,18 @@ export interface OdooOrderSnapshot {
   id: number;
   invoice_status: string;
   state: string;
+  customer_reference?: string | null;
+  purchase_order?: string | null;
+  requisitor?: string | null;
+  note?: string | null;
   lines: Array<{ id: number; delivered: number; invoiced: number }>;
+}
+export interface OdooOrderMetaSnapshot {
+  id: number;
+  customer_reference?: string | null;
+  purchase_order?: string | null;
+  requisitor?: string | null;
+  note?: string | null;
 }
 export interface LineProgress { lineId: number; done: number; qty: number }
 /** Avance en Odoo por solicitud pendiente (id → partidas). Se calcula al vuelo, no se guarda. */
@@ -473,4 +504,48 @@ export function pendingRequestsByOrder(state: InvoiceRequestsState): Map<number,
     else map.set(r.orderId, [r]);
   }
   return map;
+}
+
+/** IDs de órdenes con solicitudes legadas (`requester === undefined`) aún no cargadas en `loadedIds`. */
+export function missingMetaOrderIds(state: InvoiceRequestsState, loadedIds: ReadonlySet<number>): number[] {
+  const missing = new Set<number>();
+  for (const r of state.requests) {
+    if (r.requester === undefined && !loadedIds.has(r.orderId)) {
+      missing.add(r.orderId);
+    }
+  }
+  return [...missing];
+}
+
+/** Rellena PO y requisitor en solicitudes legadas o pendientes incompletas desde snapshots de Odoo. */
+export function backfillRequestMeta(
+  state: InvoiceRequestsState,
+  orders: OdooOrderMetaSnapshot[],
+  checkedIds: ReadonlySet<number>,
+  now: string,
+): InvoiceRequestsState {
+  const byId = new Map(orders.map(o => [o.id, o]));
+  let changed = false;
+  const requests = state.requests.map(r => {
+    const needsBackfill = r.requester === undefined || (r.status === 'pendiente' && (!r.customerReference || !r.requester));
+    if (!needsBackfill) return r;
+    const order = byId.get(r.orderId);
+    if (order) {
+      const meta = extractOrderNoteMeta(order);
+      const nextRef = r.customerReference || order.customer_reference?.trim() || meta.poNumber;
+      const nextReq = r.requester || clampRequester(meta.clientContact);
+      if (nextRef !== r.customerReference || nextReq !== r.requester) {
+        changed = true;
+        return { ...r, customerReference: nextRef, requester: nextReq };
+      }
+      return r;
+    }
+    if (r.requester === undefined && checkedIds.has(r.orderId)) {
+      changed = true;
+      return { ...r, requester: null };
+    }
+    return r;
+  });
+  if (!changed) return state;
+  return trim({ requests, updatedAt: now });
 }

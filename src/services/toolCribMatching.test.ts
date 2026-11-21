@@ -92,3 +92,8 @@ test('alias cuyo plano ya no está en la biblioteca da none aunque el ligado aut
   const r = resolveLineDrawing(lineOf('[AB-100] Eje'), [view('AB-100')], [alias]);
   assert.equal(r.kind, 'none');
 });
+
+test('un plano de otro cliente no se liga aunque el número de parte coincida', () => {
+  const r = resolveLineDrawing(lineOf('[ABC-123] Buje'), [view('ABC-123', { customer: 'KOHLER' })], []);
+  assert.equal(r.kind, 'none');
+});

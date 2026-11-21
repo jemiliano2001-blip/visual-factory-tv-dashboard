@@ -1,13 +1,15 @@
 /**
- * Tool Crib: órdenes de Suprajit (piezas repetitivas con plano ya existente).
+ * Tool Crib: órdenes de Suprajit, Kohler y Fisher (piezas repetitivas con plano ya existente).
  * Lógica pura de la vista Tool Crib del Admin; la regla de cliente es la misma
- * que usa SMV Vision (nombre que contiene "SUPRAJIT").
+ * que usa SMV Vision (nombre que contiene el cliente).
  */
 import type { InvoiceRequest } from '../../shared/invoiceRequests';
 import type { OdooOrderLine, OdooSaleOrder } from './odoo';
 import { compareByUrgency } from './pendingItems';
 
-export const TOOL_CRIB_PARTNER_KEY = 'SUPRAJIT';
+/** Clientes con biblioteca de planos; la clave es el texto que debe contener `partner_name`. */
+export const TOOL_CRIB_CUSTOMERS = ['SUPRAJIT', 'KOHLER', 'FISHER'] as const;
+export type ToolCribCustomer = (typeof TOOL_CRIB_CUSTOMERS)[number];
 
 export type ToolCribLineStatus = 'pendiente' | 'solicitada' | 'entregada';
 
@@ -21,8 +23,13 @@ export interface ToolCribLine {
   status: ToolCribLineStatus;
 }
 
+export function toolCribCustomerKey(partnerName: string): ToolCribCustomer | null {
+  const name = partnerName.toLocaleUpperCase('es-MX');
+  return TOOL_CRIB_CUSTOMERS.find(key => name.includes(key)) ?? null;
+}
+
 export function isToolCribOrder(order: OdooSaleOrder): boolean {
-  return order.partner_name.toLocaleUpperCase('es-MX').includes(TOOL_CRIB_PARTNER_KEY);
+  return toolCribCustomerKey(order.partner_name) !== null;
 }
 
 export function extractPartNumber(lineName: string): string | null {
