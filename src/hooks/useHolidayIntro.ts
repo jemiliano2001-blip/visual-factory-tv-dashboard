@@ -1,16 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { introStorageKey, shouldShowIntro } from '../services/holidayIntro';
 import type { HolidayTheme } from '../services/holidayTheme';
 
-/** Decide una sola vez al montar si se muestra el saludo a pantalla completa del festivo. */
+/** Decide una sola vez por tema (al estar `enabled`) si se muestra el saludo a pantalla completa del festivo. */
 export function useHolidayIntro(
   holiday: HolidayTheme | null,
   now: Date,
   forced: boolean,
   enabled: boolean
 ): { show: boolean; dismiss: () => void } {
-  const [show, setShow] = useState(() => {
-    if (!enabled || !holiday || typeof window === 'undefined') return false;
+  const [show, setShow] = useState(false);
+  const decided = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled || !holiday || typeof window === 'undefined') return;
+    if (decided.current === holiday.id) return;
+    decided.current = holiday.id;
     const key = introStorageKey(holiday.id, now);
     let stored: string | null = null;
     try {
@@ -24,16 +29,14 @@ export function useHolidayIntro(
     } catch {
       reducedMotion = false;
     }
-    const visible = shouldShowIntro({ stored, forced, reducedMotion });
-    if (visible) {
-      try {
-        window.localStorage.setItem(key, '1');
-      } catch {
-        // Ignorar si localStorage falla (p. ej. modo privado)
-      }
+    if (!shouldShowIntro({ stored, forced, reducedMotion })) return;
+    try {
+      window.localStorage.setItem(key, '1');
+    } catch {
+      // Ignorar si localStorage falla (p. ej. modo privado)
     }
-    return visible;
-  });
+    setShow(true);
+  }, [enabled, holiday, now, forced]);
 
   return { show, dismiss: () => setShow(false) };
 }

@@ -1,10 +1,10 @@
 /** Temas festivos de la TV: cambian solo el fondo aurora y un saludo en el header.
  *  Nunca tocan el color de las tarjetas (significa urgencia, ver DESIGN.md). */
-export type HolidayId = 'navidad' | 'anio-nuevo' | 'reyes' | 'san-valentin' | 'madres';
+export type HolidayId = 'navidad' | 'anio-nuevo' | 'reyes' | 'san-valentin' | 'madres' | 'cumple';
 export type HolidayParticle = 'nieve' | 'destellos' | 'confeti' | 'corazones' | 'petalos';
-export type HolidayIcon = 'TreePine' | 'Sparkles' | 'Crown' | 'Heart' | 'Flower2';
+export type HolidayIcon = 'TreePine' | 'Sparkles' | 'Crown' | 'Heart' | 'Flower2' | 'PartyPopper';
 export type GarlandKind = 'luces' | 'serpentinas' | 'banderines' | 'corazones' | 'flores';
-export type SceneKind = 'navidad' | 'ciudad' | 'coronas' | 'globos' | 'macetas';
+export type SceneKind = 'navidad' | 'ciudad' | 'coronas' | 'globos' | 'macetas' | 'cumple';
 
 export interface HolidayTheme {
   id: HolidayId;

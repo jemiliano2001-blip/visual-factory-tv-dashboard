@@ -118,7 +118,7 @@ export default function TVDashboard() {
   const [companyConfigs, setCompanyConfigs] = useState<CompanyConfig[]>([]);
   const [storedAuroraMode, setAuroraMode] = usePersistedState<AuroraMode>('vftv:tv:aurora', 'gemini-flow');
   const auroraMode = normalizeAuroraMode(storedAuroraMode);
-  const { holiday, now: holidayNow, forced: holidayForced } = useActiveHoliday();
+  const { holiday, now: holidayNow, forced: holidayForced, ready: holidayReady } = useActiveHoliday();
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [selectedOrder, setSelectedOrder]   = useState<OdooSaleOrder | null>(null);
   const [viewMode, setViewMode]             = usePersistedState<ViewMode>('vftv:tv:viewMode', 'tv');
@@ -141,7 +141,7 @@ export default function TVDashboard() {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isMobile = useMobile();
-  const holidayIntro = useHolidayIntro(holiday, holidayNow, holidayForced, !isMobile);
+  const holidayIntro = useHolidayIntro(holiday, holidayNow, holidayForced, !isMobile && holidayReady);
   // En móvil siempre modo escritorio: sin paginación ni auto-rotación
   const effectiveViewMode: ViewMode = isMobile ? 'desktop' : viewMode;
   const isTVMode = effectiveViewMode === 'tv';

@@ -1,5 +1,6 @@
 import React from 'react';
 import type { SceneKind } from '../services/holidayTheme';
+import { BIRTHDAY_BASE_URL } from '../services/birthdayTheme';
 
 const PINE_XS = [70, 145, 340, 510, 760, 890, 1080, 1380, 1520, 1790, 1860] as const;
 const HOUSE_XS = [220, 640, 1240, 1660] as const;
@@ -41,6 +42,17 @@ const BALLOONS = [
   { x: 1490, y: 17, color: '#f472b6', delay: '0.6s', heart: false },
   { x: 1660, y: 14, color: '#c084fc', delay: '1.8s', heart: true },
   { x: 1810, y: 18, color: '#f472b6', delay: '2.6s', heart: false },
+] as const;
+
+const PARTY_BALLOONS = [
+  { x: 150, y: 17, color: '#38bdf8', delay: '0s' },
+  { x: 330, y: 14, color: '#f472b6', delay: '0.9s' },
+  { x: 520, y: 18, color: '#facc15', delay: '1.7s' },
+  { x: 720, y: 15, color: '#a78bfa', delay: '0.5s' },
+  { x: 1200, y: 17, color: '#f472b6', delay: '1.3s' },
+  { x: 1400, y: 14, color: '#38bdf8', delay: '2.1s' },
+  { x: 1590, y: 18, color: '#a78bfa', delay: '0.3s' },
+  { x: 1780, y: 15, color: '#facc15', delay: '1.5s' },
 ] as const;
 
 const POTS = [
@@ -202,6 +214,17 @@ const HolidayScene: React.FC<{ kind: SceneKind }> = ({ kind }) => (
         </>
       )}
 
+      {kind === 'cumple' && (
+        <>
+          {PARTY_BALLOONS.map(({ x, y, color, delay }) => (
+            <g key={x} className="holiday-float" style={{ animationDelay: delay }}>
+              <line x1={x} y1={y + 8} x2={x} y2={46} stroke="#94a3b8" strokeWidth={1} strokeOpacity={0.7} />
+              <ellipse cx={x} cy={y} rx={7} ry={9} fill={color} />
+            </g>
+          ))}
+        </>
+      )}
+
       {kind === 'macetas' && (
         <>
           {POTS.map(({ x, flower, delay }) => (
@@ -222,6 +245,14 @@ const HolidayScene: React.FC<{ kind: SceneKind }> = ({ kind }) => (
         </>
       )}
     </svg>
+    {kind === 'cumple' && (
+      <img
+        src={`${BIRTHDAY_BASE_URL}/pastel.webp`}
+        alt=""
+        className="holiday-bob absolute bottom-0 left-1/2 h-11 w-auto -translate-x-1/2"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+    )}
   </div>
 );
 

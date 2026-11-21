@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { holidayGreeting, type HolidayTheme } from '../services/holidayTheme';
 import { HOLIDAY_ICONS } from './holidayIcons';
+import { BIRTHDAY_BASE_URL } from '../services/birthdayTheme';
 
 const BURST_COUNT = 14;
 const INTRO_DURATION_MS = 3500;
@@ -65,7 +66,16 @@ const HolidayIntro: React.FC<{ holiday: HolidayTheme; date: Date; onDone: () => 
       ))}
       <div className="holiday-intro-stack relative z-10 flex flex-col items-center">
         <span className="holiday-intro-icon mb-6" style={{ color: `rgb(${holiday.accent})` }}>
-          <Icon className="h-16 w-16 lg:h-24 lg:w-24" aria-hidden />
+          {holiday.id === 'cumple' ? (
+            <img
+              src={`${BIRTHDAY_BASE_URL}/fiesta.webp`}
+              alt=""
+              className="h-40 w-auto lg:h-72"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          ) : (
+            <Icon className="h-16 w-16 lg:h-24 lg:w-24" aria-hidden />
+          )}
         </span>
         <p
           className="holiday-intro-pop font-display text-5xl font-extrabold [text-wrap:balance] lg:text-8xl"

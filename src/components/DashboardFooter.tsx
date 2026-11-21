@@ -2,6 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { HolidayTheme } from '../services/holidayTheme';
 import HolidayScene from './HolidayScene';
+import HolidayCameo from './HolidayCameo';
 
 // ─── Props ──────────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,7 @@ const DashboardFooter: React.FC<DashboardFooterProps> = ({
   return (
     <footer className="mt-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 bg-background py-2 text-[9px] uppercase tracking-wider text-muted-foreground sticky bottom-0 z-[60] flex-shrink-0 lg:py-3 lg:text-[10px]" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
       {holiday && <HolidayScene kind={holiday.scene} />}
+      {holiday?.id === 'cumple' && <HolidayCameo />}
       <div className="flex min-w-0 items-center gap-3 lg:gap-4">
         <div className="whitespace-nowrap font-mono-data">
           <span className="hidden sm:inline text-muted-foreground">Total:</span>{' '}
