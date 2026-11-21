@@ -26,27 +26,27 @@ test('filtersForSection conserva q, cliente, estado e ing', () => {
 });
 
 test('filtersForSection a una vista de órdenes fija tab=orders', () => {
-  const out = filtersForSection('pending', { ...DEFAULT_ADMIN_FILTERS, tab: 'config' });
+  const out = filtersForSection('toolcrib', { ...DEFAULT_ADMIN_FILTERS, tab: 'config' });
   assert.equal(out.tab, 'orders');
-  assert.equal(out.view, 'pending');
+  assert.equal(out.view, 'toolcrib');
 });
 
 test('links legados marcan la sección correcta', () => {
   const sec = (q: string) => sectionFromFilters(parseAdminFilters(new URLSearchParams(q)));
-  assert.equal(sec('tab=pending'), 'pending');
-  assert.equal(sec('tab=agenda'), 'pending');
+  assert.equal(sec('tab=pending'), 'toolcrib');
+  assert.equal(sec('tab=agenda'), 'toolcrib');
   assert.equal(sec('tab=deliveries'), 'company');
   assert.equal(sec('tab=report'), 'company');
   assert.equal(sec('tab=basura'), 'company');
 });
 
 test('pestañas que no son de órdenes ignoran la vista', () => {
-  assert.equal(sectionFromFilters({ ...DEFAULT_ADMIN_FILTERS, tab: 'requests', view: 'pending' }), 'requests');
+  assert.equal(sectionFromFilters({ ...DEFAULT_ADMIN_FILTERS, tab: 'requests', view: 'toolcrib' }), 'requests');
 });
 
 test('adminSectionHref', () => {
   assert.equal(adminSectionHref('company', null), '/admin');
-  assert.equal(adminSectionHref('pending', null), '/admin?vista=pending');
+  assert.equal(adminSectionHref('toolcrib', null), '/admin?vista=toolcrib');
   assert.equal(
     adminSectionHref('requests', { ...DEFAULT_ADMIN_FILTERS, search: 'x' }),
     '/admin?tab=requests&q=x',
@@ -54,7 +54,7 @@ test('adminSectionHref', () => {
 });
 
 test('reparto móvil: 3 fijos y el resto en Más', () => {
-  assert.deepEqual([...MOBILE_PRIMARY_SECTIONS], ['company', 'pending', 'requests']);
+  assert.deepEqual([...MOBILE_PRIMARY_SECTIONS], ['company', 'toolcrib', 'requests']);
   assert.ok(isInMoreMenu('config'));
   assert.ok(!isInMoreMenu('requests'));
 });
@@ -65,7 +65,7 @@ test('etiquetas, grupos y barra de controles por sección', () => {
   assert.equal(getSection('company').group, 'orders');
   assert.deepEqual(
     ADMIN_SECTIONS.filter(s => s.hasToolbar).map(s => s.id),
-    ['company', 'pending'],
+    ['company', 'toolcrib'],
   );
 });
 
@@ -108,7 +108,7 @@ test('clearFilter limpia solo el filtro indicado', () => {
 });
 
 test('restoreSavedFilters: sin filtros en el link restaura los guardados y respeta sección del link', () => {
-  const saved: AdminFilters = { ...DEFAULT_ADMIN_FILTERS, view: 'pending', search: 'PO1', client: 'BOSCH' };
+  const saved: AdminFilters = { ...DEFAULT_ADMIN_FILTERS, view: 'toolcrib', search: 'PO1', client: 'BOSCH' };
   // Entrar por "Por compañía" (/admin limpio) no debe cambiar la sección a la vista guardada.
   const company = restoreSavedFilters(DEFAULT_ADMIN_FILTERS, saved);
   assert.deepEqual(company, { ...DEFAULT_ADMIN_FILTERS, search: 'PO1', client: 'BOSCH' });

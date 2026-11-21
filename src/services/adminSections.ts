@@ -9,7 +9,7 @@ import {
 } from './adminFilters';
 import type { OrderStatusFilter } from '../components/admin/orderStatusMeta';
 
-export type AdminSectionId = 'company' | 'pending' | 'requests' | 'config';
+export type AdminSectionId = 'company' | 'toolcrib' | 'requests' | 'config';
 
 export interface AdminSection {
   id: AdminSectionId;
@@ -21,12 +21,12 @@ export interface AdminSection {
 
 export const ADMIN_SECTIONS: readonly AdminSection[] = [
   { id: 'company', label: 'Por compañía', shortLabel: 'Compañía', group: 'orders', hasToolbar: true },
-  { id: 'pending', label: 'Pendientes', shortLabel: 'Pendientes', group: 'orders', hasToolbar: true },
+  { id: 'toolcrib', label: 'Tool Crib', shortLabel: 'Tool Crib', group: 'orders', hasToolbar: true },
   { id: 'requests', label: 'Solicitudes', shortLabel: 'Solicitudes', group: 'orders', hasToolbar: false },
   { id: 'config', label: 'Configuración', shortLabel: 'Configuración', group: 'settings', hasToolbar: false },
 ];
 
-export const MOBILE_PRIMARY_SECTIONS: readonly AdminSectionId[] = ['company', 'pending', 'requests'];
+export const MOBILE_PRIMARY_SECTIONS: readonly AdminSectionId[] = ['company', 'toolcrib', 'requests'];
 
 export function getSection(id: AdminSectionId): AdminSection {
   return ADMIN_SECTIONS.find(s => s.id === id) ?? ADMIN_SECTIONS[0];
