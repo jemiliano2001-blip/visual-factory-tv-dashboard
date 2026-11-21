@@ -57,3 +57,13 @@ test('buildPrintPdf rechaza copias inválidas', async () => {
   const pdfBytes = await blankPdf();
   await assert.rejects(() => buildPrintPdf([{ pdfBytes, stamp, copies: 0 }]), /copias/i);
 });
+
+test('sanitizeWinAnsi no deja caracteres de control (salto de línea, tab, 0x85)', () => {
+  assert.ok(!/[\x00-\x1F\x7F-\x9F]/.test(sanitizeWinAnsi('A\nB\tC\u0085D')));
+});
+
+test('buildPrintPdf con ficha no falla si la descripción trae saltos de línea', async () => {
+  const pdfBytes = await blankPdf();
+  const bytes = await buildPrintPdf([{ pdfBytes, stamp: { ...stamp, mode: 'both', piezaDescripcion: '[ABC-123] BUJE\nACERO 4140\tX', partNumber: 'A\nB', customer: 'SUP\nRAJIT' }, copies: 1 }]);
+  assert.equal((await PDFDocument.load(bytes)).getPageCount(), 2);
+});

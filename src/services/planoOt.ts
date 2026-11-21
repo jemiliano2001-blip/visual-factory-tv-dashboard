@@ -59,6 +59,7 @@ export function sanitizeWinAnsi(text?: string | null): string {
     .replace(/[•‣◦⁃∙]/g, '*')
     .replace(/[✓✔]/g, '[OK]')
     .replace(/[✂✄]/g, '-')
+    .replace(/[\x00-\x1F\x7F-\x9F]+/g, ' ')
     .replace(/[^\x00-\xFF]/gu, '?');
 }
 
@@ -111,9 +112,9 @@ function addFichaPage(pdfDoc: PDFDocument, stamp: PlanoOtStamp, w: number, h: nu
     const photoH = Math.max(40, metricsY - infoH - photoY);
     const infoY = photoY + photoH;
     page.drawText('PIEZA', { x: x + 8, y: infoY + infoH - 11, size: 7, font: bold, color: black });
-    page.drawText(sanitizeWinAnsi(stamp.partNumber || stamp.soNumber || '-'), { x: x + 40, y: infoY + infoH - 12, size: 10, font: bold, color: black });
-    page.drawText(`CLIENTE: ${sanitizeWinAnsi(stamp.customer || 'SUPRAJIT')}`, { x: x + 8, y: infoY + infoH - 24, size: 7, font: regular, color: black });
-    const detail = sanitizeWinAnsi(stamp.piezaDescripcion || '');
+    page.drawText(oneLine(stamp.partNumber || stamp.soNumber) || '-', { x: x + 40, y: infoY + infoH - 12, size: 10, font: bold, color: black });
+    page.drawText(`CLIENTE: ${oneLine(stamp.customer) || 'SUPRAJIT'}`, { x: x + 8, y: infoY + infoH - 24, size: 7, font: regular, color: black });
+    const detail = oneLine(stamp.piezaDescripcion);
     const row = detail ? (wrapStampText(detail, t => regular.widthOfTextAtSize(t, 7), cw - 20)[0] ?? '') : '';
     if (row) page.drawText(row, { x: x + 8, y: infoY + 6, size: 7, font: regular, color: black });
 

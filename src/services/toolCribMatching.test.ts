@@ -86,3 +86,9 @@ test('dos revisiones de la misma parte no son empate: gana la mayor', () => {
   assert.equal(r.kind, 'match');
   if (r.kind === 'match') assert.equal(r.view.revision, 'B');
 });
+
+test('alias cuyo plano ya no está en la biblioteca da none aunque el ligado automático sí encontraría otro', () => {
+  const alias: PartAlias = { id: 'a1', pattern: 'AB-100', partNumber: 'AB-100', drawingId: 'desactivado' };
+  const r = resolveLineDrawing(lineOf('[AB-100] Eje'), [view('AB-100')], [alias]);
+  assert.equal(r.kind, 'none');
+});

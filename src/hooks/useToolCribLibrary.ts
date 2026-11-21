@@ -19,6 +19,8 @@ export function useToolCribLibrary(orderRefs: string[]) {
     library: library.data,
     aliases: aliases.data,
     printed,
+    /** false mientras la bitácora no llega: sin ella no se sabe si algo ya se imprimió. */
+    printedReady: refsKey === '' || logs.isSuccess,
     isLoading: library.isLoading || aliases.isLoading || logs.isLoading,
     error: (library.error ?? aliases.error ?? logs.error) as Error | null,
     refetchPrinted: () => logs.refetch(),

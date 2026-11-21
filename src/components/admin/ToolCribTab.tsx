@@ -40,6 +40,8 @@ const LINE_STATUS: Record<ToolCribLineStatus, { label: string; variant: NonNulla
   entregada: { label: 'Entregada', variant: 'success' },
 };
 
+const actionKey = (l: ToolCribLine) => `${l.order.id}:${l.line.id}`;
+
 export default function ToolCribTab({
   orders,
   pendingByOrder,
@@ -52,26 +54,28 @@ export default function ToolCribTab({
   const lines = useMemo(() => collectToolCribLines(orders, pendingByOrder), [orders, pendingByOrder]);
   const orderRefs = useMemo(() => lines.map(l => l.order.name), [lines]);
   const lib = useToolCribLibrary(orderRefs);
-  const [action, setAction] = useState<{ kind: 'print' | 'pick'; index: number } | null>(null);
+  const [action, setAction] = useState<{ kind: 'print' | 'pick'; key: string } | null>(null);
 
   // Hasta que cargan la biblioteca y los alias no se resuelve nada: la celda dice "—".
   const resolved = useMemo(() => {
-    if (!lib.library || !lib.aliases) return null;
+    if (!lib.library || !lib.aliases || !lib.printedReady) return null;
     return lines.map(l => {
       const resolution = resolveLineDrawing(l, lib.library ?? [], lib.aliases ?? []);
       return { resolution, state: printStateForLine(resolution, lib.printed, l.order.name) };
     });
-  }, [lines, lib.library, lib.aliases, lib.printed]);
+  }, [lines, lib.library, lib.aliases, lib.printed, lib.printedReady]);
 
   const cell: PrintCellFn = (_l, i) => (
     <PrintCell
       state={resolved?.[i]?.state ?? null}
       error={lib.error?.message ?? null}
-      onPrint={() => setAction({ kind: 'print', index: i })}
-      onPick={() => setAction({ kind: 'pick', index: i })}
+      onPrint={() => setAction({ kind: 'print', key: actionKey(lines[i]) })}
+      onPick={() => setAction({ kind: 'pick', key: actionKey(lines[i]) })}
     />
   );
-  const active = action && resolved ? { line: lines[action.index], ...resolved[action.index] } : null;
+  // El diálogo se ata a la partida (no a su posición): si la lista cambia o la partida sale, se cierra.
+  const activeIndex = action ? lines.findIndex(l => actionKey(l) === action.key) : -1;
+  const active = resolved && activeIndex >= 0 ? { line: lines[activeIndex], ...resolved[activeIndex] } : null;
 
   if (lines.length === 0) {
     return (

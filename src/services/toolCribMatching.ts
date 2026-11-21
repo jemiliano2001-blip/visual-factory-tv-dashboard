@@ -159,6 +159,8 @@ export function resolveLineDrawing(
   const alias = aliases.find(a => keys.includes(normalizeAliasKey(a.pattern)));
   const aliased = alias && views.find(v => v.drawingId === alias.drawingId);
   if (aliased) return { kind: 'match', view: aliased, via: 'alias', score: 100 };
+  // Alias a un plano inactivo o borrado = "sin plano" (spec); no se vuelve al ligado automático.
+  if (alias) return { kind: 'none' };
 
   const order = lineSignals(line);
   const scored = views
