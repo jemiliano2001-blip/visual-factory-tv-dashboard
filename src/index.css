@@ -276,7 +276,12 @@
     animation: holiday-twinkle calc(var(--dur) / 4) ease-in-out var(--delay) infinite;
   }
   .holiday-intro { animation: holiday-intro-life 3.5s ease-in-out forwards; }
-  .holiday-intro-pop { animation: holiday-intro-pop 3.5s ease-out forwards; }
+  .holiday-intro-stack { animation: holiday-intro-exit 3.5s ease-out forwards; }
+  .holiday-intro-icon { animation: holiday-intro-icon 3.5s cubic-bezier(0.2, 0, 0, 1) both; }
+  .holiday-intro-pop { animation: holiday-intro-pop 3.5s ease-out 0.1s both; }
+  .holiday-intro-sub { animation: holiday-intro-sub 3.5s ease-out 0.2s both; }
+  .holiday-chip { animation: holiday-chip-in 0.3s ease-out both; }
+  .holiday-chip-icon { display: inline-flex; animation: holiday-chip-beat 6s ease-in-out infinite; }
   .holiday-burst { animation: holiday-burst 3.5s ease-out forwards; }
   .holiday-bulb { animation: holiday-blink 1.8s ease-in-out infinite; }
   .holiday-sway { transform-origin: top center; animation: holiday-sway 5s ease-in-out infinite alternate; }
@@ -300,9 +305,9 @@
 }
 @keyframes holiday-fall {
   0% { transform: translate3d(0, -4vh, 0) rotate(0deg); opacity: 0; }
-  10% { opacity: 0.6; }
-  90% { opacity: 0.5; }
-  100% { transform: translate3d(6vw, 104vh, 0) rotate(240deg); opacity: 0; }
+  10% { opacity: var(--alpha, 0.6); }
+  90% { opacity: calc(var(--alpha, 0.6) * 0.85); }
+  100% { transform: translate3d(var(--drift, 6vw), 104vh, 0) rotate(240deg); opacity: 0; }
 }
 @keyframes holiday-twinkle {
   0%, 100% { transform: scale(0.4) rotate(45deg); opacity: 0; }
@@ -312,6 +317,26 @@
   0% { opacity: 0; }
   12%, 80% { opacity: 1; }
   100% { opacity: 0; }
+}
+@keyframes holiday-intro-exit {
+  0%, 82% { transform: translateY(0); }
+  100% { transform: translateY(-12px); }
+}
+@keyframes holiday-intro-icon {
+  0% { opacity: 0; transform: scale(0.25); }
+  14%, 100% { opacity: 1; transform: scale(1); }
+}
+@keyframes holiday-intro-sub {
+  0%, 12% { opacity: 0; transform: translateY(8px); }
+  26%, 100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes holiday-chip-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes holiday-chip-beat {
+  0%, 88%, 100% { transform: scale(1); }
+  94% { transform: scale(1.12); }
 }
 @keyframes holiday-intro-pop {
   0% { transform: scale(0.6); }

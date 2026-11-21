@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { holidayGreeting, type HolidayTheme } from '../services/holidayTheme';
+import { HOLIDAY_ICONS } from './holidayIcons';
 
 const BURST_COUNT = 14;
 const INTRO_DURATION_MS = 3500;
@@ -20,6 +21,7 @@ const HolidayIntro: React.FC<{ holiday: HolidayTheme; date: Date; onDone: () => 
   date,
   onDone,
 }) => {
+  const Icon = HOLIDAY_ICONS[holiday.icon];
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
 
@@ -61,15 +63,20 @@ const HolidayIntro: React.FC<{ holiday: HolidayTheme; date: Date; onDone: () => 
           }
         />
       ))}
-      <p
-        className="holiday-intro-pop relative z-10 font-display text-5xl font-extrabold lg:text-8xl"
-        style={{ color: `rgb(${holiday.accent})` }}
-      >
-        {holidayGreeting(holiday, date)}
-      </p>
-      <p className="relative z-10 mt-4 text-xl text-foreground/80 lg:text-3xl">
-        Les desea el equipo SMV
-      </p>
+      <div className="holiday-intro-stack relative z-10 flex flex-col items-center">
+        <span className="holiday-intro-icon mb-6" style={{ color: `rgb(${holiday.accent})` }}>
+          <Icon className="h-16 w-16 lg:h-24 lg:w-24" aria-hidden />
+        </span>
+        <p
+          className="holiday-intro-pop font-display text-5xl font-extrabold [text-wrap:balance] lg:text-8xl"
+          style={{ color: `rgb(${holiday.accent})` }}
+        >
+          {holidayGreeting(holiday, date)}
+        </p>
+        <p className="holiday-intro-sub mt-4 text-xl text-foreground/80 lg:text-3xl">
+          Les desea el equipo SMV
+        </p>
+      </div>
     </div>
   );
 };

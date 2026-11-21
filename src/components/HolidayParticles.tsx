@@ -15,10 +15,12 @@ const pieces = (kind: HolidayParticle) =>
   Array.from({ length: COUNT }, (_, i) => ({
     x: (i * 37 + 11) % 100,
     delay: -((i * 53) % 27),
-    dur: 18 + ((i * 7) % 14),
     size: 4 + ((i * 5) % 7),
+    // Más grande = más cerca = cae más rápido (profundidad)
+    dur: 34 - 2 * (4 + ((i * 5) % 7)) + ((i * 3) % 6),
     tone: TONES[kind][i % TONES[kind].length],
     y: (i * 29 + 7) % 100,
+    drift: ((i * 11) % 13) - 6,
   }));
 
 /** Partículas de fondo: solo transform/opacity, opacidad baja, sin eventos. Se ocultan con movimiento reducido (CSS). */
@@ -36,6 +38,8 @@ const HolidayParticles: React.FC<{ kind: HolidayParticle }> = ({ kind }) => (
             '--dur': `${p.dur}s`,
             '--size': `${p.size}px`,
             '--tone': p.tone,
+            '--drift': `${p.drift}vw`,
+            '--alpha': (0.3 + ((p.size - 4) / 6) * 0.3).toFixed(2),
           } as React.CSSProperties
         }
       />

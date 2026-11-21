@@ -1,5 +1,5 @@
 import React from 'react';
-import { Monitor, Maximize, Minimize, Palette, ChevronRight, Clock, TreePine, Sparkles, Crown, Heart, Flower2 } from 'lucide-react';
+import { Monitor, Maximize, Minimize, Palette, ChevronRight, Clock } from 'lucide-react';
 import { OdooConnectionStatus } from '../services/odoo';
 import OdooStatusBadge from './OdooStatusBadge';
 import { ViewMode } from './OdooOrderCard';
@@ -7,12 +7,9 @@ import CompanyBadge from './CompanyBadge';
 import { getSmartCompanyName } from '../utils/customerNames';
 import DashboardClock from './DashboardClock';
 import { AURORA_LABEL, type AuroraMode } from '../services/auroraMode';
-import { holidayGreeting, type HolidayIcon, type HolidayTheme } from '../services/holidayTheme';
+import { holidayGreeting, type HolidayTheme } from '../services/holidayTheme';
 import HolidayGarland from './HolidayGarland';
-
-const HOLIDAY_ICONS: Record<HolidayIcon, React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>> = {
-  TreePine, Sparkles, Crown, Heart, Flower2,
-};
+import { HOLIDAY_ICONS } from './holidayIcons';
 
 // ─── Breadcrumbs ────────────────────────────────────────────────────────────────
 
@@ -171,10 +168,13 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         const Icon = HOLIDAY_ICONS[holiday.icon];
         return (
           <div
-            className="hidden lg:flex shrink-0 items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-semibold text-foreground"
-            style={{ borderColor: `rgba(${holiday.accent}, 0.35)`, backgroundColor: `rgba(${holiday.accent}, 0.10)` }}
+            className="holiday-chip hidden lg:flex shrink-0 items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold text-foreground"
+            style={{
+              boxShadow: `inset 0 0 0 1px rgba(${holiday.accent}, 0.35), 0 1px 2px rgba(0, 0, 0, 0.4)`,
+              backgroundColor: `rgba(${holiday.accent}, 0.10)`,
+            }}
           >
-            <span style={{ color: `rgb(${holiday.accent})` }}><Icon className="h-4 w-4" aria-hidden /></span>
+            <span className="holiday-chip-icon" style={{ color: `rgb(${holiday.accent})` }}><Icon className="h-4 w-4" aria-hidden /></span>
             <span>{holidayGreeting(holiday, holidayDate ?? new Date())}</span>
           </div>
         );
