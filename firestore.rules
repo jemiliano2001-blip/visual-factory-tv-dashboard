@@ -71,6 +71,28 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Configuración por cuenta: cada uid lee y escribe solo su documento (campos exactos).
+    function isValidUserSettings() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['startView', 'followedClients', 'print', 'appearance', 'updatedAt'])
+          && d.keys().hasAll(['startView', 'followedClients', 'print', 'appearance', 'updatedAt'])
+          && d.startView in ['company', 'toolcrib', 'requests', 'config']
+          && d.followedClients is list && d.followedClients.size() <= 10
+          && d.print is map && d.print.keys().hasOnly(['copies', 'boardTicket'])
+          && d.print.keys().hasAll(['copies', 'boardTicket'])
+          && d.print.copies is int && d.print.copies >= 1 && d.print.copies <= 5
+          && d.print.boardTicket is bool
+          && d.appearance is map && d.appearance.keys().hasOnly(['theme', 'density'])
+          && d.appearance.keys().hasAll(['theme', 'density'])
+          && d.appearance.theme in ['dark', 'light']
+          && d.appearance.density in ['comfortable', 'compact']
+          && d.updatedAt is timestamp;
+    }
+    match /user_settings/{uid} {
+      allow read: if isRealUser() && request.auth.uid == uid;
+      allow create, update: if isRealUser() && request.auth.uid == uid && isValidUserSettings();
+    }
+
     // Las órdenes ahora viven en Odoo. Los datos históricos de estas
     // colecciones se conservan en Firestore pero quedan inaccesibles.
     match /work_orders/{orderId} {

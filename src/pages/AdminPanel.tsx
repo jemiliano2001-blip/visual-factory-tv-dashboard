@@ -57,6 +57,8 @@ import { Button } from '../components/ui/button';
 import { ContextMenu, type ContextMenuEntry } from '../components/ui/context-menu';
 import { getSection, hasActiveFilters, restoreSavedFilters, sectionFromFilters } from '../services/adminSections';
 import { usePersistedState } from '../hooks/usePersistedState';
+import { useUserSettings } from '../hooks/useUserSettings';
+import { startFiltersFor } from '../services/userSettings';
 import { useMobile } from '../hooks/useMobile';
 import { useDataFreshness } from '../hooks/useDataFreshness';
 import { isEditableTarget, resolveAdminShortcut } from '../utils/keyboardShortcuts';
@@ -130,6 +132,17 @@ export default function AdminPanel() {
   const isMobile = useMobile();
   const [groupByClient, setGroupByClient] = useState(true);
   const [density, setDensity] = usePersistedState<TableDensity>('vftv:admin:density', 'comfortable');
+  const account = useUserSettings();
+  // Al cargar la cuenta: densidad guardada y, si el link venía sin parámetros, vista de inicio y cliente seguido.
+  const hadUrlParams = useRef(params.toString() !== '').current;
+  const accountApplied = useRef(false);
+  useEffect(() => {
+    if (!account.loaded || isLoading || accountApplied.current) return;
+    accountApplied.current = true;
+    setDensity(account.settings.appearance.density);
+    const start = startFiltersFor(account.settings, DEFAULT_ADMIN_FILTERS, hadUrlParams, [...new Set(orders.map(o => o.partner_name))]);
+    if (start) setParams(serializeAdminFilters(start), { replace: true });
+  }, [account.loaded, account.settings, isLoading, orders, hadUrlParams, setDensity, setParams]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [requestOpen, setRequestOpen] = useState(false);
   const [quickRequestOrder, setQuickRequestOrder] = useState<OdooSaleOrder | null>(null);
@@ -656,7 +669,11 @@ export default function AdminPanel() {
                     myOrdersCount={myTrayCount}
                     searchInputRef={searchInputRef}
                     density={density}
-                    onToggleDensity={() => setDensity(d => (d === 'comfortable' ? 'compact' : 'comfortable'))}
+                    onToggleDensity={() => {
+                      const next = density === 'comfortable' ? 'compact' : 'comfortable';
+                      setDensity(next);
+                      if (account.loaded) account.update({ appearance: { ...account.settings.appearance, density: next } }).catch(() => undefined);
+                    }}
                   />
                   {isMyOrdersFilter && (
                     <MyOrdersSubtabBar

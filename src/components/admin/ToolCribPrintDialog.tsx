@@ -1,9 +1,10 @@
 /** Diálogo para imprimir el plano estampado de una partida Tool Crib. */
 import { useState } from 'react';
+import { useUserSettings } from '../../hooks/useUserSettings';
 import { format } from 'date-fns';
 import type { ToolCribLine } from '../../services/toolCrib';
 import type { DrawingView } from '../../services/toolCribMatching';
-import { DEFAULT_COPIES, formatPrintedLabel, type PrintState } from '../../services/toolCribPrint';
+import { formatPrintedLabel, type PrintState } from '../../services/toolCribPrint';
 import { fetchPdfBytes, runPrint, validatePrintInput } from '../../services/toolCribPrintRun';
 import { buildPrintPdf, openPdfForPrint } from '../../services/planoOt';
 import { recordPrintLog } from '../../services/toolCribLibrary';
@@ -25,9 +26,10 @@ interface Props {
 }
 
 function PrintContent({ line, view, state, onClose, onPrinted }: Omit<Props, 'open'>) {
+  const account = useUserSettings();
   const [cantidad, setCantidad] = useState(String(line.missing > 0 ? line.missing : line.line.qty));
-  const [copies, setCopies] = useState(DEFAULT_COPIES);
-  const [withTicket, setWithTicket] = useState(true);
+  const [copies, setCopies] = useState(account.settings.print.copies);
+  const [withTicket, setWithTicket] = useState(account.settings.print.boardTicket);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
