@@ -3,9 +3,9 @@
  * cuáles ya están listas para pedir factura o remisión y cuáles ya se pidieron.
  */
 import type React from 'react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import { Wrench } from 'lucide-react';
+import { Printer, Wrench } from 'lucide-react';
 import type { InvoiceRequest } from '../../../shared/invoiceRequests';
 import { OdooSaleOrder, getOrderStatus, parseOdooDate } from '../../services/odoo';
 import { collectToolCribLines, type ToolCribLine, type ToolCribLineStatus } from '../../services/toolCrib';
@@ -16,6 +16,13 @@ import { Badge, type BadgeProps } from '../ui/badge';
 import { STATUS_VARIANT } from './orderStatusMeta';
 import { OrderPoEngineer } from './OrdersTable';
 import { useMobile } from '../../hooks/useMobile';
+import { useToolCribLibrary } from '../../hooks/useToolCribLibrary';
+import { resolveLineDrawing, type DrawingResolution } from '../../services/toolCribMatching';
+import { formatPrintedLabel, printStateForLine, type PrintState } from '../../services/toolCribPrint';
+import { auth } from '../../firebase';
+import { Button } from '../ui/button';
+import ToolCribPrintDialog from './ToolCribPrintDialog';
+import ToolCribDrawingPicker from './ToolCribDrawingPicker';
 import type { TableDensity } from './AdminToolbar';
 
 interface ToolCribTabProps {
@@ -43,6 +50,28 @@ export default function ToolCribTab({
 }: ToolCribTabProps) {
   const isMobile = useMobile();
   const lines = useMemo(() => collectToolCribLines(orders, pendingByOrder), [orders, pendingByOrder]);
+  const orderRefs = useMemo(() => lines.map(l => l.order.name), [lines]);
+  const lib = useToolCribLibrary(orderRefs);
+  const [action, setAction] = useState<{ kind: 'print' | 'pick'; index: number } | null>(null);
+
+  // Hasta que cargan la biblioteca y los alias no se resuelve nada: la celda dice "—".
+  const resolved = useMemo(() => {
+    if (!lib.library || !lib.aliases) return null;
+    return lines.map(l => {
+      const resolution = resolveLineDrawing(l, lib.library ?? [], lib.aliases ?? []);
+      return { resolution, state: printStateForLine(resolution, lib.printed, l.order.name) };
+    });
+  }, [lines, lib.library, lib.aliases, lib.printed]);
+
+  const cell: PrintCellFn = (_l, i) => (
+    <PrintCell
+      state={resolved?.[i]?.state ?? null}
+      error={lib.error?.message ?? null}
+      onPrint={() => setAction({ kind: 'print', index: i })}
+      onPick={() => setAction({ kind: 'pick', index: i })}
+    />
+  );
+  const active = action && resolved ? { line: lines[action.index], ...resolved[action.index] } : null;
 
   if (lines.length === 0) {
     return (
@@ -67,9 +96,29 @@ export default function ToolCribTab({
       </div>
       <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
         {isMobile
-          ? <MobileList lines={lines} getEngineerName={getEngineerName} onOrderClick={onOrderClick} />
-          : <DesktopTable lines={lines} getEngineerName={getEngineerName} onOrderClick={onOrderClick} onOrderContextMenu={onOrderContextMenu} density={density} />}
+          ? <MobileList lines={lines} getEngineerName={getEngineerName} onOrderClick={onOrderClick} printCell={cell} />
+          : <DesktopTable lines={lines} getEngineerName={getEngineerName} onOrderClick={onOrderClick} onOrderContextMenu={onOrderContextMenu} density={density} printCell={cell} />}
       </div>
+      {active && action?.kind === 'print' && active.resolution.kind === 'match' && (
+        <ToolCribPrintDialog
+          line={active.line}
+          view={active.resolution.view}
+          state={active.state}
+          open
+          onClose={() => setAction(null)}
+          onPrinted={() => { void lib.refetchPrinted(); }}
+        />
+      )}
+      {active && action?.kind === 'pick' && (
+        <ToolCribDrawingPicker
+          line={active.line}
+          resolution={active.resolution as DrawingResolution}
+          library={lib.library ?? []}
+          open
+          onClose={() => setAction(null)}
+          onSaved={() => { void lib.refetchLibrary(); }}
+        />
+      )}
     </div>
   );
 }
@@ -85,13 +134,40 @@ function Stat({ label, value }: { label: string; value: number }) {
 
 const lineKey = (l: ToolCribLine, i: number) => `${l.order.id}-${l.line.id ?? l.line.name}-${i}`;
 
+type PrintCellFn = (l: ToolCribLine, i: number) => React.ReactNode;
+
+/** Estado de impresión de la partida y su acción: imprimir, reimprimir o elegir plano. */
+function PrintCell({ state, error, onPrint, onPick }: { state: PrintState | null; error: string | null; onPrint: () => void; onPick: () => void }) {
+  if (error && !state) return <span className="text-xs text-destructive" title={error}>Sin conexión a planos</span>;
+  if (!state) return <span className="text-muted-foreground">—</span>;
+  if (state.kind === 'none' || state.kind === 'ambiguous') {
+    return (
+      <div className="flex flex-col items-start gap-1">
+        <span className="text-xs text-muted-foreground">{state.kind === 'none' ? 'Sin plano' : 'Plano ambiguo'}</span>
+        <Button size="sm" variant="secondary" onClick={onPick}>Elegir plano</Button>
+      </div>
+    );
+  }
+  if (state.kind === 'no-pdf') return <span className="text-xs text-destructive">Plano sin PDF</span>;
+  return (
+    <div className="flex flex-col items-start gap-1">
+      {state.kind === 'printed' && (
+        <span className="text-xs text-foreground">{formatPrintedLabel(state, auth.currentUser?.uid ?? null)}</span>
+      )}
+      <Button size="sm" variant={state.kind === 'printed' ? 'ghost' : 'default'} onClick={onPrint}>
+        <Printer />{state.kind === 'printed' ? 'Reimprimir' : 'Imprimir'}
+      </Button>
+    </div>
+  );
+}
+
 function PartNumber({ value }: { value: string | null }) {
   return value
     ? <span className="font-mono-data font-semibold text-foreground">{value}</span>
     : <span className="text-xs text-muted-foreground">Sin no. de parte</span>;
 }
 
-function MobileList({ lines, getEngineerName, onOrderClick }: Pick<ToolCribTabProps, 'getEngineerName' | 'onOrderClick'> & { lines: ToolCribLine[] }) {
+function MobileList({ lines, getEngineerName, onOrderClick, printCell }: Pick<ToolCribTabProps, 'getEngineerName' | 'onOrderClick'> & { lines: ToolCribLine[]; printCell: PrintCellFn }) {
   return (
     <ul className="divide-y divide-border">
       {lines.map((l, i) => {
@@ -127,6 +203,7 @@ function MobileList({ lines, getEngineerName, onOrderClick }: Pick<ToolCribTabPr
                 </span>
               </div>
             </button>
+            <div className="px-4 pb-3">{printCell(l, i)}</div>
           </li>
         );
       })}
@@ -135,8 +212,8 @@ function MobileList({ lines, getEngineerName, onOrderClick }: Pick<ToolCribTabPr
 }
 
 function DesktopTable({
-  lines, getEngineerName, onOrderClick, onOrderContextMenu, density,
-}: Pick<ToolCribTabProps, 'getEngineerName' | 'onOrderClick' | 'onOrderContextMenu'> & { lines: ToolCribLine[]; density: TableDensity }) {
+  lines, getEngineerName, onOrderClick, onOrderContextMenu, density, printCell,
+}: Pick<ToolCribTabProps, 'getEngineerName' | 'onOrderClick' | 'onOrderContextMenu'> & { lines: ToolCribLine[]; density: TableDensity; printCell: PrintCellFn }) {
   const isComfortable = density === 'comfortable';
   const cellPad = isComfortable ? 'px-4 py-3' : 'px-4 py-2';
   const headPad = isComfortable ? 'px-4 py-2.5' : 'px-4 py-2';
@@ -190,7 +267,7 @@ function DesktopTable({
               </td>
               <td className={cellPad}><Badge variant={STATUS_VARIANT[urgency.level]}>{urgency.label}</Badge></td>
               <td className={cellPad}><Badge variant={st.variant}>{st.label}</Badge></td>
-              <td className={`${cellPad} text-muted-foreground`}>—</td>
+              <td className={cellPad}>{printCell(l, i)}</td>
             </tr>
           );
         })}
