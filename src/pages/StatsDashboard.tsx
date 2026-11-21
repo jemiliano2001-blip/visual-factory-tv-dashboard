@@ -304,7 +304,7 @@ export default function StatsDashboard() {
                 label="Piezas pendientes"
                 value={totalMissingPieces.toLocaleString('es-MX')}
                 detail={`En ${ordersWithPending} órdenes por entregar`}
-                href="/admin?vista=pending"
+                href="/admin"
               />
               <KpiCard
                 icon={<AlertTriangle className="size-5 text-destructive" />}

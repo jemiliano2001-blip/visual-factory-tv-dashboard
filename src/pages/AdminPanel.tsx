@@ -40,7 +40,7 @@ import {
   type OrderAssignmentsPayload,
 } from '../../shared/orderAssignments';
 import { auth } from '../firebase';
-import PendingTab from '../components/admin/PendingTab';
+import ToolCribTab from '../components/admin/ToolCribTab';
 import OrdersTable from '../components/admin/OrdersTable';
 import AdminToolbar, { type TableDensity } from '../components/admin/AdminToolbar';
 import SelectionBar from '../components/admin/SelectionBar';
@@ -689,9 +689,10 @@ export default function AdminPanel() {
               <div className="mt-5">
                 {isLoading ? (
                   <LoadingState view={view} isMobile={isMobile} />
-                ) : view === 'pending' ? (
-                  <PendingTab
+                ) : view === 'toolcrib' ? (
+                  <ToolCribTab
                     orders={filteredOrders}
+                    pendingByOrder={pendingByOrder}
                     getEngineerName={getEngineerName}
                     onOrderClick={setDetailOrder}
                     onOrderContextMenu={(e, order) => {
@@ -849,8 +850,8 @@ export default function AdminPanel() {
   );
 }
 
-function LoadingState({ view, isMobile }: { view: 'company' | 'pending'; isMobile: boolean }) {
-  if (view === 'pending') {
+function LoadingState({ view, isMobile }: { view: 'company' | 'toolcrib'; isMobile: boolean }) {
+  if (view === 'toolcrib') {
     return (
       <div role="status" aria-label="Cargando órdenes de Odoo" className="space-y-4">
         <span className="sr-only">Cargando órdenes de Odoo…</span>
