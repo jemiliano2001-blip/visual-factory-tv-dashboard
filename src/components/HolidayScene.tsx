@@ -249,7 +249,7 @@ const HolidayScene: React.FC<{ kind: SceneKind }> = ({ kind }) => (
       <img
         src={`${BIRTHDAY_BASE_URL}/pastel.webp`}
         alt=""
-        className="holiday-bob absolute bottom-0 left-1/2 h-11 w-auto -translate-x-1/2"
+        className="holiday-bob absolute bottom-0 left-1/2 h-[62px] w-auto -translate-x-1/2"
         onError={(e) => { e.currentTarget.style.display = 'none'; }}
       />
     )}
