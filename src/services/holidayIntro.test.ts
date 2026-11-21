@@ -23,3 +23,10 @@ test('shouldShowIntro respeta visto, forced y reducedMotion', () => {
   assert.equal(shouldShowIntro({ stored: '1', forced: true, reducedMotion: false }), true);
   assert.equal(shouldShowIntro({ stored: null, forced: true, reducedMotion: true }), false);
 });
+
+test('el saludo de cumpleaños cambia de clave cada hora; los demás festivos, solo por día', () => {
+  const a = new Date(2027, 0, 3, 9, 5);
+  const b = new Date(2027, 0, 3, 10, 5);
+  assert.notEqual(introStorageKey('cumple', a), introStorageKey('cumple', b));
+  assert.equal(introStorageKey('reyes', a), introStorageKey('reyes', b));
+});

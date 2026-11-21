@@ -7,8 +7,10 @@ export function localDateKey(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** Una vez por día; el cumpleaños (sorpresa) se repite cada hora para que se emocione. */
 export function introStorageKey(id: HolidayId, date: Date): string {
-  return `vftv:festivo:visto:${id}:${localDateKey(date)}`;
+  const hour = id === 'cumple' ? `-${pad(date.getHours())}` : '';
+  return `vftv:festivo:visto:${id}:${localDateKey(date)}${hour}`;
 }
 
 export function shouldShowIntro(input: {

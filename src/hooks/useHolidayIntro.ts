@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { introStorageKey, shouldShowIntro } from '../services/holidayIntro';
 import type { HolidayTheme } from '../services/holidayTheme';
 
-/** Decide una sola vez por tema (al estar `enabled`) si se muestra el saludo a pantalla completa del festivo. */
+/** Decide una vez por clave de saludo (festivo y día; el cumpleaños, también hora) (al estar `enabled`) si se muestra el saludo a pantalla completa del festivo. */
 export function useHolidayIntro(
   holiday: HolidayTheme | null,
   now: Date,
@@ -14,9 +14,9 @@ export function useHolidayIntro(
 
   useEffect(() => {
     if (!enabled || !holiday || typeof window === 'undefined') return;
-    if (decided.current === holiday.id) return;
-    decided.current = holiday.id;
     const key = introStorageKey(holiday.id, now);
+    if (decided.current === key) return;
+    decided.current = key;
     let stored: string | null = null;
     try {
       stored = window.localStorage.getItem(key);
