@@ -34,7 +34,17 @@ export interface InvoiceRequest {
   doneBy?: RequestActor;
   doneAt?: string;
 }
-export interface InvoiceRequestsState { requests: InvoiceRequest[]; updatedAt: string }
+export interface IdempotencyRecord {
+  at: string;
+  payloadHash: string;
+  requestIds: string[];
+}
+
+export interface InvoiceRequestsState {
+  requests: InvoiceRequest[];
+  updatedAt: string;
+  idempotencyKeys?: Record<string, IdempotencyRecord>;
+}
 export interface RequestableOrder {
   id: number;
   name: string;
@@ -72,11 +82,82 @@ export const MAX_DRAFTS = 100;
 export const MAX_LINES_PER_REQUEST = 500;
 /** Tope de pendientes: viven en un solo documento de Firestore (1 MiB). */
 export const MAX_PENDING = 300;
+export const MAX_IDEMPOTENCY_KEYS = 100;
+export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_STATE_BYTES = 800_000;
 const HARD_MAX_STATE_BYTES = 950_000;
 const EPS = 1e-6;
 const utf8Encoder = new TextEncoder();
 const utf8ByteLength = (str: string): number => utf8Encoder.encode(str).length;
+
+export function isValidRequestId(id: string): boolean {
+  return id.length >= 1 && id.length <= 128 && /^[A-Za-z0-9._-]+$/.test(id);
+}
+
+export function normalizeIdempotencyKey(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'string') throw new Error('Idempotency-Key inválido.');
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed.length < 8 || trimmed.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(trimmed)) {
+    throw new Error('Idempotency-Key inválido.');
+  }
+  return trimmed;
+}
+
+function pruneIdempotencyKeys(
+  raw: Record<string, IdempotencyRecord> | undefined,
+  nowMs = Date.now(),
+): Record<string, IdempotencyRecord> | undefined {
+  if (!raw) return undefined;
+  const cutoff = nowMs - IDEMPOTENCY_TTL_MS;
+  const entries = Object.entries(raw)
+    .filter(([, rec]) => {
+      const ts = Date.parse(rec.at);
+      return Number.isFinite(ts) && ts >= cutoff;
+    })
+    .sort((a, b) => b[1].at.localeCompare(a[1].at))
+    .slice(0, MAX_IDEMPOTENCY_KEYS);
+  if (entries.length === 0) return undefined;
+  return Object.fromEntries(entries);
+}
+
+export type IdempotentReplayResult =
+  | { status: 'miss' }
+  | { status: 'conflict' }
+  | { status: 'hit'; created: InvoiceRequest[] };
+
+export function lookupIdempotentReplay(
+  state: InvoiceRequestsState,
+  key: string | null,
+  payloadHash: string,
+): IdempotentReplayResult {
+  if (!key || !state.idempotencyKeys) return { status: 'miss' };
+  const entry = state.idempotencyKeys[key];
+  if (!entry) return { status: 'miss' };
+  if (entry.payloadHash !== payloadHash) return { status: 'conflict' };
+  const idSet = new Set(entry.requestIds);
+  return { status: 'hit', created: state.requests.filter(r => idSet.has(r.id)) };
+}
+
+export function recordIdempotencyKey(
+  state: InvoiceRequestsState,
+  key: string | null,
+  payloadHash: string,
+  requestIds: string[],
+  now: string,
+): InvoiceRequestsState {
+  if (!key) return state;
+  const nowMs = Date.parse(now);
+  const nextKeys = pruneIdempotencyKeys({
+    ...(state.idempotencyKeys ?? {}),
+    [key]: { at: now, payloadHash, requestIds },
+  }, Number.isFinite(nowMs) ? nowMs : Date.now());
+  return {
+    ...state,
+    ...(nextKeys ? { idempotencyKeys: nextKeys } : {}),
+  };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -212,9 +293,18 @@ function trim(state: InvoiceRequestsState): InvoiceRequestsState {
     .filter(r => r.status === 'hecha')
     .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''));
   let kept = doneSorted.slice(0, MAX_DONE_KEPT);
-  const build = (): InvoiceRequestsState => {
+  const updatedMs = Date.parse(state.updatedAt);
+  const prunedKeys = pruneIdempotencyKeys(
+    state.idempotencyKeys,
+    Number.isFinite(updatedMs) ? updatedMs : Date.now(),
+  );
+  const build = (includeKeys = true): InvoiceRequestsState => {
     const keep = new Set(kept);
-    return { requests: state.requests.filter(r => r.status === 'pendiente' || keep.has(r)), updatedAt: state.updatedAt };
+    return {
+      requests: state.requests.filter(r => r.status === 'pendiente' || keep.has(r)),
+      updatedAt: state.updatedAt,
+      ...(includeKeys && prunedKeys ? { idempotencyKeys: prunedKeys } : {}),
+    };
   };
   let out = build();
   while (kept.length > 0 && utf8ByteLength(JSON.stringify(out)) > MAX_STATE_BYTES) {
@@ -233,7 +323,30 @@ export function normalizeInvoiceRequests(raw: unknown): InvoiceRequestsState {
       if (r) requests.push(r);
     }
   }
-  return trim({ requests, updatedAt: typeof source.updatedAt === 'string' ? source.updatedAt : '' });
+  let idempotencyKeys: Record<string, IdempotencyRecord> | undefined;
+  if (isRecord(source.idempotencyKeys)) {
+    const parsed: Record<string, IdempotencyRecord> = {};
+    for (const [k, v] of Object.entries(source.idempotencyKeys)) {
+      if (!isRecord(v) || typeof v.at !== 'string' || typeof v.payloadHash !== 'string' || !Array.isArray(v.requestIds)) continue;
+      try {
+        const cleanKey = normalizeIdempotencyKey(k);
+        if (!cleanKey) continue;
+        parsed[cleanKey] = {
+          at: v.at,
+          payloadHash: v.payloadHash,
+          requestIds: v.requestIds.filter((id): id is string => typeof id === 'string'),
+        };
+      } catch {
+        // descarta claves inválidas
+      }
+    }
+    if (Object.keys(parsed).length > 0) idempotencyKeys = parsed;
+  }
+  return trim({
+    requests,
+    updatedAt: typeof source.updatedAt === 'string' ? source.updatedAt : '',
+    ...(idempotencyKeys ? { idempotencyKeys } : {}),
+  });
 }
 
 export function parseCreateRequestsBody(body: unknown): RequestDraft[] {
@@ -388,7 +501,11 @@ export function createInvoiceRequests(
     created.push(result.request);
   }
   if (created.length === 0) return { state, created, skipped };
-  const next = trim({ requests: [...[...created].reverse(), ...state.requests], updatedAt: ctx.now });
+  const next = trim({
+    requests: [...[...created].reverse(), ...state.requests],
+    updatedAt: ctx.now,
+    ...(state.idempotencyKeys ? { idempotencyKeys: state.idempotencyKeys } : {}),
+  });
   if (utf8ByteLength(JSON.stringify(next)) > HARD_MAX_STATE_BYTES) {
     throw new Error('El registro de solicitudes alcanzó el tamaño máximo permitido. Marca solicitudes antiguas como hechas.');
   }
@@ -404,7 +521,11 @@ export function markInvoiceRequestDone(
   if (!target) throw new Error('No se encontró la solicitud.');
   if (target.status === 'hecha') return state;
   const updated: InvoiceRequest = { ...target, status: 'hecha', doneBy: ctx.actor, doneAt: ctx.now };
-  return trim({ requests: state.requests.map(r => (r === target ? updated : r)), updatedAt: ctx.now });
+  return trim({
+    requests: state.requests.map(r => (r === target ? updated : r)),
+    updatedAt: ctx.now,
+    ...(state.idempotencyKeys ? { idempotencyKeys: state.idempotencyKeys } : {}),
+  });
 }
 
 /** Lo mínimo de una orden de Odoo para saber si una solicitud ya quedó hecha. */

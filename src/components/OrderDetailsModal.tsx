@@ -45,6 +45,10 @@ const PRIORITY_LABELS: Record<string, string> = {
   low: 'Baja', normal: 'Normal', high: 'Alta', critical: 'Vencida',
 };
 
+function formatSafeQty(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '0.00';
+}
+
 export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isOpen, onClose }) => {
   const isMobile = useMobile();
   const [requestOpen, setRequestOpen] = useState(false);
@@ -213,7 +217,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                         <div className="flex flex-col">
                           <span className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Cantidad</span>
                           <span className="text-base font-bold text-secondary-foreground font-mono-data leading-tight">
-                            {line.qty.toFixed(2)}
+                            {formatSafeQty(line.qty)}
                           </span>
                         </div>
                         <div className="flex flex-col items-end">
@@ -223,7 +227,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                             : isPartial ? 'bg-warning/10 text-warning border border-warning/20'
                             : 'bg-secondary/50 text-muted-foreground border border-border'
                           }`}>
-                            {line.delivered.toFixed(2)}
+                            {formatSafeQty(line.delivered)}
                           </span>
                         </div>
                       </div>
@@ -308,7 +312,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                             </div>
                           </td>
                           <td className="px-3 py-3 sm:px-5 sm:py-4 text-right font-mono-data text-muted-foreground">
-                            {line.qty.toFixed(2)}
+                            {formatSafeQty(line.qty)}
                           </td>
                           <td className="px-3 py-3 sm:px-5 sm:py-4 text-right font-mono-data">
                             <span className={`px-2 py-1 sm:px-2.5 sm:py-1 rounded-md text-xs sm:text-xs font-bold ${
@@ -318,7 +322,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, isO
                                 ? 'bg-warning/10 text-warning border border-warning/20'
                                 : 'bg-secondary/50 text-muted-foreground border border-border'
                             }`}>
-                              {line.delivered.toFixed(2)}
+                              {formatSafeQty(line.delivered)}
                             </span>
                           </td>
                           <td className="px-3 py-3 sm:px-5 sm:py-4 text-center">

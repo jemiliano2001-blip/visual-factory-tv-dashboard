@@ -39,6 +39,8 @@ export const CompanyBadge: React.FC<CompanyBadgeProps> = ({ company, size = 'md'
         <img
           src={logo}
           alt={`Marca de ${companyName}`}
+          width={64}
+          height={64}
           decoding="async"
           draggable={false}
           className={`h-full w-full object-contain ${config.padding}`}

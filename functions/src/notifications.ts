@@ -145,7 +145,13 @@ export async function saveState(
 ): Promise<void> {
   try {
     const document = admin.firestore().collection('config').doc('notification_state');
-    await persistNotificationState(document, state, fields);
+    await admin.firestore().runTransaction(async tx => {
+      await persistNotificationState(
+        { set: (data, options) => Promise.resolve(tx.set(document, data, options)) },
+        state,
+        fields,
+      );
+    });
   } catch (e) {
     logger.error('[notifications] Error guardando estado en Firestore:', e);
     throw new Error('No se pudo guardar el estado de notificaciones.');
@@ -162,10 +168,9 @@ export function buildWebhookChannels(mainUrl: string): WebhookChannels {
   };
 }
 
-// Strips Discord mention syntax from Odoo-sourced strings to prevent
-// an Odoo customer name like "@everyone" from pinging the whole server.
+// Escapa menciones (@) y corchetes ([]) de textos de Odoo para evitar pings masivos o enlaces Markdown.
 function escapeDiscord(s: string): string {
-  return s.replace(/@/g, '\\@');
+  return s.replace(/@/g, '\\@').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
 }
 
 // ─── Discord webhook ──────────────────────────────────────────────────────────

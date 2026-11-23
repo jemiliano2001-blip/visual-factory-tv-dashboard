@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onRequest } from 'firebase-functions/v2/https';
@@ -6,20 +6,23 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as logger from 'firebase-functions/logger';
 import express, { NextFunction, Request, Response } from 'express';
 import { OdooClient } from '../../shared/odooClient';
-import nodemailer from 'nodemailer';
-import { crearAuthApi, esEmailVerificado, extractBearerToken } from '../../shared/firebaseTokenPolicy';
+import { createTransport, type Transporter } from 'nodemailer';
+import { crearAuthApi, extractBearerToken } from '../../shared/firebaseTokenPolicy';
 import { crearVerificadorHub } from '../../shared/hubAccess';
 import { buildTeamAccess, isAdminClaim, type AuthUserInfo } from '../../shared/teamAccess';
 import { buildMailEnvelope, buildRequestsEmail } from '../../shared/invoiceRequest';
 import {
-  assignOrders, claimOrders, followOrders, normalizeOrderAssignments, parseAssignBody, parseOrderKeys, releaseOrders,
-  type OrderAssignmentsPayload,
+  AssignmentValidationError, assertAssignmentsWithinSizeLimit, assignOrders, claimOrders, followOrders,
+  normalizeOrderAssignments, parseAssignBody, parseOrderKeys, releaseOrders, type OrderAssignmentsPayload,
 } from '../../shared/orderAssignments';
 import {
-  backfillRequestMeta, createInvoiceRequests, loadOrderSnapshots, markInvoiceRequestDone, missingMetaOrderIds,
-  normalizeInvoiceRequests, parseCreateRequestsBody, reconcileWithOdoo,
+  backfillRequestMeta, createInvoiceRequests, isValidRequestId, loadOrderSnapshots, lookupIdempotentReplay,
+  markInvoiceRequestDone, missingMetaOrderIds, normalizeIdempotencyKey, normalizeInvoiceRequests,
+  parseCreateRequestsBody, reconcileWithOdoo, recordIdempotencyKey,
   type OdooOrderMetaSnapshot, type OdooOrderSnapshot, type RequestActor,
 } from '../../shared/invoiceRequests';
+import { createMemoryRateLimiter } from '../../shared/rateLimit';
+import { buildAuditEntry, type AuditLogEntry } from '../../shared/auditLog';
 import { isKnownSatCode } from '../../shared/satCatalogServer';
 import {
   checkThresholds,
@@ -32,6 +35,7 @@ import {
   sendMonthlyReport,
   loadState,
   saveState,
+  sendWebhook,
   buildWebhookChannels,
   sendInvoiceRequestsNotice,
   type NotifOrder,
@@ -45,6 +49,20 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 
+// Cabeceras de seguridad básicas en todas las respuestas de la Cloud Function
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  next();
+});
+
+app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 // En producción las peticiones llegan vía rewrite de Firebase Hosting (mismo
 // origen) — no se necesita CORS. Solo se habilita para localhost en dev local.
@@ -54,62 +72,122 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   if (/^http:\/\/localhost(:\d+)?$/.test(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key');
   }
   if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
   next();
 });
 
+// ─── Helpers de errores seguros y auditoría ───────────────────────────────────
+function safeErrorSummary(err: unknown): { name: string; message: string } {
+  if (err instanceof Error) {
+    return {
+      name: err.name || 'Error',
+      message: err.message.replace(/\s+/g, ' ').trim().slice(0, 200),
+    };
+  }
+  return { name: 'UnknownError', message: String(err).replace(/\s+/g, ' ').trim().slice(0, 200) };
+}
+
+async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
+  try {
+    await admin.firestore().collection('audit_logs').add(entry);
+  } catch (err) {
+    logger.warn('[audit] No se pudo escribir evento de auditoría:', safeErrorSummary(err));
+  }
+}
+
 // ─── Firebase Auth ─────────────────────────────────────────────────────────────
 // Caché en memoria por instancia para no llamar a firebase-admin por cada poll.
+interface VerifiedTokenMeta {
+  expiresAt: number;
+  emailVerified: boolean;
+  readOnlyClaim: boolean;
+}
 const MAX_TOKEN_CACHE = 500;
 const MAX_TOKEN_CACHE_TTL_MS = 5 * 60 * 1000;
-const tokenCache = new Map<string, number>(); // token -> expiración (ms)
+const tokenCache = new Map<string, VerifiedTokenMeta>();
 setInterval(() => {
   const now = Date.now();
-  for (const [k, expiresAt] of tokenCache) if (now > expiresAt) tokenCache.delete(k);
+  for (const [k, meta] of tokenCache) if (now > meta.expiresAt) tokenCache.delete(k);
 }, 10 * 60 * 1000).unref();
 
-async function verifyFirebaseToken(token: string): Promise<boolean> {
-  const expiresAt = tokenCache.get(token);
-  if (expiresAt && Date.now() < expiresAt) return true;
+async function verifyTokenAndGetMeta(token: string): Promise<VerifiedTokenMeta | null> {
+  const cached = tokenCache.get(token);
+  if (cached && Date.now() < cached.expiresAt) return cached;
   try {
     const decoded = await admin.auth().verifyIdToken(token);
+    const meta: VerifiedTokenMeta = {
+      expiresAt: Math.min(decoded.exp * 1000, Date.now() + MAX_TOKEN_CACHE_TTL_MS),
+      emailVerified: decoded.email_verified === true,
+      readOnlyClaim: decoded.readOnly === true || decoded.role === 'tv' || decoded.rol === 'tv',
+    };
     if (!tokenCache.has(token) && tokenCache.size >= MAX_TOKEN_CACHE) {
       const oldest = tokenCache.keys().next().value;
       if (oldest !== undefined) tokenCache.delete(oldest);
     }
-    tokenCache.set(token, Math.min(decoded.exp * 1000, Date.now() + MAX_TOKEN_CACHE_TTL_MS));
-    return true;
+    tokenCache.set(token, meta);
+    return meta;
   } catch {
-    return false;
+    return null;
   }
+}
+
+async function verifyFirebaseToken(token: string): Promise<boolean> {
+  return (await verifyTokenAndGetMeta(token)) !== null;
 }
 
 const isActor = (a: unknown): a is RequestActor => typeof a === 'object' && a !== null && typeof (a as RequestActor).uid === 'string';
 const NO_ACTOR = 'Se requiere una cuenta de personal SMV.';
 
+const healthRateLimit = createMemoryRateLimiter({
+  maxRequests: 30,
+  windowMs: 60_000,
+  keyOf: req => req.ip ?? 'health',
+});
+const readRateLimit = createMemoryRateLimiter({ maxRequests: 120, windowMs: 60_000 });
+const sensitiveRateLimit = createMemoryRateLimiter({ maxRequests: 15, windowMs: 60_000 });
+// Escrituras sin correo (marcar hecha, asignar/soltar): tope holgado contra bucles o abuso.
+const mutationRateLimit = createMemoryRateLimiter({ maxRequests: 60, windowMs: 60_000 });
+
 // ─── Health check público ──────────────────────────────────────────────────────
-// Para monitores de uptime: va antes de la auth y solo dice si la API y Odoo
-// responden (sin datos). El resultado se reutiliza 60 s para que sondear seguido
-// no se traduzca en llamadas a Odoo.
+// Para monitores de uptime: va antes de la auth y solo dice si la API, Odoo y
+// Firestore responden (sin datos). Caché de 60 s para no saturar servicios.
 const HEALTH_TTL_MS = 60_000;
-let health: { at: number; odoo: Promise<boolean> } | null = null;
+let health: { at: number; checks: Promise<{ odoo: boolean; firestore: boolean }> } | null = null;
 async function probeOdoo(): Promise<boolean> {
   try {
     const session = await odooClient.getSession();
     await odooClient.odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
     return true;
   } catch (err) {
-    logger.warn('[health] Odoo no responde:', err);
+    logger.warn('[health] Odoo no responde:', safeErrorSummary(err));
     return false;
   }
 }
-app.get('/api/health', async (_req: Request, res: Response) => {
-  if (!health || Date.now() - health.at > HEALTH_TTL_MS) health = { at: Date.now(), odoo: probeOdoo() };
-  const odoo = await health.odoo;
+async function probeFirestore(): Promise<boolean> {
+  try {
+    await Promise.race([
+      admin.firestore().doc('visual_factory_state/invoice_requests').get(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore health timeout')), 5000)),
+    ]);
+    return true;
+  } catch (err) {
+    logger.warn('[health] Firestore no responde:', safeErrorSummary(err));
+    return false;
+  }
+}
+app.get('/api/health', healthRateLimit, async (_req: Request, res: Response) => {
+  if (!health || Date.now() - health.at > HEALTH_TTL_MS) {
+    health = {
+      at: Date.now(),
+      checks: Promise.all([probeOdoo(), probeFirestore()]).then(([odoo, firestore]) => ({ odoo, firestore })),
+    };
+  }
+  const { odoo, firestore } = await health.checks;
+  const ok = odoo && firestore;
   res.setHeader('Cache-Control', 'no-store');
-  res.status(odoo ? 200 : 503).json({ ok: odoo, odoo });
+  res.status(ok ? 200 : 503).json({ ok, odoo, firestore });
 });
 
 // Todas las rutas /api exigen un ID token de Firebase válido de una cuenta real:
@@ -127,50 +205,51 @@ app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
   if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
   try {
     const token = extractBearerToken(req.headers.authorization);
-    const access = await hubAccess(actor.uid, actor.email, esEmailVerificado(token));
+    const meta = token ? await verifyTokenAndGetMeta(token) : null;
+    const emailVerified = meta?.emailVerified === true;
+    const access = await hubAccess.withWrite(actor.uid, actor.email, emailVerified);
     if (!access.allowed) {
       res.status(403).json({ error: 'Tu cuenta no tiene acceso al dashboard. Pide a administración que te active en SMV Hub.' });
       return;
     }
     // El nombre del operador vinculado en el Hub identifica a quien pide en solicitudes y correos.
     if (access.name) res.locals.actor = { ...actor, name: access.name };
+    res.locals.canWrite = access.canWrite && meta?.readOnlyClaim !== true;
     next();
   } catch (err) {
-    logger.error('verificación de acceso al Hub falló:', err);
+    logger.error('verificación de acceso al Hub falló:', safeErrorSummary(err));
     res.status(503).json({ error: 'No se pudo verificar tu acceso. Intenta de nuevo en un momento.' });
   }
 });
 
-function createRateLimiter(maxRequests: number, windowMs: number) {
-  const hits = new Map<string, number[]>();
-  return (req: Request, res: Response, next: NextFunction) => {
-    const actor = res.locals.actor;
-    const key = isActor(actor) ? actor.uid : (req.ip ?? 'anon');
-    const now = Date.now();
-    const recent = (hits.get(key) ?? []).filter(t => now - t < windowMs);
-    if (recent.length >= maxRequests) {
-      res.status(429).json({ error: 'Demasiadas solicitudes. Intenta en un minuto.' });
-      return;
-    }
-    recent.push(now);
-    if (!hits.has(key) && hits.size >= 500) {
-      const oldest = hits.keys().next().value;
-      if (oldest !== undefined) hits.delete(oldest);
-    }
-    hits.set(key, recent);
+function requireWriteAccess(req: Request, res: Response, next: NextFunction): void {
+  if (res.locals.canWrite === true) {
     next();
-  };
+    return;
+  }
+  const actor = isActor(res.locals.actor) ? res.locals.actor : { uid: 'unknown', name: null };
+  void writeAuditLog(buildAuditEntry({
+    action: 'auth.write_denied',
+    actor,
+    resource: req.path,
+    outcome: 'denied',
+    details: { method: req.method },
+  }));
+  res.status(403).json({ error: 'Esta cuenta es de solo lectura y no puede realizar cambios.' });
 }
-const sensitiveRateLimit = createRateLimiter(15, 60_000);
-// Escrituras sin correo (marcar hecha, asignar/soltar): tope holgado contra bucles o abuso.
-const mutationRateLimit = createRateLimiter(60, 60_000);
 
 let cachedTransportKey = '';
-let cachedTransport: nodemailer.Transporter | null = null;
-function getMailTransport(user: string, pass: string): nodemailer.Transporter {
+let cachedTransport: Transporter | null = null;
+function getMailTransport(user: string, pass: string): Transporter {
   const key = `${user}\0${pass}`;
   if (!cachedTransport || cachedTransportKey !== key) {
-    cachedTransport = nodemailer.createTransport({ service: 'gmail', auth: { user, pass } });
+    cachedTransport = createTransport({
+      service: 'gmail',
+      auth: { user, pass },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
+    });
     cachedTransportKey = key;
   }
   return cachedTransport;
@@ -182,9 +261,10 @@ const odooClient = new OdooClient({
   db: process.env.ODOO_DB ?? '',
   username: process.env.ODOO_USERNAME ?? '',
   password: process.env.ODOO_PASSWORD ?? '',
+  logger: { warn: msg => logger.warn(msg) },
 });
 
-app.get('/api/odoo/status', async (_req: Request, res: Response) => {
+app.get('/api/odoo/status', readRateLimit, async (_req: Request, res: Response) => {
   if (!odooClient.getConfiguredUrl()) {
     res.status(503).json({ connected: false, message: 'Odoo no configurado' });
     return;
@@ -194,12 +274,12 @@ app.get('/api/odoo/status', async (_req: Request, res: Response) => {
     await odooClient.odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
     res.json({ connected: true, message: 'Conectado a Odoo' });
   } catch (err) {
-    logger.error('[Odoo] Error en /api/odoo/status:', err);
+    logger.error('[Odoo] Error en /api/odoo/status:', safeErrorSummary(err));
     res.status(503).json({ connected: false, message: 'No se pudo conectar con Odoo.' });
   }
 });
 
-app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => {
+app.get('/api/odoo/invoiceable-orders', readRateLimit, async (_req: Request, res: Response) => {
   if (!odooClient.isConfigured()) {
     res.status(503).json({ error: 'Odoo no configurado. Agrega las env vars ODOO_* en functions/.env', orders: [] });
     return;
@@ -208,7 +288,7 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
     const { orders, truncated } = await odooClient.fetchInvoiceableOrdersCached();
     res.json({ orders, total: orders.length, truncated, lastUpdated: new Date().toISOString() });
   } catch (err) {
-    logger.error('[Odoo] Error al obtener órdenes:', err);
+    logger.error('[Odoo] Error al obtener órdenes:', safeErrorSummary(err));
     res.status(500).json({ error: 'Error al consultar las órdenes en Odoo.', orders: [] });
   }
 });
@@ -216,16 +296,19 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
 // ─── Asignación de órdenes a ingenieros SMV ───────────────────────────────────
 const assignmentsDoc = () => admin.firestore().doc('visual_factory_state/order_assignments');
 
-app.get('/api/order-assignments', async (_req: Request, res: Response) => {
+app.get('/api/order-assignments', readRateLimit, async (_req: Request, res: Response) => {
   try {
     res.json(normalizeOrderAssignments((await assignmentsDoc().get()).data()));
   } catch (err) {
-    logger.error('[Assignments] Error leyendo asignaciones:', err);
+    logger.error('[Assignments] Error leyendo asignaciones:', safeErrorSummary(err));
     res.status(500).json({ error: 'No se pudieron leer las asignaciones.' });
   }
 });
 
-const changeAssignments = (mutate: (current: OrderAssignmentsPayload, actor: RequestActor, keys: string[]) => OrderAssignmentsPayload) =>
+const changeAssignments = (
+  auditAction: 'order_assignments.claim' | 'order_assignments.follow' | 'order_assignments.release',
+  mutate: (current: OrderAssignmentsPayload, actor: RequestActor, keys: string[]) => OrderAssignmentsPayload,
+) =>
   async (req: Request, res: Response) => {
     const actor = res.locals.actor;
     if (!isActor(actor)) {
@@ -242,20 +325,33 @@ const changeAssignments = (mutate: (current: OrderAssignmentsPayload, actor: Req
     try {
       const next = await admin.firestore().runTransaction(async tx => {
         const updated = mutate(normalizeOrderAssignments((await tx.get(assignmentsDoc())).data()), actor, keys);
+        assertAssignmentsWithinSizeLimit(updated);
         tx.set(assignmentsDoc(), updated);
         return updated;
       });
+      void writeAuditLog(buildAuditEntry({
+        action: auditAction,
+        actor,
+        resource: 'visual_factory_state/order_assignments',
+        outcome: 'success',
+        details: { orderCount: keys.length },
+      }));
       res.json(next);
     } catch (err) {
-      logger.error('[Assignments] Error guardando asignaciones:', err);
+      const summary = safeErrorSummary(err);
+      logger.error('[Assignments] Error guardando asignaciones:', summary);
+      if (summary.message.includes('tamaño máximo')) {
+        res.status(409).json({ error: summary.message });
+        return;
+      }
       res.status(500).json({ error: 'No se pudieron guardar las asignaciones.' });
     }
   };
 
-app.post('/api/order-assignments/claim', mutationRateLimit, changeAssignments((cur, actor, keys) => claimOrders(cur, actor, keys)));
-app.post('/api/order-assignments/follow', mutationRateLimit, changeAssignments((cur, actor, keys) => followOrders(cur, actor, keys)));
-app.post('/api/order-assignments/release', mutationRateLimit, changeAssignments((cur, actor, keys) => releaseOrders(cur, actor.uid, keys)));
-app.post('/api/order-assignments/assign', mutationRateLimit, async (req: Request, res: Response) => {
+app.post('/api/order-assignments/claim', requireWriteAccess, mutationRateLimit, changeAssignments('order_assignments.claim', (cur, actor, keys) => claimOrders(cur, actor, keys)));
+app.post('/api/order-assignments/follow', requireWriteAccess, mutationRateLimit, changeAssignments('order_assignments.follow', (cur, actor, keys) => followOrders(cur, actor, keys)));
+app.post('/api/order-assignments/release', requireWriteAccess, mutationRateLimit, changeAssignments('order_assignments.release', (cur, actor, keys) => releaseOrders(cur, actor.uid, keys)));
+app.post('/api/order-assignments/assign', requireWriteAccess, mutationRateLimit, async (req: Request, res: Response) => {
   const actor = res.locals.actor;
   if (!isActor(actor)) {
     res.status(403).json({ error: NO_ACTOR });
@@ -276,13 +372,30 @@ app.post('/api/order-assignments/assign', mutationRateLimit, async (req: Request
         parsed.orderKeys,
         parsed.target,
       );
+      assertAssignmentsWithinSizeLimit(updated);
       tx.set(assignmentsDoc(), updated);
       return updated;
     });
+    void writeAuditLog(buildAuditEntry({
+      action: 'order_assignments.assign',
+      actor,
+      resource: 'visual_factory_state/order_assignments',
+      outcome: 'success',
+      details: { orderCount: parsed.orderKeys.length },
+    }));
     res.json(next);
   } catch (err) {
-    logger.error('[Assignments] Error asignando ingeniero:', err);
-    res.status(400).json({ error: err instanceof Error ? err.message : 'No se pudieron guardar las asignaciones.' });
+    if (err instanceof AssignmentValidationError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    const summary = safeErrorSummary(err);
+    logger.error('[Assignments] Error asignando ingeniero:', summary);
+    if (summary.message.includes('tamaño máximo')) {
+      res.status(409).json({ error: summary.message });
+      return;
+    }
+    res.status(500).json({ error: 'No se pudieron guardar las asignaciones.' });
   }
 });
 
@@ -313,13 +426,13 @@ app.get('/api/team-access', sensitiveRateLimit, async (_req: Request, res: Respo
     const members = buildTeamAccess(hubSnap.docs.map(d => ({ uid: d.id, data: d.data() })), authUsers);
     res.json({ available: true, members });
   } catch (err) {
-    logger.error('team-access falló:', err);
+    logger.error('team-access falló:', safeErrorSummary(err));
     res.status(503).json({ error: 'No se pudo leer la lista de acceso. Intenta de nuevo en un momento.' });
   }
 });
 
 // Al leer, marca "hecha" lo que Odoo ya cumplió y agrega el avance. Si Odoo falla, devuelve lo guardado.
-app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
+app.get('/api/invoice-requests', readRateLimit, async (_req: Request, res: Response) => {
   try {
     const stored = normalizeInvoiceRequests((await requestsDoc().get()).data());
     let orders: OdooOrderSnapshot[] = [];
@@ -330,7 +443,7 @@ app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
           fetchByIds: ids => odooClient.fetchOrdersByIds(ids),
         });
       } catch (err) {
-        logger.warn('solicitudes: no se pudo consultar Odoo, se devuelve lo guardado:', err);
+        logger.warn('solicitudes: no se pudo consultar Odoo, se devuelve lo guardado:', safeErrorSummary(err));
         res.json({ ...stored, progress: {} });
         return;
       }
@@ -345,7 +458,7 @@ app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
         metaOrders = [...orders, ...extraMeta];
         for (const id of metaIds) checkedIds.add(id);
       } catch (err) {
-        logger.warn('solicitudes: no se pudieron completar metadatos desde Odoo:', err);
+        logger.warn('solicitudes: no se pudieron completar metadatos desde Odoo:', safeErrorSummary(err));
       }
     }
     const now = new Date().toISOString();
@@ -366,14 +479,21 @@ app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
     }
     res.json({ ...finalState, progress: finalProgress });
   } catch (err) {
-    logger.error('[InvoiceRequests] Error en GET:', err);
+    logger.error('[InvoiceRequests] Error en GET:', safeErrorSummary(err));
     res.status(500).json({ error: 'No se pudieron consultar las solicitudes.' });
   }
 });
 
-app.post('/api/invoice-requests', sensitiveRateLimit, async (req: Request, res: Response) => {
+app.post('/api/invoice-requests', requireWriteAccess, sensitiveRateLimit, async (req: Request, res: Response) => {
   const actor = res.locals.actor;
   if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
+  let idempotencyKey: string | null = null;
+  try {
+    idempotencyKey = normalizeIdempotencyKey(req.get('Idempotency-Key'));
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Idempotency-Key inválido.' });
+    return;
+  }
   let drafts;
   try {
     drafts = parseCreateRequestsBody(req.body);
@@ -382,6 +502,8 @@ app.post('/api/invoice-requests', sensitiveRateLimit, async (req: Request, res: 
     return;
   }
   if (!odooClient.isConfigured()) { res.status(503).json({ error: 'Odoo no configurado.' }); return; }
+  const payloadHash = createHash('sha256').update(JSON.stringify(drafts)).digest('hex');
+
   let orders;
   try {
     orders = (await odooClient.fetchInvoiceableOrders()).orders; // sin caché: las cantidades deben ser las de ahora
@@ -390,53 +512,110 @@ app.post('/api/invoice-requests', sensitiveRateLimit, async (req: Request, res: 
     return;
   }
   try {
-    const result = await admin.firestore().runTransaction(async tx => {
+    const txOutcome = await admin.firestore().runTransaction(async tx => {
       const current = normalizeInvoiceRequests((await tx.get(requestsDoc())).data());
-      const out = createInvoiceRequests(current, drafts, orders, { actor, now: new Date().toISOString(), newId: randomUUID, isKnownSatCode });
-      if (out.created.length > 0) tx.set(requestsDoc(), out.state);
-      return out;
+      const replay = lookupIdempotentReplay(current, idempotencyKey, payloadHash);
+      if (replay.status === 'conflict') {
+        return { kind: 'conflict' as const };
+      }
+      if (replay.status === 'hit') {
+        return { kind: 'replay' as const, state: current, created: replay.created };
+      }
+      const now = new Date().toISOString();
+      const out = createInvoiceRequests(current, drafts, orders, { actor, now, newId: randomUUID, isKnownSatCode });
+      if (out.created.length > 0) {
+        const nextState = recordIdempotencyKey(
+          out.state,
+          idempotencyKey,
+          payloadHash,
+          out.created.map(r => r.id),
+          now,
+        );
+        tx.set(requestsDoc(), nextState);
+        return { kind: 'created' as const, state: nextState, created: out.created, skipped: out.skipped };
+      }
+      return { kind: 'created' as const, state: out.state, created: out.created, skipped: out.skipped };
     });
-    if (result.created.length > 0) odooClient.invalidateOrdersCache();
+
+    if (txOutcome.kind === 'conflict') {
+      res.status(409).json({ error: 'La clave de idempotencia ya se usó con datos distintos.' });
+      return;
+    }
+    if (txOutcome.kind === 'replay') {
+      res.json({
+        state: txOutcome.state,
+        created: txOutcome.created,
+        skipped: [],
+        notified: false,
+        emailed: false,
+        replayed: true,
+      });
+      return;
+    }
+
+    if (txOutcome.created.length > 0) odooClient.invalidateOrdersCache();
     // El registro ya quedó guardado: si falla el correo o Discord solo se reporta.
     let emailed = false;
-    if (result.created.length > 0) {
+    if (txOutcome.created.length > 0) {
       const { GMAIL_USER, GMAIL_APP_PASSWORD, INVOICE_MAIL_TO, INVOICE_MAIL_CC } = process.env;
       if (GMAIL_USER && GMAIL_APP_PASSWORD && INVOICE_MAIL_TO) {
-        try {
-          const transport = getMailTransport(GMAIL_USER, GMAIL_APP_PASSWORD);
-          await transport.sendMail({
-            ...buildMailEnvelope({ user: GMAIL_USER, to: INVOICE_MAIL_TO, cc: INVOICE_MAIL_CC || undefined }, actor),
-            ...buildRequestsEmail(result.created, actor),
-          });
-          emailed = true;
-        } catch (err) {
-          logger.error('correo de solicitud falló:', err);
+        const transport = getMailTransport(GMAIL_USER, GMAIL_APP_PASSWORD);
+        const mailPayload = {
+          ...buildMailEnvelope({ user: GMAIL_USER, to: INVOICE_MAIL_TO, cc: INVOICE_MAIL_CC || undefined }, actor),
+          ...buildRequestsEmail(txOutcome.created, actor),
+        };
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            await transport.sendMail(mailPayload);
+            emailed = true;
+            break;
+          } catch (err) {
+            if (attempt === 0) {
+              await new Promise(resolve => setTimeout(resolve, 800));
+            } else {
+              logger.error('correo de solicitud falló:', safeErrorSummary(err));
+            }
+          }
         }
       }
     }
-    const notified = result.created.length > 0 ? await sendInvoiceRequestsNotice(result.created, actor) : false;
-    res.json({ state: result.state, created: result.created, skipped: result.skipped, notified, emailed });
+    const notified = txOutcome.created.length > 0 ? await sendInvoiceRequestsNotice(txOutcome.created, actor) : false;
+    if (txOutcome.created.length > 0) {
+      void writeAuditLog(buildAuditEntry({
+        action: 'invoice_requests.create',
+        actor,
+        resource: 'visual_factory_state/invoice_requests',
+        outcome: 'success',
+        details: { createdCount: txOutcome.created.length, skippedCount: txOutcome.skipped.length, emailed, notified },
+      }));
+    }
+    res.json({ state: txOutcome.state, created: txOutcome.created, skipped: txOutcome.skipped, notified, emailed });
   } catch (err) {
-    logger.error('[InvoiceRequests] Error en POST:', err);
-    const msg = err instanceof Error ? err.message : '';
-    if (msg.includes('tamaño máximo')) {
-      res.status(409).json({ error: msg });
+    const summary = safeErrorSummary(err);
+    logger.error('[InvoiceRequests] Error en POST:', summary);
+    if (summary.message.includes('tamaño máximo')) {
+      res.status(409).json({ error: summary.message });
       return;
     }
     res.status(500).json({ error: 'No se pudieron crear las solicitudes.' });
   }
 });
 
-app.post('/api/invoice-requests/:id/done', mutationRateLimit, async (req: Request, res: Response) => {
+app.post('/api/invoice-requests/:id/done', requireWriteAccess, mutationRateLimit, async (req: Request, res: Response) => {
   const actor = res.locals.actor;
   if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
+  const id = String(req.params.id ?? '');
+  if (!isValidRequestId(id)) {
+    res.status(400).json({ error: 'ID de solicitud inválido.' });
+    return;
+  }
   let validationError: string | null = null;
   try {
     const next = await admin.firestore().runTransaction(async tx => {
       const current = normalizeInvoiceRequests((await tx.get(requestsDoc())).data());
       let updated;
       try {
-        updated = markInvoiceRequestDone(current, String(req.params.id), { actor, now: new Date().toISOString() });
+        updated = markInvoiceRequestDone(current, id, { actor, now: new Date().toISOString() });
       } catch (err) {
         validationError = err instanceof Error ? err.message : String(err);
         return null;
@@ -453,9 +632,15 @@ app.post('/api/invoice-requests/:id/done', mutationRateLimit, async (req: Reques
       res.status(500).json({ error: 'No se pudo actualizar la solicitud.' });
       return;
     }
+    void writeAuditLog(buildAuditEntry({
+      action: 'invoice_requests.done',
+      actor,
+      resource: `visual_factory_state/invoice_requests/${id}`,
+      outcome: 'success',
+    }));
     res.json(next);
   } catch (err) {
-    logger.error('[InvoiceRequests] Error en POST done:', err);
+    logger.error('[InvoiceRequests] Error en POST done:', safeErrorSummary(err));
     res.status(500).json({ error: 'No se pudo actualizar la solicitud.' });
   }
 });
@@ -469,7 +654,7 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     res.status(400).json({ error: 'JSON inválido en la solicitud.' });
     return;
   }
-  logger.error('[Functions API] Error no controlado:', err);
+  logger.error('[Functions API] Error no controlado:', safeErrorSummary(err));
   res.status(500).json({ error: 'Error interno del servidor.' });
 });
 
@@ -479,7 +664,10 @@ export const api = onRequest({ region: 'us-central1', timeoutSeconds: 60, memory
 // ─── Scheduled Notifications ──────────────────────────────────────────────────
 const TIME_ZONE = 'America/Chicago';
 
-async function runNotificationTask(task: (orders: NotifOrder[], channels: WebhookChannels) => Promise<void>) {
+async function runNotificationTask(
+  taskName: string,
+  task: (orders: NotifOrder[], channels: WebhookChannels) => Promise<void>,
+) {
   const mainUrl = process.env.DISCORD_WEBHOOK_URL;
   const enabled = process.env.NOTIFICATIONS_ENABLED !== 'false';
 
@@ -488,18 +676,33 @@ async function runNotificationTask(task: (orders: NotifOrder[], channels: Webhoo
     return;
   }
 
+  const channels = buildWebhookChannels(mainUrl);
   try {
     const { orders } = await odooClient.fetchInvoiceableOrders();
-    const channels = buildWebhookChannels(mainUrl);
     await task(orders, channels);
   } catch (err) {
-    logger.error('[notifications] Error ejecutando tarea:', err);
+    const summary = safeErrorSummary(err);
+    logger.error(`[notifications] Error ejecutando ${taskName}:`, summary);
+    await writeAuditLog(buildAuditEntry({
+      action: 'cron.task_failed',
+      actor: { uid: 'system', name: 'Scheduler' },
+      resource: `cron/${taskName}`,
+      outcome: 'error',
+      details: { taskName, errorName: summary.name },
+    }));
+    await sendWebhook(
+      channels.reportes,
+      `⚠️ Falló la tarea programada **${taskName}** (${summary.name}). Revisa los logs de Cloud Functions.`,
+      [],
+    ).catch(() => false);
   }
 }
 
+const SCHEDULE_OPTS = { region: 'us-central1', memory: '256MiB' as const, timeoutSeconds: 120, maxInstances: 1 };
+
 // 1. Scan cada 30 minutos (umbrales y eventos)
-export const scanNotifications = onSchedule({ schedule: 'every 30 minutes', timeZone: TIME_ZONE, maxInstances: 1, concurrency: 1 }, async () => {
-  await runNotificationTask(async (orders, channels) => {
+export const scanNotifications = onSchedule({ schedule: 'every 30 minutes', timeZone: TIME_ZONE, concurrency: 1, ...SCHEDULE_OPTS }, async () => {
+  await runNotificationTask('scanNotifications', async (orders, channels) => {
     await checkThresholds(orders, channels);
     await checkEvents(orders, channels);
 
@@ -525,36 +728,36 @@ export const scanNotifications = onSchedule({ schedule: 'every 30 minutes', time
 });
 
 // 2. Lun-Sáb 8:00 AM — reporte matutino
-export const morningReport = onSchedule({ schedule: '0 8 * * 1-6', timeZone: TIME_ZONE }, async () => {
-  await runNotificationTask(async (orders, channels) => {
+export const morningReport = onSchedule({ schedule: '0 8 * * 1-6', timeZone: TIME_ZONE, ...SCHEDULE_OPTS }, async () => {
+  await runNotificationTask('morningReport', async (orders, channels) => {
     await sendMorningReport(orders, channels.reportes);
   });
 });
 
 // 3. Lun-Sáb 1:00 PM — reporte mediodía
-export const middayReport = onSchedule({ schedule: '0 13 * * 1-6', timeZone: TIME_ZONE }, async () => {
-  await runNotificationTask(async (orders, channels) => {
+export const middayReport = onSchedule({ schedule: '0 13 * * 1-6', timeZone: TIME_ZONE, ...SCHEDULE_OPTS }, async () => {
+  await runNotificationTask('middayReport', async (orders, channels) => {
     await sendMiddayReport(orders, channels.reportes);
   });
 });
 
 // 4. Lun-Jue + Sáb 5:00 PM — cierre de turno normal
-export const endOfShiftReport = onSchedule({ schedule: '0 17 * * 1-4,6', timeZone: TIME_ZONE }, async () => {
-  await runNotificationTask(async (orders, channels) => {
+export const endOfShiftReport = onSchedule({ schedule: '0 17 * * 1-4,6', timeZone: TIME_ZONE, ...SCHEDULE_OPTS }, async () => {
+  await runNotificationTask('endOfShiftReport', async (orders, channels) => {
     await sendEndOfShiftReport(orders, channels.reportes);
   });
 });
 
 // 5. Viernes 5:00 PM — cierre de semana
-export const weekendReport = onSchedule({ schedule: '0 17 * * 5', timeZone: TIME_ZONE }, async () => {
-  await runNotificationTask(async (orders, channels) => {
+export const weekendReport = onSchedule({ schedule: '0 17 * * 5', timeZone: TIME_ZONE, ...SCHEDULE_OPTS }, async () => {
+  await runNotificationTask('weekendReport', async (orders, channels) => {
     await sendWeekendReport(orders, channels.reportes);
   });
 });
 
 // 6. Lunes 9:00 AM — resumen semanal
-export const weeklySummary = onSchedule({ schedule: '0 9 * * 1', timeZone: TIME_ZONE }, async () => {
-  await runNotificationTask(async (orders, channels) => {
+export const weeklySummary = onSchedule({ schedule: '0 9 * * 1', timeZone: TIME_ZONE, ...SCHEDULE_OPTS }, async () => {
+  await runNotificationTask('weeklySummary', async (orders, channels) => {
     await sendWeeklySummary(orders, channels.reportes);
   });
 });

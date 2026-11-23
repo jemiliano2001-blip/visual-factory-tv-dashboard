@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { evaluarAccesoHub, crearVerificadorHub, HUB_BREAK_GLASS_EMAIL } from './hubAccess';
+import { evaluarAccesoHub, crearVerificadorHub, canHubAccountWrite, HUB_BREAK_GLASS_EMAIL } from './hubAccess';
 
 test('usuario activo del Hub entra y toma el nombre del operador', () => {
   assert.deepEqual(
@@ -45,4 +45,19 @@ test('verificador: si la lectura falla, niega (falla cerrado) y no cachea el err
   fail = false;
   assert.equal((await check('u1', 'x@smv.com')).allowed, true);
   assert.equal(calls, 2);
+});
+
+test('canHubAccountWrite bloquea cuentas de solo lectura y permite usuarios activos estándar', async () => {
+  assert.equal(canHubAccountWrite({ activo: true }, 'op@smv.com'), true);
+  assert.equal(canHubAccountWrite({ activo: true, rol: 'ingeniero' }, 'op@smv.com'), true);
+  assert.equal(canHubAccountWrite({ activo: true, soloLectura: true }, 'tv@smv.com'), false);
+  assert.equal(canHubAccountWrite({ activo: true, readOnly: true }, 'tv@smv.com'), false);
+  assert.equal(canHubAccountWrite({ activo: true, rol: 'TV' }, 'tv@smv.com'), false);
+  assert.equal(canHubAccountWrite({ activo: true, rol: 'lectura' }, 'tv@smv.com'), false);
+  assert.equal(canHubAccountWrite({ activo: false }, 'op@smv.com'), false);
+  assert.equal(canHubAccountWrite(undefined, HUB_BREAK_GLASS_EMAIL, { emailVerified: true }), true);
+
+  const check = crearVerificadorHub(async () => ({ activo: true, rol: 'tv', operadorNombre: 'Pantalla Planta' }));
+  const full = await check.withWrite('tv-uid', 'tv@smv.com', true);
+  assert.deepEqual(full, { allowed: true, name: 'Pantalla Planta', canWrite: false });
 });

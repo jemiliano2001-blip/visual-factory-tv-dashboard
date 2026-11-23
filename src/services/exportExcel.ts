@@ -12,13 +12,24 @@ import { extractOrderNoteMeta } from './orderNoteParser';
 
 type EngineerNameOf = (order: OdooSaleOrder) => string | null;
 
+/**
+ * Neutraliza Excel/CSV Formula Injection (CWE-1236): antepone `'` cuando una cadena
+ * comienza (tras espacios o tabuladores/saltos) con `=`, `+`, `-`, `@`, o inicia con `\t`/`\r`.
+ */
+export function sanitizeExcelCell(value: string): string {
+  if (/^[\t\r]/.test(value) || /^[\t\r\n ]*[=+\-@]/.test(value)) {
+    return `'${value}`;
+  }
+  return value;
+}
+
 /** Columnas PO / Requisitor / Ingeniero SMV que van tras el cliente en cada hoja. */
 function poColumns(order: OdooSaleOrder, engineerNameOf: EngineerNameOf) {
   const { poNumber, clientContact } = extractOrderNoteMeta(order);
   return {
-    'PO': poNumber ? `PO.${poNumber}` : 'Sin PO',
-    'Requisitor': clientContact ?? '',
-    'Ingeniero SMV': engineerNameOf(order) ?? 'Sin asignar',
+    'PO': poNumber ? sanitizeExcelCell(`PO.${poNumber}`) : 'Sin PO',
+    'Requisitor': sanitizeExcelCell(clientContact ?? ''),
+    'Ingeniero SMV': sanitizeExcelCell(engineerNameOf(order) ?? 'Sin asignar'),
   };
 }
 
@@ -93,7 +104,7 @@ function buildSummarySheet(orders: OdooSaleOrder[]): XLSX.WorkSheet {
     ['Cliente', 'Órdenes', 'Piezas pendientes'],
     ...Array.from(byClient.entries())
       .sort((a, b) => b[1].missing - a[1].missing)
-      .map(([client, e]) => [client, e.orders, e.missing]),
+      .map(([client, e]) => [sanitizeExcelCell(client), e.orders, e.missing]),
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -114,10 +125,10 @@ function buildOrdersSheet(orders: OdooSaleOrder[], engineerNameOf: EngineerNameO
   const data = orders.map(o => {
     const pendingDeliveries = (o.deliveries ?? []).filter(d => d.state !== 'done' && d.state !== 'cancel').length;
     return {
-      'SO': o.name,
-      'Cliente': o.partner_name,
+      'SO': sanitizeExcelCell(o.name),
+      'Cliente': sanitizeExcelCell(o.partner_name),
       ...poColumns(o, engineerNameOf),
-      'Producto': o.main_product,
+      'Producto': sanitizeExcelCell(o.main_product),
       'Fecha Orden': dateStr(o.date_order),
       'Compromiso': dateStr(o.commitment_date),
       'Estado': STATUS_LABEL[getOrderStatus(o).level],
@@ -137,10 +148,10 @@ function buildPendingLinesSheet(orders: OdooSaleOrder[], engineerNameOf: Enginee
   const pendingLines = collectPendingLines(orders);
   const statuses = pendingLines.map(pl => getOrderStatus(pl.order).level);
   const data = pendingLines.map(pl => ({
-    'SO': pl.order.name,
-    'Cliente': pl.order.partner_name,
+    'SO': sanitizeExcelCell(pl.order.name),
+    'Cliente': sanitizeExcelCell(pl.order.partner_name),
     ...poColumns(pl.order, engineerNameOf),
-    'Descripción': pl.line.name,
+    'Descripción': sanitizeExcelCell(pl.line.name),
     'Cant.': pl.line.qty,
     'Entregado': pl.line.delivered,
     'Faltan': pl.missing,
@@ -158,11 +169,11 @@ function buildDeliveriesSheet(orders: OdooSaleOrder[], engineerNameOf: EngineerN
     (o.deliveries ?? [])
       .filter(d => d.state !== 'cancel')
       .map(d => ({
-        'SO': o.name,
-        'Cliente': o.partner_name,
+        'SO': sanitizeExcelCell(o.name),
+        'Cliente': sanitizeExcelCell(o.partner_name),
         ...poColumns(o, engineerNameOf),
-        'Remisión': d.name,
-        'Estado': d.state,
+        'Remisión': sanitizeExcelCell(d.name),
+        'Estado': sanitizeExcelCell(d.state),
         'Fecha': dateStr(d.date_done),
       }))
   );

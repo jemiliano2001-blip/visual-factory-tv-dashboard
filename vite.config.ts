@@ -55,6 +55,12 @@ export default defineConfig(({mode}) => {
             '**/vendor-recharts-*.js',
             '**/vendor-table-*.js',
           ],
+          runtimeCaching: [
+            {
+              urlPattern: /\/api\/.*/i,
+              handler: 'NetworkOnly',
+            },
+          ],
         },
         manifest: {
           name: 'Fábrica Visual TV',

@@ -294,10 +294,11 @@ test('el título depende del tipo de solicitudes', () => {
   assert.equal(buildInvoiceRequestsEmbed([rem], actor).title, 'Solicitud de remisión');
 });
 
-test('la solicitud de facturación escapa menciones de datos', () => {
-  const embed = buildInvoiceRequestsEmbed([invoiceReq({ partnerName: '@everyone', orderName: '<@123>' })], { uid: 'u', email: null, name: '@here' });
+test('la solicitud de facturación escapa menciones y enlaces Markdown de datos', () => {
+  const embed = buildInvoiceRequestsEmbed([invoiceReq({ partnerName: '@everyone [click](https://evil.test)', orderName: '<@123>' })], { uid: 'u', email: null, name: '@here' });
   const d = embed.description ?? '';
   assert.ok(!/(^|[^\\])@/.test(d));
+  assert.ok(d.includes('\\[click\\]'));
 });
 
 test('la solicitud de facturación no pasa de 4096 caracteres y avisa las órdenes omitidas', () => {

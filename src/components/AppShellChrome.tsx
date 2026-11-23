@@ -45,8 +45,13 @@ export default function AppShellChrome() {
   }, []);
 
   const handleLogout = async () => {
-    await signOut(auth);
-    navigate('/login');
+    try {
+      await signOut(auth);
+    } catch {
+      // Si falla revocar en red, redirigir al login igualmente para proteger la vista.
+    } finally {
+      navigate('/login');
+    }
   };
 
   const navItem = (to: string, icon: React.ReactNode, label: string) => {
@@ -91,7 +96,7 @@ export default function AppShellChrome() {
         </div>
 
         {/* Navegación */}
-        <nav className="flex-1 space-y-1 px-3 py-5">
+        <nav aria-label="Navegación principal" className="flex-1 space-y-1 px-3 py-5">
           <AdminSidebarSections />
           {navItem('/stats', <BarChart3 className="size-[18px]" />, 'Estadísticas')}
 
@@ -160,6 +165,7 @@ export default function AppShellChrome() {
       {/* Barra de navegación inferior — solo en móvil. En /admin: secciones del Admin. */}
       {location.pathname === '/admin' ? <AdminMobileNav /> : (
       <nav
+        aria-label="Navegación móvil"
         className="fixed bottom-0 inset-x-0 z-30 flex md:hidden border-t border-border bg-card/95 backdrop-blur-2xl"
       >
         {([

@@ -21,7 +21,15 @@ jobs:
       - run: npm ci --prefix functions
       - name: Prepare synthetic Firebase config for CI only
         run: cp .github/fixtures/firebase-config.ci.json firebase-applet-config.json
+      - name: Verify no env secrets tracked
+        run: |
+          if [ -n "$(git ls-files .env .env.local functions/.env)" ]; then
+            echo "Error: archivo .env rastreado en git"
+            exit 1
+          fi
       - run: npm run lint
       - run: npm test
       - run: npm run build
       - run: npm --prefix functions run build
+      - name: Audit Functions production dependencies
+        run: npm --prefix functions audit --omit=dev --audit-level=high

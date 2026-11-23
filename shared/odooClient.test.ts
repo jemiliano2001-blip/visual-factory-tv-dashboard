@@ -243,23 +243,55 @@ test('una lectura reintenta una vez ante un 503 o una caída de red de Odoo', as
   }
 });
 
-test('no reintenta escrituras, errores de Odoo ni un segundo fallo', async () => {
+test('no reintenta escrituras, errores de Odoo ni más allá de maxRetries', async () => {
   const originalFetch = globalThis.fetch;
-  const cases: Array<{ method: string; rpc: () => Response; calls: number }> = [
+  const cases: Array<{ method: string; rpc: () => Response; calls: number; maxRetries?: number }> = [
     { method: 'write', rpc: () => new Response('down', { status: 503 }), calls: 1 },
     { method: 'read', rpc: () => new Response(JSON.stringify({ error: { message: 'Access denied' } }), { status: 200 }), calls: 1 },
-    { method: 'read', rpc: () => new Response('down', { status: 503 }), calls: 2 },
+    { method: 'read', rpc: () => new Response('down', { status: 503 }), calls: 2, maxRetries: 1 },
+    { method: 'read', rpc: () => new Response('down', { status: 503 }), calls: 3 },
   ];
   for (const c of cases) {
     const f = fetchWithRpc(c.rpc);
     globalThis.fetch = f.fake;
     try {
-      const client = new OdooClient({ url: 'http://odoo.test', db: 'db', username: 'u', password: 'p', retryDelayMs: 0 });
+      const client = new OdooClient({
+        url: 'http://odoo.test', db: 'db', username: 'u', password: 'p',
+        retryDelayMs: 0, maxRetries: c.maxRetries,
+      });
       await assert.rejects(client.odooCall('sale.order', c.method));
       assert.equal(f.calls(), c.calls, c.method);
     } finally {
       globalThis.fetch = originalFetch;
     }
+  }
+});
+
+test('circuit breaker abre tras alcanzar umbral y se recupera después del cooldown', async () => {
+  const originalFetch = globalThis.fetch;
+  let shouldFail = true;
+  const f = fetchWithRpc(() => (shouldFail ? new Response('down', { status: 503 }) : ok()));
+  globalThis.fetch = f.fake;
+  try {
+    const client = new OdooClient({
+      url: 'http://odoo.test', db: 'db', username: 'u', password: 'p',
+      retryDelayMs: 0, maxRetries: 0, circuitBreakerThreshold: 2, circuitBreakerCooldownMs: 120,
+    });
+    await assert.rejects(client.odooCall('sale.order', 'read'));
+    await assert.rejects(client.odooCall('sale.order', 'read'));
+    const callsBeforeOpen = f.calls();
+
+    // Circuito abierto: rechaza inmediatamente sin disparar RPC adicional
+    await assert.rejects(client.odooCall('sale.order', 'read'), /circuit breaker/i);
+    assert.equal(f.calls(), callsBeforeOpen);
+
+    // Tras cooldown recupera y resetea el circuito
+    await new Promise(r => setTimeout(r, 150));
+    shouldFail = false;
+    assert.equal(await client.odooCall<string>('sale.order', 'read'), 'ok');
+    assert.equal(f.calls(), callsBeforeOpen + 1);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

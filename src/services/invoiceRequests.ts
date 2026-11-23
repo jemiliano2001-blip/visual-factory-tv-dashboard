@@ -17,12 +17,22 @@ export type CreateInvoiceRequestsResult = {
   skipped: SkippedRequest[];
   notified: boolean;
   emailed: boolean;
+  replayed?: boolean;
 };
 
 const PROXY_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ODOO_PROXY_URL) || '';
 
-async function request<T>(path: string, method: 'GET' | 'POST', body?: RequestDraft[], timeoutMs = 15000): Promise<T> {
-  const headers: Record<string, string> = { Authorization: `Bearer ${await getIdTokenOrThrow()}` };
+async function request<T>(
+  path: string,
+  method: 'GET' | 'POST',
+  body?: RequestDraft[],
+  timeoutMs = 15000,
+  extraHeaders?: Record<string, string>,
+): Promise<T> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${await getIdTokenOrThrow()}`,
+    ...extraHeaders,
+  };
   if (body) headers['Content-Type'] = 'application/json';
   let response: Response;
   try {
@@ -44,8 +54,16 @@ async function request<T>(path: string, method: 'GET' | 'POST', body?: RequestDr
 
 export const fetchInvoiceRequests = () => request<InvoiceRequestsView>('', 'GET');
 
-export const submitInvoiceRequests = (drafts: RequestDraft[]) =>
-  request<CreateInvoiceRequestsResult>('', 'POST', drafts, 45000);
+export const submitInvoiceRequests = (drafts: RequestDraft[], idempotencyKey?: string) => {
+  const key = idempotencyKey ?? (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : undefined);
+  return request<CreateInvoiceRequestsResult>(
+    '',
+    'POST',
+    drafts,
+    45000,
+    key ? { 'Idempotency-Key': key } : undefined,
+  );
+};
 
 export const markInvoiceRequestDoneRemote = (id: string) =>
   request<InvoiceRequestsState>(`/${encodeURIComponent(id)}/done`, 'POST');

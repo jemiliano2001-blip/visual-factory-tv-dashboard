@@ -96,8 +96,7 @@ delivered and a progress color painted the whole wall cyan.
   #f59e0b`, `ontime`, `none`) and are used by **Admin / Stats** surfaces.
 - **Generic semantic (toasts, form validation, info):** destructive `#ef4444`, success
   `#10b981`, warning `#f59e0b`, info `#3b82f6`, data/highlight `#22d3ee`.
-- **Dark mode:** Dark-only by design (plant screen). `color-scheme: dark`. There is no
-  light mode and none is planned.
+- **Dark mode:** La vista TV (`/`) es dark-only por diseño (`color-scheme: dark`). Las consolas `/admin` y `/stats` admiten tema claro opcional (`data-theme="light"`).
 
 ### Temas festivos (2026-11-20)
 Solo en la TV de escritorio. Por fecha local, `getActiveHoliday()` (`src/services/holidayTheme.ts`) cambia la paleta de la aurora, suma partículas sutiles (`HolidayParticles`, ≤24 piezas, ≤0.4 de opacidad, solo `transform`/`opacity`, ocultas con `prefers-reduced-motion`) y muestra un chip con saludo junto al título. **No toca** tarjetas, badges, leyenda ni el carmesí del modo reactivo (el color de la tarjeta significa urgencia). Paletas sin rojo saturado. Calendario: Navidad 1-26 dic, Año Nuevo 27 dic-2 ene, Reyes 3-6 ene, San Valentín 10-14 feb, Madres 6-10 may. `?festivo=<id>` fuerza uno para vista previa.
@@ -127,8 +126,8 @@ Solo en la TV de escritorio. Por fecha local, `getActiveHoliday()` (`src/service
 - **Grid:** Auto-fitting; `TVDashboard` recomputes `gridCols` / `gridRows` /
   `ordersPerPage` from a `ResizeObserver` and derives `isWide` / `isDense`.
 - **Viewport modes:** `.tv-viewport` (no scroll, content forced to fit, auto-rotating
-  pages) vs `.desktop-viewport` (scroll allowed). TV hides fully-delivered orders;
-  admin/stats show everything.
+  pages) vs `.desktop-viewport` (scroll allowed). TV keeps 100%-delivered orders visible
+  until Odoo marks them invoiced; admin/stats show everything.
 - **Border radius:** base `--radius: 0.75rem` (12px). Hierarchical: sm 4px, md 8px,
   lg 12px, pill/full 9999px for badges.
 - **Elevation:** `--shadow-card: 0 10px 30px -14px rgba(0,0,0,.7)`;
@@ -137,7 +136,7 @@ Solo en la TV de escritorio. Por fecha local, `getActiveHoliday()` (`src/service
 
 ## Motion
 - **Approach:** Functional + light expressive accents. Cards mount with a spring
-  fade/scale; the progress bar animates its fill.
+  fade/scale; progress bars render static fill width without transition animation.
 - **Alarm motion:** `animate-pulse` on the single *Vencida* badge — reserved for overdue,
   the loudest state. (The separate bouncing overdue marker was removed 2026-08-20.)
 - **Everything else:** plain fades/transitions for state changes and page rotation.

@@ -21,4 +21,4 @@
 - PO canonical format is `YYYY/SXXXXX` via `formatPONumber` (dynamic current year).
 - `CLAUDE.md` is the primary project guide for agents in this repo.
 - No test runner beyond `tsc --noEmit` (`npm run lint`) y `npm test` (`tsx --test`).
-- Firestore rules for `(default)` are deployed from the SMV Vision repo, not from here (shared DB; a rules deploy replaces the previous set). `firebase.json` must not declare `firestore` — `shared/firestoreRulesOwnership.test.ts` enforces it.
+- Firestore rules for `(default)` live in `firestore.rules` (this repo owns `(default)` since Fase 4) and are deployed manually with `firebase deploy --only firestore:rules --project smv-brain` (shared DB; `npm run deploy` omits them). `firebase.json` declares `firestore` `(default)` and must not declare `storage` (Storage rules belong to SMV Hub) — `shared/firestoreRulesOwnership.test.ts` enforces both.

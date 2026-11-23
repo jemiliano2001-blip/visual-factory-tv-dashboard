@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { isKnownSatCode } from './satCatalogServer';
 import {
   allowsPartialInvoice,
+  isValidRequestId,
   lineInvoiceRemaining,
+  lookupIdempotentReplay,
   MAX_DONE_KEPT,
   MAX_DRAFTS,
   MAX_LINES_PER_REQUEST,
@@ -14,9 +16,11 @@ import {
   linePendingQty,
   MAX_PENDING,
   markInvoiceRequestDone,
+  normalizeIdempotencyKey,
   normalizeInvoiceRequests,
   parseCreateRequestsBody,
   pendingRequestsByOrder,
+  recordIdempotencyKey,
   type InvoiceRequest,
   type InvoiceRequestsState,
   type RequestActor,
@@ -567,4 +571,34 @@ test('normalizeInvoiceRequests valida requester y preserva ausencia en legados s
   assert.equal(Object.hasOwn(normalized.requests[0], 'requester'), false);
   assert.equal(normalized.requests[1].requester, 'OZIEL MUÑOZ');
   assert.equal(normalized.requests[2].requester, null);
+});
+
+test('idempotency: valida requestId, Idempotency-Key, replay, conflicto y expiración', () => {
+  assert.equal(isValidRequestId('abc-123_XYZ.1'), true);
+  assert.equal(isValidRequestId(''), false);
+  assert.equal(isValidRequestId('bad/id'), false);
+  assert.equal(isValidRequestId('x'.repeat(129)), false);
+
+  assert.equal(normalizeIdempotencyKey(undefined), null);
+  assert.equal(normalizeIdempotencyKey('   '), null);
+  assert.equal(normalizeIdempotencyKey('req-12345678'), 'req-12345678');
+  assert.throws(() => normalizeIdempotencyKey('corto'), /Idempotency-Key/);
+  assert.throws(() => normalizeIdempotencyKey('bad key!'), /Idempotency-Key/);
+
+  const res = createInvoiceRequests(empty, [{ orderId: 10, type: 'factura' }], [order], ctx());
+  const withKey = recordIdempotencyKey(res.state, 'idem-key-001', 'hash-a', res.created.map(r => r.id), '2026-01-01T12:00:00.000Z');
+  const hit = lookupIdempotentReplay(withKey, 'idem-key-001', 'hash-a');
+  assert.equal(hit.status, 'hit');
+  if (hit.status === 'hit') assert.deepEqual(hit.created.map(r => r.id), res.created.map(r => r.id));
+
+  assert.equal(lookupIdempotentReplay(withKey, 'idem-key-001', 'hash-b').status, 'conflict');
+  assert.equal(lookupIdempotentReplay(withKey, 'otra-key-002', 'hash-a').status, 'miss');
+
+  // Expiración > 24h al normalizar
+  const expired = normalizeInvoiceRequests({
+    requests: withKey.requests,
+    updatedAt: '2026-01-03T00:00:00.000Z',
+    idempotencyKeys: withKey.idempotencyKeys,
+  });
+  assert.equal(expired.idempotencyKeys, undefined);
 });

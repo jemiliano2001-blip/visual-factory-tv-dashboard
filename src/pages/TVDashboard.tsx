@@ -567,7 +567,7 @@ export default function TVDashboard() {
           </div>
         ) : odooError && odooOrders.length === 0 ? (
           /* Error state — Odoo no disponible */
-          <div className="flex flex-col items-center justify-center h-full gap-6">
+          <div role="alert" className="flex flex-col items-center justify-center h-full gap-6">
             <div className="w-20 h-20 rounded-3xl bg-red-500/10 flex items-center justify-center border border-red-500/20">
               <WifiOff className="w-10 h-10 text-red-400" />
             </div>
@@ -603,7 +603,7 @@ export default function TVDashboard() {
           </div>
         ) : pages.length === 0 ? (
           /* Hay órdenes, pero ninguna pasa los filtros activos */
-          <div className="flex flex-col items-center justify-center h-full gap-6">
+          <div role="status" className="flex flex-col items-center justify-center h-full gap-6">
             <div className="text-center space-y-2">
               <h2 className="text-2xl font-bold text-foreground tracking-tight">Sin órdenes con estos filtros</h2>
               <p className="text-muted-foreground max-w-md">Ninguna orden coincide con el cliente, estado o búsqueda activos.</p>

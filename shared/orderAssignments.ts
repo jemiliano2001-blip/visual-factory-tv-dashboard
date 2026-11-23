@@ -35,7 +35,46 @@ export interface MyOrdersSubtab {
 
 const MIN_NAME = 2;
 const MAX_NAME = 50;
+export const MAX_ASSIGNMENTS_BYTES = 850_000;
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const utf8Encoder = new TextEncoder();
+
+export class AssignmentValidationError extends Error {}
+
+export function assertAssignmentsWithinSizeLimit(payload: OrderAssignmentsPayload): void {
+  if (utf8Encoder.encode(JSON.stringify(payload)).length > MAX_ASSIGNMENTS_BYTES) {
+    throw new Error('El registro de asignaciones alcanzó el tamaño máximo permitido.');
+  }
+}
+
+export function pruneOrderAssignments(
+  payload: OrderAssignmentsPayload,
+  activeKeys: Set<string>,
+  now = new Date().toISOString(),
+): OrderAssignmentsPayload {
+  const nextAssignments: Record<string, string> = {};
+  const usedIds = new Set<string>();
+  for (const [k, engId] of Object.entries(payload.assignments)) {
+    if (activeKeys.has(k)) {
+      nextAssignments[k] = engId;
+      usedIds.add(engId);
+    }
+  }
+  const nextFollowers: Record<string, string[]> = {};
+  for (const [engId, keys] of Object.entries(payload.followers)) {
+    const kept = keys.filter(k => activeKeys.has(k));
+    if (kept.length > 0) {
+      nextFollowers[engId] = kept;
+      usedIds.add(engId);
+    }
+  }
+  return {
+    engineers: payload.engineers.filter(e => usedIds.has(e.id)),
+    assignments: nextAssignments,
+    followers: nextFollowers,
+    updatedAt: now,
+  };
+}
 
 /** Ingenieros que antes se sembraron por código y nunca entraron con cuenta: se descartan de lo guardado. */
 const LEGACY_SEEDED_IDS = new Set(['edgar-castro', 'antonio-vazquez', 'rogelio']);
@@ -170,19 +209,19 @@ export function assignOrders(
   const rawName = (target.engineerName ?? '').replace(/\s+/g, ' ').trim();
 
   if (rawId) {
-    if (FORBIDDEN_KEYS.has(rawId)) throw new Error('Ingeniero inválido.');
+    if (FORBIDDEN_KEYS.has(rawId)) throw new AssignmentValidationError('Ingeniero inválido.');
     targetEngineer = engineers.find(e => e.id === rawId);
     if (!targetEngineer) {
       if (rawName.length >= MIN_NAME && rawName.length <= MAX_NAME) {
         targetEngineer = { id: rawId, name: rawName };
         engineers.push(targetEngineer);
       } else {
-        throw new Error('Ingeniero no encontrado.');
+        throw new AssignmentValidationError('Ingeniero no encontrado.');
       }
     }
   } else if (rawName) {
     if (rawName.length < MIN_NAME || rawName.length > MAX_NAME) {
-      throw new Error('El nombre del ingeniero debe tener entre 2 y 50 caracteres.');
+      throw new AssignmentValidationError('El nombre del ingeniero debe tener entre 2 y 50 caracteres.');
     }
     const nameKey = normalizeEngineerNameKey(rawName);
     targetEngineer = engineers.find(e => normalizeEngineerNameKey(e.name) === nameKey);
@@ -198,7 +237,7 @@ export function assignOrders(
       }
     }
   } else {
-    throw new Error('Indica el ingeniero a asignar.');
+    throw new AssignmentValidationError('Indica el ingeniero a asignar.');
   }
 
   const assignments = { ...state.assignments };
@@ -396,13 +435,13 @@ export function parseAssignBody(body: unknown): { orderKeys: string[]; target: A
   const engineerName = typeof rec.engineerName === 'string' ? rec.engineerName.replace(/\s+/g, ' ').trim() : '';
 
   if (engineerId && (engineerId.length > 100 || FORBIDDEN_KEYS.has(engineerId))) {
-    throw new Error('Ingeniero inválido.');
+    throw new AssignmentValidationError('Ingeniero inválido.');
   }
   if (!engineerId && !engineerName) {
-    throw new Error('Indica el ingeniero a asignar.');
+    throw new AssignmentValidationError('Indica el ingeniero a asignar.');
   }
   if (!engineerId && (engineerName.length < MIN_NAME || engineerName.length > MAX_NAME)) {
-    throw new Error('El nombre del ingeniero debe tener entre 2 y 50 caracteres.');
+    throw new AssignmentValidationError('El nombre del ingeniero debe tener entre 2 y 50 caracteres.');
   }
   return {
     orderKeys,

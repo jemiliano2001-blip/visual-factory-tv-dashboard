@@ -1,7 +1,7 @@
 {
-  "name": "react-example",
+  "name": "visual-factory-tv-dashboard",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -14,7 +14,7 @@
     "clean": "rm -rf dist",
     "deploy": "npm run lint && npm test && npm run build && firebase deploy --only hosting:dashboardsmv,functions:visual-factory",
     "lint": "tsc --noEmit",
-    "test": "tsx --test \"src/**/*.test.ts\" \"shared/**/*.test.ts\" \"functions/src/**/*.test.ts\"",
+    "test": "tsx --test --test-concurrency=4 \"src/**/*.test.ts\" \"shared/**/*.test.ts\" \"functions/src/**/*.test.ts\"",
     "test:tv-page-packing": "tsx --test src/utils/tvPagePacking.test.ts",
     "test:ops-remediation": "tsx --test src/services/cardPresentation.test.ts src/services/companyConfigGuards.test.ts src/services/rotationPolicy.test.ts"
   },

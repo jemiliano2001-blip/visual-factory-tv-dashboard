@@ -1,12 +1,24 @@
 import { commitmentFromNote } from './deliveryTerm';
 
+export interface OdooClientLogger {
+  warn(message: string): void;
+}
+
 export interface OdooClientConfig {
   url: string;
   db: string;
   username: string;
   password: string;
-  /** Espera antes de reintentar una lectura (ms); default 500 + hasta 250 de jitter. */
+  /** Espera base antes de reintentar una lectura (ms); backoff exponencial + hasta 250 de jitter. */
   retryDelayMs?: number;
+  /** Número máximo de reintentos para lecturas ante fallos transitorios (default 2). */
+  maxRetries?: number;
+  /** Logger estructurado opcional; por defecto console. */
+  logger?: OdooClientLogger;
+  /** Fallos transitorios consecutivos antes de abrir circuit breaker (default 5). */
+  circuitBreakerThreshold?: number;
+  /** Tiempo de enfriamiento con circuito abierto en ms (default 30_000). */
+  circuitBreakerCooldownMs?: number;
 }
 
 interface OdooSession {
@@ -122,6 +134,12 @@ export class OdooClient {
   private reauthing: Promise<OdooSession> | null = null;
   private sessionVersion = 0;
   private readonly retryDelayMs: number;
+  private readonly maxRetries: number;
+  private readonly log: OdooClientLogger;
+  private readonly circuitBreakerThreshold: number;
+  private readonly circuitBreakerCooldownMs: number;
+  private consecutiveFailures = 0;
+  private circuitOpenUntil = 0;
 
   constructor(config: OdooClientConfig) {
     this.url = config.url.replace(/\/$/, '');
@@ -129,6 +147,10 @@ export class OdooClient {
     this.username = config.username;
     this.password = config.password;
     this.retryDelayMs = config.retryDelayMs ?? 500;
+    this.maxRetries = Math.max(0, config.maxRetries ?? 2);
+    this.log = config.logger ?? console;
+    this.circuitBreakerThreshold = Math.max(1, config.circuitBreakerThreshold ?? 5);
+    this.circuitBreakerCooldownMs = Math.max(100, config.circuitBreakerCooldownMs ?? 30_000);
   }
 
   isConfigured(): boolean {
@@ -181,7 +203,7 @@ export class OdooClient {
       }
       const sessionId = response.headers.get('set-cookie')?.match(/session_id=([^;]+)/)?.[1] ?? '';
       if (!sessionId) {
-        console.warn('[Odoo] No se encontró session_id en la respuesta. Las llamadas RPC pueden fallar.');
+        this.log.warn('[Odoo] No se encontró session_id en la respuesta. Las llamadas RPC pueden fallar.');
       }
       return { uid, sessionId };
     } finally {
@@ -260,13 +282,27 @@ export class OdooClient {
     args: unknown[] = [],
     kwargs: Record<string, unknown> = {},
   ): Promise<T> {
+    if (this.circuitOpenUntil > Date.now()) {
+      throw new Error('Odoo temporalmente no disponible (circuit breaker abierto).');
+    }
     const initialSession = await this.getSession();
     const usedVersion = this.sessionVersion;
     try {
-      return await this.rpcWithRetry<T>(initialSession, model, method, args, kwargs);
+      const result = await this.rpcWithRetry<T>(initialSession, model, method, args, kwargs);
+      this.consecutiveFailures = 0;
+      this.circuitOpenUntil = 0;
+      return result;
     } catch (err) {
+      if (err instanceof OdooTransientError) {
+        this.consecutiveFailures += 1;
+        if (this.consecutiveFailures >= this.circuitBreakerThreshold) {
+          this.circuitOpenUntil = Date.now() + this.circuitBreakerCooldownMs;
+          this.log.warn(`[Odoo] Circuit breaker abierto durante ${this.circuitBreakerCooldownMs} ms tras ${this.consecutiveFailures} fallos transitorios.`);
+        }
+        throw err;
+      }
       if (!(err instanceof OdooSessionExpiredError)) throw err;
-      console.warn('[Odoo] Sesión expirada — reautenticando…');
+      this.log.warn('[Odoo] Sesión expirada — reautenticando…');
       let nextSession: OdooSession;
       if (this.sessionVersion === usedVersion) {
         if (!this.reauthing) {
@@ -276,21 +312,29 @@ export class OdooClient {
       } else {
         nextSession = await (this.reauthing ?? this.getSession());
       }
-      return await this.odooRpc<T>(nextSession, model, method, args, kwargs);
+      const retried = await this.odooRpc<T>(nextSession, model, method, args, kwargs);
+      this.consecutiveFailures = 0;
+      this.circuitOpenUntil = 0;
+      return retried;
     }
   }
 
   private async rpcWithRetry<T>(
     session: OdooSession, model: string, method: string, args: unknown[], kwargs: Record<string, unknown>,
   ): Promise<T> {
-    try {
-      return await this.odooRpc<T>(session, model, method, args, kwargs);
-    } catch (err) {
-      if (!(err instanceof OdooTransientError) || !READ_METHODS.has(method)) throw err;
-      console.warn(`[Odoo] ${err.message} — reintentando ${model}.${method} una vez`);
-      const delay = this.retryDelayMs > 0 ? this.retryDelayMs + Math.random() * 250 : 0;
-      await new Promise(resolve => setTimeout(resolve, delay));
-      return await this.odooRpc<T>(session, model, method, args, kwargs);
+    let attempt = 0;
+    while (true) {
+      try {
+        return await this.odooRpc<T>(session, model, method, args, kwargs);
+      } catch (err) {
+        if (!(err instanceof OdooTransientError) || !READ_METHODS.has(method) || attempt >= this.maxRetries) {
+          throw err;
+        }
+        const delay = this.retryDelayMs > 0 ? this.retryDelayMs * (2 ** attempt) + Math.random() * 250 : 0;
+        attempt += 1;
+        this.log.warn(`[Odoo] ${err.message} — reintento ${attempt}/${this.maxRetries} para ${model}.${method}`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
   }
 
@@ -410,7 +454,7 @@ export class OdooClient {
       }
     } catch (err) {
       /* remisiones opcionales */
-      console.warn('[Odoo] Error al consultar stock.picking:', err instanceof Error ? err.message : String(err));
+      this.log.warn(`[Odoo] Error al consultar stock.picking: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     // Los traslados en Hecho son la fuente de entrega. Nunca sustituir un fallo
@@ -494,7 +538,7 @@ export class OdooClient {
           batch.forEach(p => partnersMap.set(p.id, p));
         }
       } catch (err) {
-        console.warn('[Odoo] Error al obtener datos de partner (delivery_times / show_in_dashboard):', err);
+        this.log.warn(`[Odoo] Error al obtener datos de partner (delivery_times / show_in_dashboard): ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 

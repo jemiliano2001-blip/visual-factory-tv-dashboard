@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { useOdooOrders } from '../hooks/useOdooOrders';
+import { useOrderAssignments } from '../hooks/useOrderAssignments';
 import {
   getOrderStatus,
   getOrderAgeDays,
@@ -13,19 +14,19 @@ import {
   type OrderStatusLevel,
 } from '../services/odoo';
 import { getOrderMissingQty } from '../services/pendingItems';
-import { fetchOrderAssignments, loadCachedAssignments } from '../services/orderAssignments';
-import { getOrderEngineerId, type OrderAssignmentsPayload } from '../../shared/orderAssignments';
+import { getOrderEngineerId } from '../../shared/orderAssignments';
 import { extractOrderNoteMeta } from '../services/orderNoteParser';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import {
-  AlertTriangle, TrendingUp, Clock, Package, WifiOff, Loader2, RefreshCw,
+  AlertTriangle, TrendingUp, Clock, Package, WifiOff, RefreshCw,
   Users2, Truck, Layers, ArrowUpRight, CheckCircle2, FileSpreadsheet,
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { EmptyState } from '../components/ui/empty-state';
 import CompanyBadge from '../components/CompanyBadge';
 import TruncatedNotice from '../components/admin/TruncatedNotice';
 import { loadErrorLabel } from '../services/orderLoadError';
@@ -47,13 +48,7 @@ const MONO_TICK = { fontSize: 12, fill: 'var(--color-muted-foreground)', fontFam
 
 export default function StatsDashboard() {
   const { orders, error, isLoading, isFetching, lastUpdated, refetch, truncated } = useOdooOrders();
-  const [team, setTeam] = useState<OrderAssignmentsPayload>(loadCachedAssignments);
-
-  useEffect(() => {
-    fetchOrderAssignments().then(setTeam).catch(() => {
-      // Mantiene caché local si falla la red
-    });
-  }, []);
+  const { team, fetchError: teamError } = useOrderAssignments();
 
   // ── Métricas principales (sin información monetaria) ──────────────────────
   const totalOrders = orders.length;
@@ -276,18 +271,52 @@ export default function StatsDashboard() {
         </div>
 
         {error && !isLoading && (
-          <div className="flex items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-destructive">
+          <div role="alert" className="flex items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-destructive">
             <WifiOff className="size-5 shrink-0" />
             <span className="font-bold">{loadErrorLabel(error)}</span>
+          </div>
+        )}
+
+        {teamError && !isLoading && (
+          <div role="alert" className="flex items-center gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
+            <AlertTriangle className="size-5 shrink-0" />
+            <span>No se pudo sincronizar la carga por ingeniero: {teamError}</span>
           </div>
         )}
 
         {truncated && <TruncatedNotice />}
 
         {isLoading ? (
-          <div className="flex items-center justify-center gap-3 py-24 text-muted-foreground">
-            <Loader2 className="size-6 animate-spin" /> Cargando estadísticas de Odoo…
+          <div role="status" aria-label="Cargando estadísticas de Odoo" className="space-y-6 animate-pulse">
+            <span className="sr-only">Cargando estadísticas de Odoo…</span>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              {[0, 1, 2, 3, 4].map(idx => (
+                <Card key={idx} className="p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="h-4 w-28 rounded bg-muted" />
+                    <div className="size-9 rounded-xl bg-muted/80" />
+                  </div>
+                  <div className="h-9 w-20 rounded bg-muted" />
+                  <div className="h-3.5 w-40 rounded bg-muted/60" />
+                </Card>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              {[0, 1].map(idx => (
+                <Card key={idx} className="p-5 space-y-4">
+                  <div className="h-5 w-44 rounded bg-muted" />
+                  <div className="h-56 w-full rounded-xl bg-muted/60" />
+                </Card>
+              ))}
+            </div>
           </div>
+        ) : !error && orders.length === 0 ? (
+          <EmptyState
+            role="status"
+            icon={<CheckCircle2 className="size-8 text-success" aria-hidden="true" />}
+            title="Todo facturado"
+            hint="No hay órdenes de venta pendientes de facturar en Odoo para mostrar estadísticas."
+          />
         ) : (
           <>
             {/* Fila 1: KPIs principales con tipografía unificada (Inter + JetBrains Mono) */}

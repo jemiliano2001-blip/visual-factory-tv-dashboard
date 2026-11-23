@@ -6,7 +6,7 @@ Tablero de producción en tiempo real para planta manufacturera, integrado con *
 
 - **Node.js**: 18+ (recomendado 20+)
 - **Instancia de Odoo**: Credenciales de acceso con permisos de lectura en `sale.order`.
-- **Firebase**: Autenticación anónima y Firestore para configuración de horarios.
+- **Firebase**: Cuentas reales de Firebase Auth (email/contraseña o SSO desde SMV Hub; sesiones anónimas rechazadas) y Firestore para configuración de horarios, estado operativo y `audit_logs`.
 
 ## Configuración Rápida
 
@@ -41,5 +41,5 @@ Tablero de producción en tiempo real para planta manufacturera, integrado con *
 ## Arquitectura
 
 - **Frontend**: React 19 + Vite + TailwindCSS v4 + Base UI / Shadcn.
-- **Proxy Backend**: Servidor Express (`server.ts`) para autenticar llamadas JSON-RPC a Odoo, con un caché corto (60 s) para que varias pantallas compartan una sola consulta.
-- **Firebase Cloud Functions**: Endpoint serverless (`functions/src/index.ts`) y alertas programadas a Discord (`functions/src/notifications.ts`).
+- **Proxy Backend**: Servidor Express (`server.ts`) para autenticar llamadas JSON-RPC a Odoo, con caché corto (60 s), rate limiting y validación de Firebase ID token.
+- **Firebase Cloud Functions**: API serverless (`/api/*`, health check público `/api/health` para Odoo + Firestore, auditoría en `audit_logs`) y alertas programadas a Discord (`functions/src/notifications.ts`).

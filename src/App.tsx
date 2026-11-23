@@ -119,7 +119,11 @@ export default function App() {
             <RouteTitleSync />
             <Suspense fallback={<RouteLoadingFallback />}>
               <Routes>
-                <Route path="/login" element={<Login />} />
+                <Route path="/login" element={
+                  <ErrorBoundary>
+                    <Login />
+                  </ErrorBoundary>
+                } />
 
                 <Route path="/" element={<Layout />}>
                   {/* TV dashboard: exige cuenta real de personal SMV (la TV usa una cuenta de solo lectura). */}

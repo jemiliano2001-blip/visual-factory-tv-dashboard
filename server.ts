@@ -13,16 +13,18 @@ import express, { Request, Response, NextFunction } from 'express';
 import * as dotenv from 'dotenv';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { OdooClient } from './shared/odooClient.ts';
 import { crearAuthApi, extractBearerToken } from './shared/firebaseTokenPolicy.ts';
+import { createMemoryRateLimiter } from './shared/rateLimit.ts';
 import {
-  assignOrders, claimOrders, followOrders, normalizeOrderAssignments, parseAssignBody, parseOrderKeys, releaseOrders,
-  type OrderAssignmentsPayload,
+  AssignmentValidationError, assertAssignmentsWithinSizeLimit, assignOrders, claimOrders, followOrders,
+  normalizeOrderAssignments, parseAssignBody, parseOrderKeys, releaseOrders, type OrderAssignmentsPayload,
 } from './shared/orderAssignments.ts';
 import {
-  backfillRequestMeta, createInvoiceRequests, loadOrderSnapshots, markInvoiceRequestDone, missingMetaOrderIds,
-  normalizeInvoiceRequests, parseCreateRequestsBody, reconcileWithOdoo,
+  backfillRequestMeta, createInvoiceRequests, isValidRequestId, loadOrderSnapshots, lookupIdempotentReplay,
+  markInvoiceRequestDone, missingMetaOrderIds, normalizeIdempotencyKey, normalizeInvoiceRequests,
+  parseCreateRequestsBody, reconcileWithOdoo, recordIdempotencyKey,
   type InvoiceRequestsState, type OdooOrderMetaSnapshot, type OdooOrderSnapshot, type RequestActor,
 } from './shared/invoiceRequests.ts';
 import { isKnownSatCode } from './shared/satCatalogServer.ts';
@@ -43,6 +45,12 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  next();
+});
+
+app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Cache-Control', 'no-store');
   next();
 });
 
@@ -61,7 +69,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key');
 
   if (req.method === 'OPTIONS') {
     res.sendStatus(204);
@@ -69,6 +77,20 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
   next();
 });
+
+const readRateLimit = createMemoryRateLimiter({ maxRequests: 120, windowMs: 60_000 });
+const sensitiveRateLimit = createMemoryRateLimiter({ maxRequests: 15, windowMs: 60_000 });
+const mutationRateLimit = createMemoryRateLimiter({ maxRequests: 60, windowMs: 60_000 });
+
+function safeErrorSummary(err: unknown): { name: string; message: string } {
+  if (err instanceof Error) {
+    return {
+      name: err.name || 'Error',
+      message: err.message.replace(/\s+/g, ' ').trim().slice(0, 200),
+    };
+  }
+  return { name: 'UnknownError', message: String(err).replace(/\s+/g, ' ').trim().slice(0, 200) };
+}
 
 // ─── Firebase API Key (para verificar ID tokens sin firebase-admin) ───────────
 let FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || '';
@@ -183,7 +205,7 @@ app.get('/.well-known/appspecific/com.chrome.devtools.json', (_req: Request, res
 });
 
 // ─── GET /api/odoo/status ─────────────────────────────────────────────────────
-app.get('/api/odoo/status', async (_req: Request, res: Response) => {
+app.get('/api/odoo/status', readRateLimit, async (_req: Request, res: Response) => {
   if (!ODOO_URL) {
     res.status(503).json({
       connected: false,
@@ -197,12 +219,12 @@ app.get('/api/odoo/status', async (_req: Request, res: Response) => {
     await odooClient.odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
     res.json({ connected: true, message: 'Conectado a Odoo correctamente', url: ODOO_URL });
   } catch (err) {
-    console.error('[Odoo] Error en /api/odoo/status:', err);
+    console.error('[Odoo] Error en /api/odoo/status:', safeErrorSummary(err));
     res.status(503).json({ connected: false, message: 'No se pudo conectar con Odoo.' });
   }
 });
 
-app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => {
+app.get('/api/odoo/invoiceable-orders', readRateLimit, async (_req: Request, res: Response) => {
   if (!odooClient.isConfigured()) {
     res.status(503).json({
       error: 'Odoo no configurado. Revisa las variables de entorno ODOO_*.',
@@ -216,7 +238,7 @@ app.get('/api/odoo/invoiceable-orders', async (_req: Request, res: Response) => 
     res.json({ orders, total: orders.length, truncated, lastUpdated: new Date().toISOString() });
 
   } catch (err) {
-    console.error('[Odoo] Error al obtener órdenes:', err);
+    console.error('[Odoo] Error al obtener órdenes:', safeErrorSummary(err));
     res.status(500).json({ error: 'Error al consultar las órdenes en Odoo.', orders: [] });
   }
 });
@@ -243,15 +265,15 @@ function readAssignments(): OrderAssignmentsPayload {
 }
 
 // El servidor local no lee el Hub ni Firebase Auth: la lista de acceso solo existe en producción.
-app.get('/api/team-access', (_req: Request, res: Response) => {
+app.get('/api/team-access', sensitiveRateLimit, (_req: Request, res: Response) => {
   res.json({ available: false, members: [] });
 });
 
-app.get('/api/order-assignments', (_req: Request, res: Response) => {
+app.get('/api/order-assignments', readRateLimit, (_req: Request, res: Response) => {
   try {
     res.json(readAssignments());
   } catch (err) {
-    console.error('[Assignments] Error leyendo asignaciones:', err);
+    console.error('[Assignments] Error leyendo asignaciones:', safeErrorSummary(err));
     res.status(500).json({ error: 'No se pudieron leer las asignaciones.' });
   }
 });
@@ -272,18 +294,24 @@ const changeAssignments = (mutate: (current: OrderAssignmentsPayload, actor: Req
     }
     try {
       const next = mutate(readAssignments(), actor, keys);
+      assertAssignmentsWithinSizeLimit(next);
       writeJsonAtomic(ASSIGNMENTS_FILE, next);
       res.json(next);
     } catch (err) {
-      console.error('[Assignments] Error guardando asignaciones:', err);
+      const summary = safeErrorSummary(err);
+      console.error('[Assignments] Error guardando asignaciones:', summary);
+      if (summary.message.includes('tamaño máximo')) {
+        res.status(409).json({ error: summary.message });
+        return;
+      }
       res.status(500).json({ error: 'No se pudieron guardar las asignaciones.' });
     }
   };
 
-app.post('/api/order-assignments/claim', changeAssignments((cur, actor, keys) => claimOrders(cur, actor, keys)));
-app.post('/api/order-assignments/follow', changeAssignments((cur, actor, keys) => followOrders(cur, actor, keys)));
-app.post('/api/order-assignments/release', changeAssignments((cur, actor, keys) => releaseOrders(cur, actor.uid, keys)));
-app.post('/api/order-assignments/assign', (req: Request, res: Response) => {
+app.post('/api/order-assignments/claim', mutationRateLimit, changeAssignments((cur, actor, keys) => claimOrders(cur, actor, keys)));
+app.post('/api/order-assignments/follow', mutationRateLimit, changeAssignments((cur, actor, keys) => followOrders(cur, actor, keys)));
+app.post('/api/order-assignments/release', mutationRateLimit, changeAssignments((cur, actor, keys) => releaseOrders(cur, actor.uid, keys)));
+app.post('/api/order-assignments/assign', mutationRateLimit, (req: Request, res: Response) => {
   const actor = res.locals.actor;
   if (!isActor(actor)) {
     res.status(403).json({ error: NO_ACTOR });
@@ -298,11 +326,21 @@ app.post('/api/order-assignments/assign', (req: Request, res: Response) => {
   }
   try {
     const next = assignOrders(readAssignments(), actor, parsed.orderKeys, parsed.target);
+    assertAssignmentsWithinSizeLimit(next);
     writeJsonAtomic(ASSIGNMENTS_FILE, next);
     res.json(next);
   } catch (err) {
-    console.error('[Assignments] Error asignando ingeniero:', err);
-    res.status(400).json({ error: err instanceof Error ? err.message : 'No se pudieron guardar las asignaciones.' });
+    if (err instanceof AssignmentValidationError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    const summary = safeErrorSummary(err);
+    console.error('[Assignments] Error asignando ingeniero:', summary);
+    if (summary.message.includes('tamaño máximo')) {
+      res.status(409).json({ error: summary.message });
+      return;
+    }
+    res.status(500).json({ error: 'No se pudieron guardar las asignaciones.' });
   }
 });
 
@@ -321,7 +359,7 @@ function readRequests(): InvoiceRequestsState {
 
 
 // Al leer, marca "hecha" lo que Odoo ya cumplió y agrega el avance. Si Odoo falla, devuelve lo guardado.
-app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
+app.get('/api/invoice-requests', readRateLimit, async (_req: Request, res: Response) => {
   try {
     const stored = readRequests();
     let orders: OdooOrderSnapshot[] = [];
@@ -332,7 +370,7 @@ app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
           fetchByIds: ids => odooClient.fetchOrdersByIds(ids),
         });
       } catch (err) {
-        console.warn('solicitudes: no se pudo consultar Odoo, se devuelve lo guardado:', err);
+        console.warn('solicitudes: no se pudo consultar Odoo, se devuelve lo guardado:', safeErrorSummary(err));
         res.json({ ...stored, progress: {} });
         return;
       }
@@ -347,7 +385,7 @@ app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
         metaOrders = [...orders, ...extraMeta];
         for (const id of metaIds) checkedIds.add(id);
       } catch (err) {
-        console.warn('solicitudes: no se pudieron completar metadatos desde Odoo:', err);
+        console.warn('solicitudes: no se pudieron completar metadatos desde Odoo:', safeErrorSummary(err));
       }
     }
     // Sin await entre leer y escribir: otra petición no puede intercalarse.
@@ -358,14 +396,21 @@ app.get('/api/invoice-requests', async (_req: Request, res: Response) => {
     if (nextState !== current) writeJsonAtomic(REQUESTS_FILE, nextState);
     res.json({ ...nextState, progress: out.progress });
   } catch (err) {
-    console.error('[InvoiceRequests] Error en GET:', err);
+    console.error('[InvoiceRequests] Error en GET:', safeErrorSummary(err));
     res.status(500).json({ error: 'No se pudieron consultar las solicitudes.' });
   }
 });
 
-app.post('/api/invoice-requests', async (req: Request, res: Response) => {
+app.post('/api/invoice-requests', sensitiveRateLimit, async (req: Request, res: Response) => {
   const actor = res.locals.actor;
   if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
+  let idempotencyKey: string | null = null;
+  try {
+    idempotencyKey = normalizeIdempotencyKey(req.get('Idempotency-Key'));
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Idempotency-Key inválido.' });
+    return;
+  }
   let drafts;
   try {
     drafts = parseCreateRequestsBody(req.body);
@@ -374,6 +419,8 @@ app.post('/api/invoice-requests', async (req: Request, res: Response) => {
     return;
   }
   if (!odooClient.isConfigured()) { res.status(503).json({ error: 'Odoo no configurado.' }); return; }
+  const payloadHash = createHash('sha256').update(JSON.stringify(drafts)).digest('hex');
+
   let orders;
   try {
     orders = (await odooClient.fetchInvoiceableOrders()).orders; // sin caché: las cantidades deben ser las de ahora
@@ -383,29 +430,47 @@ app.post('/api/invoice-requests', async (req: Request, res: Response) => {
   }
   // Sin await entre leer y escribir: otra petición no puede intercalarse.
   try {
-    const out = createInvoiceRequests(readRequests(), drafts, orders, { actor, now: new Date().toISOString(), newId: randomUUID, isKnownSatCode });
+    const current = readRequests();
+    const replay = lookupIdempotentReplay(current, idempotencyKey, payloadHash);
+    if (replay.status === 'conflict') {
+      res.status(409).json({ error: 'La clave de idempotencia ya se usó con datos distintos.' });
+      return;
+    }
+    if (replay.status === 'hit') {
+      res.json({ state: current, created: replay.created, skipped: [], notified: false, emailed: false, replayed: true });
+      return;
+    }
+    const now = new Date().toISOString();
+    const out = createInvoiceRequests(current, drafts, orders, { actor, now, newId: randomUUID, isKnownSatCode });
+    let finalState = out.state;
     if (out.created.length > 0) {
-      writeJsonAtomic(REQUESTS_FILE, out.state);
+      finalState = recordIdempotencyKey(out.state, idempotencyKey, payloadHash, out.created.map(r => r.id), now);
+      writeJsonAtomic(REQUESTS_FILE, finalState);
       odooClient.invalidateOrdersCache();
     }
-    res.json({ state: out.state, created: out.created, skipped: out.skipped, notified: false, emailed: false });
+    res.json({ state: finalState, created: out.created, skipped: out.skipped, notified: false, emailed: false });
   } catch (err) {
-    console.error('[InvoiceRequests] Error en POST:', err);
-    const msg = err instanceof Error ? err.message : '';
-    if (msg.includes('tamaño máximo')) {
-      res.status(409).json({ error: msg });
+    const summary = safeErrorSummary(err);
+    console.error('[InvoiceRequests] Error en POST:', summary);
+    if (summary.message.includes('tamaño máximo')) {
+      res.status(409).json({ error: summary.message });
       return;
     }
     res.status(500).json({ error: 'No se pudieron crear las solicitudes.' });
   }
 });
 
-app.post('/api/invoice-requests/:id/done', (req: Request, res: Response) => {
+app.post('/api/invoice-requests/:id/done', mutationRateLimit, (req: Request, res: Response) => {
   const actor = res.locals.actor;
   if (!isActor(actor)) { res.status(403).json({ error: NO_ACTOR }); return; }
+  const id = String(req.params.id ?? '');
+  if (!isValidRequestId(id)) {
+    res.status(400).json({ error: 'ID de solicitud inválido.' });
+    return;
+  }
   try {
     const current = readRequests();
-    const next = markInvoiceRequestDone(current, String(req.params.id), { actor, now: new Date().toISOString() });
+    const next = markInvoiceRequestDone(current, id, { actor, now: new Date().toISOString() });
     if (next !== current) writeJsonAtomic(REQUESTS_FILE, next);
     res.json(next);
   } catch (err) {
@@ -414,7 +479,7 @@ app.post('/api/invoice-requests/:id/done', (req: Request, res: Response) => {
       res.status(404).json({ error: msg });
       return;
     }
-    console.error('[InvoiceRequests] Error en POST done:', err);
+    console.error('[InvoiceRequests] Error en POST done:', safeErrorSummary(err));
     res.status(500).json({ error: 'No se pudo actualizar la solicitud.' });
   }
 });
