@@ -78,6 +78,9 @@ export async function uploadDrawing(input: UploadInput): Promise<void> {
     await savePartAlias({ pattern: input.aliasPattern || partNumber, partNumber, drawingId: drawingRef.id });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    throw new Error(`El PDF se subió (${path}) pero no se pudo registrar el plano: ${reason}`);
+    throw new Error(
+      `El PDF se subió (${path}) pero no se pudo registrar el plano: ${reason}`,
+      { cause: err },
+    );
   }
 }

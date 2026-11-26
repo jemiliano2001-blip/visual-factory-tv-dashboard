@@ -4,11 +4,11 @@
  * exportar, agrupación opcional por cliente y filas expandibles con líneas
  * de producto, remisiones y la nota de la orden.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { EmptyState } from '../ui/empty-state';
 import {
   useReactTable, getCoreRowModel, getSortedRowModel, getExpandedRowModel,
-  flexRender, createColumnHelper, SortingState, ExpandedState, RowSelectionState,
+  flexRender, createColumnHelper, SortingState, ExpandedState, RowSelectionState, VisibilityState,
 } from '@tanstack/react-table';
 import { format } from 'date-fns';
 import { SanitizedHtml } from '../SanitizedHtml';
@@ -29,13 +29,32 @@ import type { InvoiceRequest } from '../../../shared/invoiceRequests';
 import { RequestBadges } from '../RequestDialog';
 import { CopyButton } from '../CopyButton';
 import { useMobile } from '../../hooks/useMobile';
+import { applyRangeSelection } from '../../services/tableSelection';
 import type { TableDensity } from './AdminToolbar';
+
+export const TOGGLEABLE_ORDER_COLUMNS: ReadonlyArray<{ id: string; label: string }> = [
+  { id: 'po', label: 'PO de Compañía' },
+  { id: 'engineer', label: 'Ingeniero SMV' },
+  { id: 'partner_name', label: 'Compañía' },
+  { id: 'main_product', label: 'Producto / Descripción' },
+  { id: 'progress', label: 'Entrega / Falta' },
+  { id: 'commitment_date', label: 'Compromiso / Estado' },
+];
+
+const SORT_LABELS: Record<string, string> = {
+  name: 'SO',
+  partner_name: 'Compañía',
+  main_product: 'Producto / Descripción',
+  commitment_date: 'Compromiso / Estado',
+};
 
 interface OrdersTableProps {
   orders: OdooSaleOrder[];
   groupByClient: boolean;
   rowSelection: RowSelectionState;
   onRowSelectionChange: (selection: RowSelectionState) => void;
+  columnVisibility?: VisibilityState;
+  onColumnVisibilityChange?: (visibility: VisibilityState) => void;
   /** Nombre de quien lleva la orden (null si nadie). */
   getEngineerName: (order: OdooSaleOrder) => string | null;
   /** True si la orden es de la persona que tiene la sesión abierta. */
@@ -75,6 +94,8 @@ export default function OrdersTable({
   groupByClient,
   rowSelection,
   onRowSelectionChange,
+  columnVisibility,
+  onColumnVisibilityChange,
   getEngineerName,
   isMine,
   isFollowedByMe,
@@ -89,7 +110,11 @@ export default function OrdersTable({
 }: OrdersTableProps) {
   const isMobile = useMobile();
   const [sorting, setSorting] = useState<SortingState>([{ id: 'commitment_date', desc: false }]);
+  const [sortAnnouncement, setSortAnnouncement] = useState('');
   const [expanded, setExpanded] = useState<ExpandedState>({});
+  const lastSelectedIdRef = useRef<string | null>(null);
+  const shiftHeldRef = useRef(false);
+  const visibleRowIdsRef = useRef<string[]>([]);
   const isComfortable = density === 'comfortable';
   const thPad = isComfortable ? 'px-3 py-3' : 'px-3 py-2.5';
   const tdPad = isComfortable ? 'px-3 py-3.5' : 'px-3 py-2';
@@ -130,7 +155,26 @@ export default function OrdersTable({
       cell: ({ row }) => (
         <Checkbox
           checked={row.getIsSelected()}
-          onCheckedChange={v => row.toggleSelected(!!v)}
+          onPointerDown={e => {
+            shiftHeldRef.current = e.shiftKey;
+          }}
+          onKeyDown={e => {
+            if (e.key === ' ') shiftHeldRef.current = e.shiftKey;
+          }}
+          onCheckedChange={checked => {
+            const shiftKey = shiftHeldRef.current;
+            shiftHeldRef.current = false;
+            const res = applyRangeSelection({
+              orderedIds: visibleRowIdsRef.current,
+              current: rowSelection,
+              anchorId: lastSelectedIdRef.current,
+              targetId: row.id,
+              checked: Boolean(checked),
+              shiftKey,
+            });
+            lastSelectedIdRef.current = res.nextAnchorId;
+            onRowSelectionChange(res.selection);
+          }}
           aria-label={`Seleccionar la orden ${row.original.name}`}
         />
       ),
@@ -319,16 +363,36 @@ export default function OrdersTable({
         (parseOdooDate(a.original.commitment_date)?.getTime() ?? Infinity) -
         (parseOdooDate(b.original.commitment_date)?.getTime() ?? Infinity),
     }),
-  ], [groupByClient, getEngineerName, isMine, isFollowedByMe, onClaim, onFollow, onOpenAssign, onRelease, pendingByOrder, onOpenDetail]);
+  ], [
+    groupByClient, getEngineerName, isMine, isFollowedByMe, onClaim, onFollow,
+    onOpenAssign, onRelease, pendingByOrder, onOpenDetail, rowSelection, onRowSelectionChange,
+  ]);
+
+  const effectiveColumnVisibility = useMemo<VisibilityState>(
+    () => (groupByClient ? { ...columnVisibility, partner_name: false } : (columnVisibility ?? {})),
+    [columnVisibility, groupByClient],
+  );
 
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, expanded, rowSelection },
-    onSortingChange: setSorting,
+    state: { sorting, expanded, rowSelection, columnVisibility: effectiveColumnVisibility },
+    onSortingChange: updater => {
+      const next = typeof updater === 'function' ? updater(sorting) : updater;
+      setSorting(next);
+      const active = next[0];
+      if (active) {
+        const label = SORT_LABELS[active.id] ?? active.id;
+        const dir = active.desc ? 'descendente' : 'ascendente';
+        setSortAnnouncement(`Ordenado por ${label}, ${dir}, ${orders.length} ${orders.length === 1 ? 'orden' : 'órdenes'}`);
+      }
+    },
     onExpandedChange: setExpanded,
     onRowSelectionChange: updater =>
       onRowSelectionChange(typeof updater === 'function' ? updater(rowSelection) : updater),
+    onColumnVisibilityChange: onColumnVisibilityChange
+      ? updater => onColumnVisibilityChange(typeof updater === 'function' ? updater(columnVisibility ?? {}) : updater)
+      : undefined,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
@@ -350,6 +414,8 @@ export default function OrdersTable({
     }
     return Array.from(byClient.values()).flat();
   }, [sortedRows, groupByClient]);
+  visibleRowIdsRef.current = rows.map(r => r.id);
+  const visibleColumnCount = Math.max(1, table.getVisibleLeafColumns().length);
   let lastClient: string | null = null;
 
   // Teléfono: una columna de tarjetas (sin tabla ni scroll lateral), en el orden por compromiso.
@@ -400,35 +466,43 @@ export default function OrdersTable({
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
+      <div role="status" aria-live="polite" className="sr-only">
+        {sortAnnouncement}
+      </div>
       <div tabIndex={0} role="region" aria-label="Tabla de órdenes" className="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
         <table className="w-full text-left">
+          <caption className="sr-only">Órdenes de venta por facturar</caption>
           <thead className="border-b border-border bg-muted/40 text-xs font-medium text-muted-foreground">
             {table.getHeaderGroups().map(hg => (
               <tr key={hg.id}>
-                {hg.headers.map(header => (
+                {hg.headers.map(header => {
+                  const sorted = header.column.getIsSorted();
+                  const ariaSort = sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : undefined;
+                  return (
                   <th
                     key={header.id}
                     scope="col"
-                    aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : 'none'}
+                    aria-sort={ariaSort}
                     className={`${thPad} font-medium ${(header.column.columnDef.meta as { className?: string } | undefined)?.className ?? ''}`}
                   >
                     {header.column.getCanSort() ? (
                       <button type="button" onClick={header.column.getToggleSortingHandler()} className="inline-flex min-h-11 items-center gap-1 rounded px-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                         {flexRender(header.column.columnDef.header, header.getContext())}
-                        <span className="text-primary" aria-hidden="true">{{ asc: '↑', desc: '↓' }[header.column.getIsSorted() as string] ?? ''}</span>
+                        <span className="text-primary" aria-hidden="true">{{ asc: '↑', desc: '↓' }[sorted as string] ?? ''}</span>
                       </button>
                     ) : (
                       <span className="inline-flex min-h-11 items-center">{flexRender(header.column.columnDef.header, header.getContext())}</span>
                     )}
                   </th>
-                ))}
+                  );
+                })}
               </tr>
             ))}
           </thead>
           <tbody className="divide-y divide-border">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                <td colSpan={visibleColumnCount} className="px-4 py-12 text-center text-sm text-muted-foreground">
                   No hay órdenes que coincidan con los filtros
                 </td>
               </tr>
@@ -440,7 +514,7 @@ export default function OrdersTable({
                   <React.Fragment key={row.id}>
                     {showGroupHeader && (
                       <tr className="bg-muted/50">
-                        <td colSpan={columns.length} className="px-4 py-3 text-sm font-bold text-foreground">
+                        <td colSpan={visibleColumnCount} className="px-4 py-3 text-sm font-bold text-foreground">
                           <div className="flex flex-wrap items-center gap-2">
                             <CompanyBadge company={row.original.partner_name} size="xs" />
                             <span>{getSmartCompanyName(row.original.partner_name, 'header')}</span>
@@ -467,7 +541,7 @@ export default function OrdersTable({
                     </tr>
                     {row.getIsExpanded() && (
                       <tr className="bg-background/50">
-                        <td colSpan={columns.length} className="px-6 py-4">
+                        <td colSpan={visibleColumnCount} className="px-6 py-4">
                           <ExpandedRow order={row.original} />
                         </td>
                       </tr>

@@ -5,8 +5,8 @@
  * lo único que se guarda aquí es qué ingeniero/diseñador de SMV lleva cada SO.
  */
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import type { RowSelectionState } from '@tanstack/react-table';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import type { RowSelectionState, VisibilityState } from '@tanstack/react-table';
 import { useOdooOrders } from '../hooks/useOdooOrders';
 import { useOrderAssignments } from '../hooks/useOrderAssignments';
 import { getOrderStatus, type OdooSaleOrder } from '../services/odoo';
@@ -54,7 +54,12 @@ import { pendingRequestsByOrder } from '../../shared/invoiceRequests';
 import OrderReportTab from '../components/admin/OrderReportTab';
 import { Button } from '../components/ui/button';
 import { ContextMenu, type ContextMenuEntry } from '../components/ui/context-menu';
-import { getSection, hasActiveFilters, restoreSavedFilters, sectionFromFilters } from '../services/adminSections';
+import {
+  getSection, hasActiveFilters, restoreSavedFilters, sectionFromFilters, filtersForSection, type AdminSectionId,
+} from '../services/adminSections';
+import {
+  addSavedView, normalizeSavedViews, removeSavedView, savedViewToFilters, type SavedAdminView,
+} from '../services/savedViews';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useUserSettings } from '../hooks/useUserSettings';
 import { startFiltersFor } from '../services/userSettings';
@@ -62,12 +67,14 @@ import { useMobile } from '../hooks/useMobile';
 import { useDataFreshness } from '../hooks/useDataFreshness';
 import { isEditableTarget, resolveAdminShortcut } from '../utils/keyboardShortcuts';
 import {
-  WifiOff, AlertTriangle, RefreshCw, Download, Eye, FileText, UserCheck, UserMinus, UserPlus, Copy, ChevronDown, ChevronRight, X,
+  WifiOff, AlertTriangle, RefreshCw, Download, Eye, FileText, UserCheck, UserMinus, UserPlus, Copy, ChevronDown, ChevronRight, X, Search, Keyboard,
 } from 'lucide-react';
 
 const OrderDetailsModal = lazy(() =>
   import('../components/OrderDetailsModal').then(m => ({ default: m.OrderDetailsModal })),
 );
+const CommandPalette = lazy(() => import('../components/admin/CommandPalette'));
+const KeyboardShortcutsDialog = lazy(() => import('../components/KeyboardShortcutsDialog'));
 
 const SAVED_FILTERS_KEY = 'adminFilters';
 const TOAST_DURATION_MS = 5000;
@@ -107,6 +114,7 @@ export default function AdminPanel() {
 
   // Pestaña, vista y filtros viven en el link (?tab=…&vista=…&ing=…&q=…&cliente=…&estado=…):
   // se pueden compartir, y al entrar sin parámetros se restaura el último filtro usado.
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const filters = useMemo(() => parseAdminFilters(params), [params]);
   const { tab: activeTab, view, engineer: engineerFilter, search, client: clientFilter, status: statusFilter } = filters;
@@ -131,6 +139,11 @@ export default function AdminPanel() {
   const isMobile = useMobile();
   const [groupByClient, setGroupByClient] = useState(true);
   const [density, setDensity] = usePersistedState<TableDensity>('vftv:admin:density', 'comfortable');
+  const [columnVisibility, setColumnVisibility] = usePersistedState<VisibilityState>('vftv:admin:cols', {});
+  const [rawSavedViews, setRawSavedViews] = usePersistedState<SavedAdminView[]>('vftv:admin:saved-views', []);
+  const savedViews = useMemo(() => normalizeSavedViews(rawSavedViews), [rawSavedViews]);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const account = useUserSettings();
   // Al cargar la cuenta: densidad guardada y, si el link venía sin parámetros, vista de inicio y cliente seguido.
   const hadUrlParams = useRef(params.toString() !== '').current;
@@ -454,19 +467,29 @@ export default function AdminPanel() {
         metaKey: e.metaKey,
         altKey: e.altKey,
         editable: isEditableTarget(e.target),
-        dialogOpen: Boolean(activeDetailOrder || isRequestDialogOpen || isAssignDialogOpen),
+        dialogOpen: Boolean(activeDetailOrder || isRequestDialogOpen || isAssignDialogOpen || commandOpen || shortcutsOpen),
         menuOpen: contextMenu !== null,
         hasSearchInput: hasToolbar && searchInputRef.current !== null,
+        hasSelection: selectedCount > 0,
       });
       if (action === 'focus-search') {
         e.preventDefault();
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
+      } else if (action === 'open-command-palette') {
+        e.preventDefault();
+        setCommandOpen(true);
+      } else if (action === 'open-shortcuts') {
+        e.preventDefault();
+        setShortcutsOpen(true);
+      } else if (action === 'clear-selection') {
+        e.preventDefault();
+        setRowSelection({});
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeDetailOrder, isRequestDialogOpen, isAssignDialogOpen, contextMenu, hasToolbar]);
+  }, [activeDetailOrder, isRequestDialogOpen, isAssignDialogOpen, commandOpen, shortcutsOpen, contextMenu, hasToolbar, selectedCount]);
 
   const claimSelected = () => {
     claimForMe(selectedOrders.map(o => o.name));
@@ -601,6 +624,29 @@ export default function AdminPanel() {
                 )}
               </div>
               <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className={`${BIG_BUTTON} hidden md:inline-flex`}
+                  onClick={() => setCommandOpen(true)}
+                  title="Buscar rápido (Ctrl+K)"
+                >
+                  <Search aria-hidden="true" />
+                  <span>Buscar</span>
+                  <kbd className="rounded border border-border bg-background/60 px-1.5 py-0.5 font-mono-data text-[11px] text-muted-foreground">
+                    Ctrl+K
+                  </kbd>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="hidden min-h-11 px-3 text-sm font-semibold rounded-xl md:inline-flex"
+                  onClick={() => setShortcutsOpen(true)}
+                  aria-label="Atajos de teclado"
+                  title="Atajos de teclado (?)"
+                >
+                  <Keyboard aria-hidden="true" />
+                </Button>
                 {hasToolbar && (
                   <Button type="button" variant="secondary" className={`${BIG_BUTTON} hidden md:inline-flex`} onClick={handleExport} disabled={filteredOrders.length === 0}>
                     <Download />
@@ -657,6 +703,23 @@ export default function AdminPanel() {
                       setDensity(next);
                       if (account.loaded) account.update({ appearance: { ...account.settings.appearance, density: next } }).catch(() => undefined);
                     }}
+                    savedViews={savedViews}
+                    onSaveView={name => {
+                      setRawSavedViews(prev => addSavedView(normalizeSavedViews(prev), name, filters));
+                      showToast({ message: `Vista "${name}" guardada` });
+                    }}
+                    onApplyView={viewToApply => {
+                      setParams(serializeAdminFilters(savedViewToFilters(viewToApply)), { replace: true });
+                      showToast({ message: `Vista "${viewToApply.name}" aplicada` });
+                    }}
+                    onDeleteView={id => {
+                      setRawSavedViews(prev => removeSavedView(normalizeSavedViews(prev), id));
+                    }}
+                    columnVisibility={columnVisibility}
+                    onToggleColumn={colId => {
+                      setColumnVisibility(prev => ({ ...prev, [colId]: prev[colId] === false }));
+                    }}
+                    onResetColumns={() => setColumnVisibility({})}
                   />
                   {isMyOrdersFilter && (
                     <MyOrdersSubtabBar
@@ -707,6 +770,8 @@ export default function AdminPanel() {
                     groupByClient={groupByClient}
                     rowSelection={rowSelection}
                     onRowSelectionChange={setRowSelection}
+                    columnVisibility={columnVisibility}
+                    onColumnVisibilityChange={setColumnVisibility}
                     getEngineerName={getEngineerName}
                     isMine={isMine}
                     isFollowedByMe={isFollowedByMe}
@@ -790,6 +855,41 @@ export default function AdminPanel() {
               isOpen
               onClose={() => setDetailOrder(null)}
             />
+          </Suspense>
+        )}
+
+        {commandOpen && (
+          <Suspense fallback={null}>
+            <CommandPalette
+              open
+              onOpenChange={setCommandOpen}
+              orders={orders}
+              onSelectSection={(targetSection: AdminSectionId) => {
+                setParams(serializeAdminFilters(filtersForSection(targetSection, filters)), { replace: true });
+              }}
+              onNavigateRoute={path => navigate(path)}
+              onSelectOrder={order => setDetailOrder(order)}
+              onRefresh={() => { void refetch(); }}
+              onExport={() => { void handleExport(); }}
+              onClearFilters={() => {
+                setMySubtab(SUBTAB_ALL);
+                updateFilters({ search: '', client: '', engineer: '', status: 'all' });
+              }}
+              hasActiveFilters={hasActiveFilters(filters)}
+              onToggleDensity={() => {
+                const next = density === 'comfortable' ? 'compact' : 'comfortable';
+                setDensity(next);
+                if (account.loaded) account.update({ appearance: { ...account.settings.appearance, density: next } }).catch(() => undefined);
+              }}
+              density={density}
+              onOpenShortcuts={() => setShortcutsOpen(true)}
+            />
+          </Suspense>
+        )}
+
+        {shortcutsOpen && (
+          <Suspense fallback={null}>
+            <KeyboardShortcutsDialog open onOpenChange={setShortcutsOpen} />
           </Suspense>
         )}
 

@@ -35,6 +35,7 @@ import { computeTVGrid } from '../services/tvGrid';
 import { isEditableTarget, resolveTVShortcut } from '../utils/keyboardShortcuts';
 import GeminiOledBackground from '../components/GeminiOledBackground';
 import HolidayIntro from '../components/HolidayIntro';
+import { NetworkStatusIndicator } from '../components/NetworkStatusIndicator';
 import { useActiveHoliday } from '../hooks/useActiveHoliday';
 import { useHolidayIntro } from '../hooks/useHolidayIntro';
 import { type AuroraMode, isAuroraUrgent, nextAuroraMode, normalizeAuroraMode } from '../services/auroraMode';
@@ -741,6 +742,7 @@ export default function TVDashboard() {
       {holidayIntro.show && holiday && (
         <HolidayIntro holiday={holiday} date={holidayNow} onDone={holidayIntro.dismiss} />
       )}
+      <NetworkStatusIndicator compact />
     </div>
   );
 }

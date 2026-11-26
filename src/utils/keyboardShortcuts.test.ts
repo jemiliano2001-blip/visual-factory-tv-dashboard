@@ -48,7 +48,7 @@ test('resolveTVShortcut resuelve flechas, espacio y Escape solo en contexto vali
   assert.equal(resolveTVShortcut({ ...base, key: 'Escape', isTVMode: false, hasFilters: true }), 'clear-filters');
 });
 
-test('resolveAdminShortcut enfoca buscador con / solo fuera de campos y modales', () => {
+test('resolveAdminShortcut resuelve /, Ctrl/Cmd+K, ? y Escape según contexto', () => {
   const base = {
     ctrlKey: false,
     metaKey: false,
@@ -57,6 +57,7 @@ test('resolveAdminShortcut enfoca buscador con / solo fuera de campos y modales'
     dialogOpen: false,
     menuOpen: false,
     hasSearchInput: true,
+    hasSelection: false,
   };
 
   assert.equal(resolveAdminShortcut({ ...base, key: '/' }), 'focus-search');
@@ -66,4 +67,15 @@ test('resolveAdminShortcut enfoca buscador con / solo fuera de campos y modales'
   assert.equal(resolveAdminShortcut({ ...base, key: '/', hasSearchInput: false }), null);
   assert.equal(resolveAdminShortcut({ ...base, key: '/', ctrlKey: true }), null);
   assert.equal(resolveAdminShortcut({ ...base, key: 'a' }), null);
+
+  assert.equal(resolveAdminShortcut({ ...base, key: 'k', ctrlKey: true }), 'open-command-palette');
+  assert.equal(resolveAdminShortcut({ ...base, key: 'K', metaKey: true, editable: true, hasSearchInput: false }), 'open-command-palette');
+  assert.equal(resolveAdminShortcut({ ...base, key: 'k', ctrlKey: true, dialogOpen: true }), null);
+  assert.equal(resolveAdminShortcut({ ...base, key: 'k', ctrlKey: true, altKey: true }), null);
+
+  assert.equal(resolveAdminShortcut({ ...base, key: '?', hasSearchInput: false }), 'open-shortcuts');
+  assert.equal(resolveAdminShortcut({ ...base, key: '?', editable: true }), null);
+
+  assert.equal(resolveAdminShortcut({ ...base, key: 'Escape', hasSelection: true }), 'clear-selection');
+  assert.equal(resolveAdminShortcut({ ...base, key: 'Escape', hasSelection: false }), null);
 });

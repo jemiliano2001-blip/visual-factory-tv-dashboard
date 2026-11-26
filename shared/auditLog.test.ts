@@ -17,11 +17,13 @@ test('buildAuditEntry excluye PII/secretos, trunca cadenas y conserva metadata',
       token: 'abc',
       note: 'x'.repeat(250),
     },
+    requestId: 'req-trace-001',
     now: '2026-11-23T12:00:00.000Z',
   });
 
   assert.equal(entry.actorUid, 'u-123');
   assert.equal(entry.actorName, 'Ana López');
+  assert.equal(entry.requestId, 'req-trace-001');
   assert.equal(entry.createdAt, '2026-11-23T12:00:00.000Z');
   assert.equal(entry.details.createdCount, 2);
   assert.equal(entry.details.replayed, false);

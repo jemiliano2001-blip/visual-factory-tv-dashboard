@@ -65,7 +65,14 @@ test('runPrint: si falla la generación no abre ni registra', async () => {
 });
 
 test('runPrint: si falla el registro, el PDF ya se abrió y el error nombra la SO', async () => {
-  const { d, calls } = deps({ log: async () => { throw new Error('permiso'); } });
-  await assert.rejects(() => runPrint(d, job), /2026\/S01992/);
+  const rootCause = new Error('permiso');
+  const { d, calls } = deps({ log: async () => { throw rootCause; } });
+  await assert.rejects(
+    () => runPrint(d, job),
+    (err: unknown) =>
+      err instanceof Error &&
+      /2026\/S01992/.test(err.message) &&
+      err.cause === rootCause,
+  );
   assert.deepEqual(calls, ['fetch', 'build', 'open']);
 });

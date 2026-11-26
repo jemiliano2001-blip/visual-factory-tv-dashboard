@@ -50,7 +50,11 @@ export function resolveTVShortcut(input: TVShortcutInput): TVShortcutAction | nu
   return null;
 }
 
-export type AdminShortcutAction = 'focus-search';
+export type AdminShortcutAction =
+  | 'focus-search'
+  | 'open-command-palette'
+  | 'open-shortcuts'
+  | 'clear-selection';
 
 export interface AdminShortcutInput {
   key: string;
@@ -61,11 +65,18 @@ export interface AdminShortcutInput {
   dialogOpen: boolean;
   menuOpen: boolean;
   hasSearchInput: boolean;
+  hasSelection?: boolean;
 }
 
 export function resolveAdminShortcut(input: AdminShortcutInput): AdminShortcutAction | null {
+  if ((input.ctrlKey || input.metaKey) && !input.altKey && input.key.toLowerCase() === 'k') {
+    if (input.dialogOpen || input.menuOpen) return null;
+    return 'open-command-palette';
+  }
   if (input.ctrlKey || input.metaKey || input.altKey) return null;
-  if (input.editable || input.dialogOpen || input.menuOpen || !input.hasSearchInput) return null;
-  if (input.key === '/') return 'focus-search';
+  if (input.editable || input.dialogOpen || input.menuOpen) return null;
+  if (input.key === '/' && input.hasSearchInput) return 'focus-search';
+  if (input.key === '?') return 'open-shortcuts';
+  if (input.key === 'Escape' && input.hasSelection) return 'clear-selection';
   return null;
 }

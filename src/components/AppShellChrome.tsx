@@ -7,6 +7,7 @@ import { LayoutDashboard, BarChart3, LogOut, Tv, Sun, Moon } from 'lucide-react'
 import { setAdminTheme, useAdminTheme } from '../hooks/useAdminTheme';
 import { useUserSettings } from '../hooks/useUserSettings';
 import { AdminSidebarSections, AdminMobileNav } from './admin/AdminNav';
+import { NetworkStatusIndicator } from './NetworkStatusIndicator';
 import { Button } from './ui/button';
 
 export default function AppShellChrome() {
@@ -159,6 +160,7 @@ export default function AppShellChrome() {
 
       {/* Contenido */}
       <main className="custom-scrollbar relative z-10 flex-1 overflow-auto pb-14 md:pb-0">
+        <NetworkStatusIndicator />
         <Outlet />
       </main>
 

@@ -38,7 +38,10 @@ export async function runPrint(deps: PrintDeps, job: PrintJob): Promise<void> {
       await deps.log({ drawingId: item.view.drawingId, partId: item.view.partId, copies: job.copies, orderRef: item.line.order.name });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      throw new Error(`El plano se abrió, pero no se pudo registrar la impresión de ${item.line.order.name}: ${reason}`);
+      throw new Error(
+        `El plano se abrió, pero no se pudo registrar la impresión de ${item.line.order.name}: ${reason}`,
+        { cause: err },
+      );
     }
   }
 }

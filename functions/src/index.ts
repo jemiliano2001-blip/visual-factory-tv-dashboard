@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { defineSecret } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
 import express, { NextFunction, Request, Response } from 'express';
 import { OdooClient } from '../../shared/odooClient';
@@ -23,6 +24,8 @@ import {
 } from '../../shared/invoiceRequests';
 import { createMemoryRateLimiter } from '../../shared/rateLimit';
 import { buildAuditEntry, type AuditLogEntry } from '../../shared/auditLog';
+import { parseFunctionsEnv, type FunctionsEnvConfig } from '../../shared/envConfig';
+import { createRequestContextMiddleware } from '../../shared/requestContext';
 import { isKnownSatCode } from '../../shared/satCatalogServer';
 import {
   checkThresholds,
@@ -44,6 +47,54 @@ import {
 
 // Auto-init: en Cloud Functions el service account se configura automáticamente
 if (!admin.apps.length) admin.initializeApp();
+
+// Secret Manager (mínimo privilegio por carga de trabajo; nunca leer .value() en top-level)
+const SECRET_ODOO_PASSWORD = defineSecret('ODOO_PASSWORD');
+const SECRET_GMAIL_APP_PASSWORD = defineSecret('GMAIL_APP_PASSWORD');
+const SECRET_DISCORD_WEBHOOK_URL = defineSecret('DISCORD_WEBHOOK_URL');
+const SECRET_DISCORD_WEBHOOK_URL_CRITICAS = defineSecret('DISCORD_WEBHOOK_URL_CRITICAS');
+const SECRET_DISCORD_WEBHOOK_URL_REPORTES = defineSecret('DISCORD_WEBHOOK_URL_REPORTES');
+
+const API_SECRETS = [
+  SECRET_ODOO_PASSWORD,
+  SECRET_GMAIL_APP_PASSWORD,
+  SECRET_DISCORD_WEBHOOK_URL,
+];
+
+const NOTIFICATION_SECRETS = [
+  SECRET_ODOO_PASSWORD,
+  SECRET_DISCORD_WEBHOOK_URL,
+  SECRET_DISCORD_WEBHOOK_URL_CRITICAS,
+  SECRET_DISCORD_WEBHOOK_URL_REPORTES,
+];
+
+function readSecretSafe(secret: ReturnType<typeof defineSecret>, envKey: string): string {
+  try {
+    const val = secret.value();
+    if (typeof val === 'string' && val.length > 0) return val;
+  } catch {
+    // Secreto no vinculado a esta función o lectura durante discovery
+  }
+  return process.env[envKey] ?? '';
+}
+
+let cachedEnvConfig: Readonly<FunctionsEnvConfig> | null = null;
+function getRuntimeEnv(): Readonly<FunctionsEnvConfig> {
+  if (cachedEnvConfig) return cachedEnvConfig;
+  const parsed = parseFunctionsEnv({
+    ...process.env,
+    ODOO_PASSWORD: readSecretSafe(SECRET_ODOO_PASSWORD, 'ODOO_PASSWORD'),
+    GMAIL_APP_PASSWORD: readSecretSafe(SECRET_GMAIL_APP_PASSWORD, 'GMAIL_APP_PASSWORD'),
+    DISCORD_WEBHOOK_URL: readSecretSafe(SECRET_DISCORD_WEBHOOK_URL, 'DISCORD_WEBHOOK_URL'),
+    DISCORD_WEBHOOK_URL_CRITICAS: readSecretSafe(SECRET_DISCORD_WEBHOOK_URL_CRITICAS, 'DISCORD_WEBHOOK_URL_CRITICAS'),
+    DISCORD_WEBHOOK_URL_REPORTES: readSecretSafe(SECRET_DISCORD_WEBHOOK_URL_REPORTES, 'DISCORD_WEBHOOK_URL_REPORTES'),
+  });
+  if (!parsed.ok) {
+    logger.error('[config] Variables de entorno inválidas:', { errors: parsed.errors });
+  }
+  cachedEnvConfig = parsed.config;
+  return cachedEnvConfig;
+}
 
 const app = express();
 app.disable('x-powered-by');
@@ -72,11 +123,16 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   if (/^http:\/\/localhost(:\d+)?$/.test(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key, X-Request-Id');
+    res.setHeader('Access-Control-Expose-Headers', 'X-Request-Id');
   }
   if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
   next();
 });
+
+app.use('/api', createRequestContextMiddleware(info => {
+  logger.info('[http]', info);
+}));
 
 // ─── Helpers de errores seguros y auditoría ───────────────────────────────────
 function safeErrorSummary(err: unknown): { name: string; message: string } {
@@ -157,8 +213,9 @@ const HEALTH_TTL_MS = 60_000;
 let health: { at: number; checks: Promise<{ odoo: boolean; firestore: boolean }> } | null = null;
 async function probeOdoo(): Promise<boolean> {
   try {
-    const session = await odooClient.getSession();
-    await odooClient.odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
+    const client = getOdooClient();
+    const session = await client.getSession();
+    await client.odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
     return true;
   } catch (err) {
     logger.warn('[health] Odoo no responde:', safeErrorSummary(err));
@@ -233,6 +290,7 @@ function requireWriteAccess(req: Request, res: Response, next: NextFunction): vo
     actor,
     resource: req.path,
     outcome: 'denied',
+    requestId: typeof res.locals.requestId === 'string' ? res.locals.requestId : null,
     details: { method: req.method },
   }));
   res.status(403).json({ error: 'Esta cuenta es de solo lectura y no puede realizar cambios.' });
@@ -256,22 +314,29 @@ function getMailTransport(user: string, pass: string): Transporter {
 }
 
 // ─── Odoo (módulo compartido con server.ts) ───────────────────────────
-const odooClient = new OdooClient({
-  url: process.env.ODOO_URL ?? '',
-  db: process.env.ODOO_DB ?? '',
-  username: process.env.ODOO_USERNAME ?? '',
-  password: process.env.ODOO_PASSWORD ?? '',
-  logger: { warn: msg => logger.warn(msg) },
-});
+let cachedOdooClient: OdooClient | null = null;
+function getOdooClient(): OdooClient {
+  if (cachedOdooClient) return cachedOdooClient;
+  const env = getRuntimeEnv();
+  cachedOdooClient = new OdooClient({
+    url: env.ODOO_URL,
+    db: env.ODOO_DB,
+    username: env.ODOO_USERNAME,
+    password: env.ODOO_PASSWORD,
+    logger: { warn: msg => logger.warn(msg) },
+  });
+  return cachedOdooClient;
+}
 
 app.get('/api/odoo/status', readRateLimit, async (_req: Request, res: Response) => {
-  if (!odooClient.getConfiguredUrl()) {
+  const client = getOdooClient();
+  if (!client.getConfiguredUrl()) {
     res.status(503).json({ connected: false, message: 'Odoo no configurado' });
     return;
   }
   try {
-    const session = await odooClient.getSession();
-    await odooClient.odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
+    const session = await client.getSession();
+    await client.odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
     res.json({ connected: true, message: 'Conectado a Odoo' });
   } catch (err) {
     logger.error('[Odoo] Error en /api/odoo/status:', safeErrorSummary(err));
@@ -280,12 +345,13 @@ app.get('/api/odoo/status', readRateLimit, async (_req: Request, res: Response) 
 });
 
 app.get('/api/odoo/invoiceable-orders', readRateLimit, async (_req: Request, res: Response) => {
-  if (!odooClient.isConfigured()) {
+  const client = getOdooClient();
+  if (!client.isConfigured()) {
     res.status(503).json({ error: 'Odoo no configurado. Agrega las env vars ODOO_* en functions/.env', orders: [] });
     return;
   }
   try {
-    const { orders, truncated } = await odooClient.fetchInvoiceableOrdersCached();
+    const { orders, truncated } = await client.fetchInvoiceableOrdersCached();
     res.json({ orders, total: orders.length, truncated, lastUpdated: new Date().toISOString() });
   } catch (err) {
     logger.error('[Odoo] Error al obtener órdenes:', safeErrorSummary(err));
@@ -334,6 +400,7 @@ const changeAssignments = (
         actor,
         resource: 'visual_factory_state/order_assignments',
         outcome: 'success',
+        requestId: typeof res.locals.requestId === 'string' ? res.locals.requestId : null,
         details: { orderCount: keys.length },
       }));
       res.json(next);
@@ -381,6 +448,7 @@ app.post('/api/order-assignments/assign', requireWriteAccess, mutationRateLimit,
       actor,
       resource: 'visual_factory_state/order_assignments',
       outcome: 'success',
+      requestId: typeof res.locals.requestId === 'string' ? res.locals.requestId : null,
       details: { orderCount: parsed.orderKeys.length },
     }));
     res.json(next);
@@ -435,12 +503,13 @@ app.get('/api/team-access', sensitiveRateLimit, async (_req: Request, res: Respo
 app.get('/api/invoice-requests', readRateLimit, async (_req: Request, res: Response) => {
   try {
     const stored = normalizeInvoiceRequests((await requestsDoc().get()).data());
+    const client = getOdooClient();
     let orders: OdooOrderSnapshot[] = [];
-    if (odooClient.isConfigured()) {
+    if (client.isConfigured()) {
       try {
         orders = await loadOrderSnapshots(stored, {
-          fetchCached: () => odooClient.fetchInvoiceableOrdersCached(),
-          fetchByIds: ids => odooClient.fetchOrdersByIds(ids),
+          fetchCached: () => client.fetchInvoiceableOrdersCached(),
+          fetchByIds: ids => client.fetchOrdersByIds(ids),
         });
       } catch (err) {
         logger.warn('solicitudes: no se pudo consultar Odoo, se devuelve lo guardado:', safeErrorSummary(err));
@@ -452,9 +521,9 @@ app.get('/api/invoice-requests', readRateLimit, async (_req: Request, res: Respo
     const metaIds = missingMetaOrderIds(stored, loadedIds);
     let metaOrders: OdooOrderMetaSnapshot[] = orders;
     const checkedIds = new Set<number>(loadedIds);
-    if (odooClient.isConfigured() && metaIds.length > 0) {
+    if (client.isConfigured() && metaIds.length > 0) {
       try {
-        const extraMeta = await odooClient.fetchOrderMetaByIds(metaIds);
+        const extraMeta = await client.fetchOrderMetaByIds(metaIds);
         metaOrders = [...orders, ...extraMeta];
         for (const id of metaIds) checkedIds.add(id);
       } catch (err) {
@@ -501,12 +570,13 @@ app.post('/api/invoice-requests', requireWriteAccess, sensitiveRateLimit, async 
     res.status(400).json({ error: err instanceof Error ? err.message : 'Solicitud inválida.' });
     return;
   }
-  if (!odooClient.isConfigured()) { res.status(503).json({ error: 'Odoo no configurado.' }); return; }
+  const client = getOdooClient();
+  if (!client.isConfigured()) { res.status(503).json({ error: 'Odoo no configurado.' }); return; }
   const payloadHash = createHash('sha256').update(JSON.stringify(drafts)).digest('hex');
 
   let orders;
   try {
-    orders = (await odooClient.fetchInvoiceableOrders()).orders; // sin caché: las cantidades deben ser las de ahora
+    orders = (await client.fetchInvoiceableOrders()).orders; // sin caché: las cantidades deben ser las de ahora
   } catch {
     res.status(503).json({ error: 'No se pudo consultar Odoo; no se guardó nada.' });
     return;
@@ -553,11 +623,11 @@ app.post('/api/invoice-requests', requireWriteAccess, sensitiveRateLimit, async 
       return;
     }
 
-    if (txOutcome.created.length > 0) odooClient.invalidateOrdersCache();
+    if (txOutcome.created.length > 0) getOdooClient().invalidateOrdersCache();
     // El registro ya quedó guardado: si falla el correo o Discord solo se reporta.
     let emailed = false;
     if (txOutcome.created.length > 0) {
-      const { GMAIL_USER, GMAIL_APP_PASSWORD, INVOICE_MAIL_TO, INVOICE_MAIL_CC } = process.env;
+      const { GMAIL_USER, GMAIL_APP_PASSWORD, INVOICE_MAIL_TO, INVOICE_MAIL_CC } = getRuntimeEnv();
       if (GMAIL_USER && GMAIL_APP_PASSWORD && INVOICE_MAIL_TO) {
         const transport = getMailTransport(GMAIL_USER, GMAIL_APP_PASSWORD);
         const mailPayload = {
@@ -586,6 +656,7 @@ app.post('/api/invoice-requests', requireWriteAccess, sensitiveRateLimit, async 
         actor,
         resource: 'visual_factory_state/invoice_requests',
         outcome: 'success',
+        requestId: typeof res.locals.requestId === 'string' ? res.locals.requestId : null,
         details: { createdCount: txOutcome.created.length, skippedCount: txOutcome.skipped.length, emailed, notified },
       }));
     }
@@ -637,6 +708,7 @@ app.post('/api/invoice-requests/:id/done', requireWriteAccess, mutationRateLimit
       actor,
       resource: `visual_factory_state/invoice_requests/${id}`,
       outcome: 'success',
+      requestId: typeof res.locals.requestId === 'string' ? res.locals.requestId : null,
     }));
     res.json(next);
   } catch (err) {
@@ -654,12 +726,18 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     res.status(400).json({ error: 'JSON inválido en la solicitud.' });
     return;
   }
-  logger.error('[Functions API] Error no controlado:', safeErrorSummary(err));
+  logger.error('[Functions API] Error no controlado:', {
+    requestId: typeof res.locals.requestId === 'string' ? res.locals.requestId : null,
+    ...safeErrorSummary(err),
+  });
   res.status(500).json({ error: 'Error interno del servidor.' });
 });
 
 // ─── Export API ───────────────────────────────────────────────────────────────
-export const api = onRequest({ region: 'us-central1', timeoutSeconds: 60, memory: '256MiB', maxInstances: 10 }, app);
+export const api = onRequest(
+  { region: 'us-central1', timeoutSeconds: 60, memory: '256MiB', maxInstances: 10, secrets: API_SECRETS },
+  app,
+);
 
 // ─── Scheduled Notifications ──────────────────────────────────────────────────
 const TIME_ZONE = 'America/Chicago';
@@ -668,8 +746,9 @@ async function runNotificationTask(
   taskName: string,
   task: (orders: NotifOrder[], channels: WebhookChannels) => Promise<void>,
 ) {
-  const mainUrl = process.env.DISCORD_WEBHOOK_URL;
-  const enabled = process.env.NOTIFICATIONS_ENABLED !== 'false';
+  const env = getRuntimeEnv();
+  const mainUrl = env.DISCORD_WEBHOOK_URL;
+  const enabled = env.NOTIFICATIONS_ENABLED;
 
   if (!mainUrl || !enabled) {
     logger.info('[notifications] Desactivado (DISCORD_WEBHOOK_URL no configurado o NOTIFICATIONS_ENABLED=false)');
@@ -678,7 +757,7 @@ async function runNotificationTask(
 
   const channels = buildWebhookChannels(mainUrl);
   try {
-    const { orders } = await odooClient.fetchInvoiceableOrders();
+    const { orders } = await getOdooClient().fetchInvoiceableOrders();
     await task(orders, channels);
   } catch (err) {
     const summary = safeErrorSummary(err);
@@ -698,7 +777,13 @@ async function runNotificationTask(
   }
 }
 
-const SCHEDULE_OPTS = { region: 'us-central1', memory: '256MiB' as const, timeoutSeconds: 120, maxInstances: 1 };
+const SCHEDULE_OPTS = {
+  region: 'us-central1',
+  memory: '256MiB' as const,
+  timeoutSeconds: 120,
+  maxInstances: 1,
+  secrets: NOTIFICATION_SECRETS,
+};
 
 // 1. Scan cada 30 minutos (umbrales y eventos)
 export const scanNotifications = onSchedule({ schedule: 'every 30 minutes', timeZone: TIME_ZONE, concurrency: 1, ...SCHEDULE_OPTS }, async () => {

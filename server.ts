@@ -17,6 +17,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { OdooClient } from './shared/odooClient.ts';
 import { crearAuthApi, extractBearerToken } from './shared/firebaseTokenPolicy.ts';
 import { createMemoryRateLimiter } from './shared/rateLimit.ts';
+import { parseServerEnv, redactEnvSummary } from './shared/envConfig.ts';
+import { createRequestContextMiddleware } from './shared/requestContext.ts';
 import {
   AssignmentValidationError, assertAssignmentsWithinSizeLimit, assignOrders, claimOrders, followOrders,
   normalizeOrderAssignments, parseAssignBody, parseOrderKeys, releaseOrders, type OrderAssignmentsPayload,
@@ -35,6 +37,13 @@ if (existsSync('.env.local')) {
   dotenv.config({ path: '.env.local' });
 }
 dotenv.config(); // carga .env como fallback (no sobreescribe variables ya definidas)
+
+const parsedEnv = parseServerEnv(process.env);
+if (!parsedEnv.ok) {
+  console.error('[Config] Variables de entorno inválidas:', parsedEnv.errors);
+  process.exit(1);
+}
+const envConfig = parsedEnv.config;
 
 const app = express();
 app.disable('x-powered-by');
@@ -60,7 +69,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     'http://localhost:3000',
     'http://localhost:3010',
     'http://localhost:4173',
-    process.env.APP_URL || '',
+    envConfig.APP_URL,
   ].filter(Boolean);
 
   res.setHeader('Vary', 'Origin');
@@ -69,7 +78,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key, X-Request-Id');
+  res.setHeader('Access-Control-Expose-Headers', 'X-Request-Id');
 
   if (req.method === 'OPTIONS') {
     res.sendStatus(204);
@@ -78,6 +88,15 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+app.use('/api', createRequestContextMiddleware(info => {
+  console.log(JSON.stringify({ level: info.statusCode >= 500 ? 'error' : 'info', ...info }));
+}));
+
+const healthRateLimit = createMemoryRateLimiter({
+  maxRequests: 30,
+  windowMs: 60_000,
+  keyOf: req => req.ip ?? 'health',
+});
 const readRateLimit = createMemoryRateLimiter({ maxRequests: 120, windowMs: 60_000 });
 const sensitiveRateLimit = createMemoryRateLimiter({ maxRequests: 15, windowMs: 60_000 });
 const mutationRateLimit = createMemoryRateLimiter({ maxRequests: 60, windowMs: 60_000 });
@@ -93,7 +112,7 @@ function safeErrorSummary(err: unknown): { name: string; message: string } {
 }
 
 // ─── Firebase API Key (para verificar ID tokens sin firebase-admin) ───────────
-let FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || '';
+let FIREBASE_API_KEY = envConfig.FIREBASE_API_KEY;
 if (!FIREBASE_API_KEY && existsSync('./firebase-applet-config.json')) {
   try {
     const cfg = JSON.parse(readFileSync('./firebase-applet-config.json', 'utf-8')) as { apiKey?: string };
@@ -155,6 +174,38 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
   }
 }
 
+// ─── Configuración Odoo ────────────────────────────────────────────────────────
+const odooClient = new OdooClient({
+  url: envConfig.ODOO_URL,
+  db: envConfig.ODOO_DB,
+  username: envConfig.ODOO_USERNAME,
+  password: envConfig.ODOO_PASSWORD,
+});
+const ODOO_URL = odooClient.getConfiguredUrl();
+const PORT = envConfig.ODOO_PROXY_PORT;
+
+// ─── Health check local (paridad con Cloud Functions) ─────────────────────────
+const HEALTH_TTL_MS = 60_000;
+let health: { at: number; checks: Promise<{ odoo: boolean }> } | null = null;
+async function probeOdoo(): Promise<boolean> {
+  if (!odooClient.isConfigured()) return false;
+  try {
+    const session = await odooClient.getSession();
+    await odooClient.odooCall('res.users', 'read', [[session.uid]], { fields: ['login'] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+app.get('/api/health', healthRateLimit, async (_req: Request, res: Response) => {
+  if (!health || Date.now() - health.at > HEALTH_TTL_MS) {
+    health = { at: Date.now(), checks: probeOdoo().then(odoo => ({ odoo })) };
+  }
+  const { odoo } = await health.checks;
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(odoo ? 200 : 503).json({ ok: odoo, odoo, local: true });
+});
+
 // ─── Seguridad (Auth Middleware) ──────────────────────────────────────────────
 // Verifica Firebase ID tokens. El bypass de auth para conexiones locales es
 // OPT-IN explícito (DEV_AUTH_BYPASS=true), de modo que falla CERRADO: si la
@@ -163,7 +214,7 @@ async function verifyFirebaseToken(token: string): Promise<boolean> {
 // dejaría todo abierto si NODE_ENV no fuera 'production'.
 const authApi = crearAuthApi(verifyFirebaseToken);
 app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
-  if (process.env.DEV_AUTH_BYPASS === 'true') {
+  if (envConfig.DEV_AUTH_BYPASS) {
     const addr = req.socket.remoteAddress ?? '';
     if (addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1') {
       res.locals.actor = { uid: 'dev-local', email: null, name: 'Desarrollo local' };
@@ -179,16 +230,6 @@ app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
 
   await authApi(req, res, next);
 });
-
-// ─── Configuración Odoo ────────────────────────────────────────────────────────
-const odooClient = new OdooClient({
-  url: process.env.ODOO_URL || '',
-  db: process.env.ODOO_DB || '',
-  username: process.env.ODOO_USERNAME || '',
-  password: process.env.ODOO_PASSWORD || '',
-});
-const ODOO_URL = odooClient.getConfiguredUrl();
-const PORT = parseInt(process.env.ODOO_PROXY_PORT || '3001', 10);
 
 // Validación al arrancar
 if (!odooClient.isConfigured()) {
@@ -507,13 +548,17 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     res.status(400).json({ error: 'JSON inválido en la solicitud.' });
     return;
   }
-  console.error('[Server] Error no controlado:', err);
+  console.error('[Server] Error no controlado:', {
+    requestId: typeof res.locals.requestId === 'string' ? res.locals.requestId : null,
+    ...safeErrorSummary(err),
+  });
   res.status(500).json({ error: 'Error interno del servidor.' });
 });
 
 const server = app.listen(PORT, () => {
   console.log(`\n🚀 Odoo Proxy corriendo en http://localhost:${PORT}`);
   console.log(`   Odoo URL: ${ODOO_URL || '⚠️  No configurada'}`);
+  console.log('   Configuración activa:', JSON.stringify(redactEnvSummary(envConfig)));
   console.log(`   Endpoints:`);
   console.log(`     GET http://localhost:${PORT}/api/odoo/status`);
   console.log(`     GET http://localhost:${PORT}/api/odoo/invoiceable-orders\n`);

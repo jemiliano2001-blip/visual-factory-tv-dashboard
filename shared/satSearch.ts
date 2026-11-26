@@ -49,23 +49,22 @@ function hasPair(entry: string[], a: string, b: string) {
   return false;
 }
 
-function blockedOfficial(name: string, description: string): boolean {
+function blockedOfficial(name: string, normalizedDescription: string): boolean {
   const n = normalizeSatText(name);
-  const d = normalizeSatText(description);
   for (const token of SAT_OFFICIAL_BLOCKLIST) {
-    if (n.includes(token) && !d.includes(token)) return true;
+    if (n.includes(token) && !normalizedDescription.includes(token)) return true;
   }
   return false;
 }
 
 export function suggestSatCandidates(description: string, catalog: SatCatalog, limit = 3, minScore = OFFICIAL_MIN_SCORE): SatCandidate[] {
+  const normalizedDesc = normalizeSatText(description);
   const q = words(description).slice(0, MAX_WORDS);
   if (q.length === 0) return [];
   const qSet = new Set(q);
   const idx = indexOf(catalog);
   const found: SatCandidate[] = [];
   catalog.forEach(([code, name], i) => {
-    if (blockedOfficial(name, description)) return;
     const entry = idx[i];
     let score = 0;
     let specific = 0;
@@ -75,6 +74,7 @@ export function suggestSatCandidates(description: string, catalog: SatCatalog, l
       if (isGeneric(w)) score += 2; else { score += 10; specific++; }
     }
     if (specific === 0) return;
+    if (blockedOfficial(name, normalizedDesc)) return;
     for (let k = 0; k < q.length - 1; k++) if (hasPair(entry, q[k], q[k + 1])) score += 15;
     score -= 0.5 * unmatched;
     if (score >= minScore) found.push({ code, name, score: Math.round(score * 10) / 10 });

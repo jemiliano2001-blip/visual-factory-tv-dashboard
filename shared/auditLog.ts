@@ -26,6 +26,7 @@ export interface AuditLogEntry {
   actorName: string | null;
   resource: string;
   outcome: AuditOutcome;
+  requestId: string | null;
   details: Record<string, string | number | boolean | null>;
   createdAt: string;
 }
@@ -33,18 +34,22 @@ export interface AuditLogEntry {
 const MAX_ACTOR_NAME = 80;
 const MAX_DETAIL_STRING = 200;
 const MAX_DETAILS_KEYS = 20;
+const MAX_REQUEST_ID = 64;
 
 export function buildAuditEntry(input: {
   action: AuditAction;
   actor: AuditActor;
   resource: string;
   outcome: AuditOutcome;
+  requestId?: string | null;
   details?: Record<string, unknown>;
   now?: string;
 }): AuditLogEntry {
   const actorUid = String(input.actor.uid || 'system').slice(0, 128);
   const rawName = typeof input.actor.name === 'string' ? input.actor.name.replace(/\s+/g, ' ').trim() : '';
   const actorName = rawName ? rawName.slice(0, MAX_ACTOR_NAME) : null;
+  const rawRequestId = typeof input.requestId === 'string' ? input.requestId.trim() : '';
+  const requestId = rawRequestId ? rawRequestId.slice(0, MAX_REQUEST_ID) : null;
 
   const details: Record<string, string | number | boolean | null> = {};
   if (input.details) {
@@ -74,6 +79,7 @@ export function buildAuditEntry(input: {
     actorName,
     resource: String(input.resource).slice(0, 128),
     outcome: input.outcome,
+    requestId,
     details,
     createdAt: input.now ?? new Date().toISOString(),
   };
