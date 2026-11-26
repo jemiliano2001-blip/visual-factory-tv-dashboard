@@ -110,7 +110,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       onClick={onClick}
       title={title}
       aria-label={title}
-      className={`flex h-11 w-11 items-center justify-center rounded-lg border transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isActive ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300' : 'border-border text-muted-foreground hover:text-secondary-foreground hover:border-white/20 hover:bg-white/5'}`}
+      className={`flex h-11 w-11 cursor-pointer items-center justify-center rounded-lg border transition-all duration-200 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isActive ? 'bg-primary/20 border-primary/50 text-primary' : 'border-border text-muted-foreground hover:text-secondary-foreground hover:border-white/20 hover:bg-white/5'}`}
     >
       {children}
     </button>
@@ -191,7 +191,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             onClick={onShowOverdue}
             disabled={screenOverdueCount === 0}
             title={screenOverdueCount > 0 ? 'Mostrar órdenes vencidas' : 'No hay órdenes vencidas en esta pantalla'}
-            className="inline-flex h-9 items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-2.5 text-red-300 transition-colors hover:bg-red-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:border-input disabled:bg-white/[0.03] disabled:text-muted-foreground/70"
+            className="inline-flex h-9 items-center gap-1 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 text-destructive transition-colors hover:bg-destructive/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:border-input disabled:bg-white/[0.03] disabled:text-muted-foreground/70"
           >
             {screenOverdueCount}<span className="hidden lg:inline"> vencidas</span><span className="lg:hidden"> venc.</span>
           </button>
@@ -208,10 +208,10 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           <button
             type="button"
             onClick={onClearFilter}
-            className="flex h-9 items-center gap-1.5 px-3 bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 rounded-md font-mono-data font-bold text-[9px] uppercase tracking-wider hover:bg-indigo-500/25 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex h-9 cursor-pointer items-center gap-1.5 px-3 bg-primary/15 text-primary border border-primary/30 rounded-md font-mono-data font-bold text-[9px] uppercase tracking-wider hover:bg-primary/25 active:scale-[0.98] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             title="Quitar filtros"
           >
-            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
             {[
               statusFilter === 'overdue' ? 'Vencidas'
                 : statusFilter === 'delivered' ? 'Entregadas'

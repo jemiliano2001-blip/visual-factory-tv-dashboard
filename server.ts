@@ -19,6 +19,7 @@ import { crearAuthApi, extractBearerToken } from './shared/firebaseTokenPolicy.t
 import { createMemoryRateLimiter } from './shared/rateLimit.ts';
 import { parseServerEnv, redactEnvSummary } from './shared/envConfig.ts';
 import { createRequestContextMiddleware } from './shared/requestContext.ts';
+import { NO_ACTOR, isActor, safeErrorSummary } from './shared/apiHelpers.ts';
 import {
   AssignmentValidationError, assertAssignmentsWithinSizeLimit, assignOrders, claimOrders, followOrders,
   normalizeOrderAssignments, parseAssignBody, parseOrderKeys, releaseOrders, type OrderAssignmentsPayload,
@@ -100,16 +101,6 @@ const healthRateLimit = createMemoryRateLimiter({
 const readRateLimit = createMemoryRateLimiter({ maxRequests: 120, windowMs: 60_000 });
 const sensitiveRateLimit = createMemoryRateLimiter({ maxRequests: 15, windowMs: 60_000 });
 const mutationRateLimit = createMemoryRateLimiter({ maxRequests: 60, windowMs: 60_000 });
-
-function safeErrorSummary(err: unknown): { name: string; message: string } {
-  if (err instanceof Error) {
-    return {
-      name: err.name || 'Error',
-      message: err.message.replace(/\s+/g, ' ').trim().slice(0, 200),
-    };
-  }
-  return { name: 'UnknownError', message: String(err).replace(/\s+/g, ' ').trim().slice(0, 200) };
-}
 
 // ─── Firebase API Key (para verificar ID tokens sin firebase-admin) ───────────
 let FIREBASE_API_KEY = envConfig.FIREBASE_API_KEY;
@@ -286,8 +277,6 @@ app.get('/api/odoo/invoiceable-orders', readRateLimit, async (_req: Request, res
 
 // ─── Asignación de órdenes a ingenieros SMV ───────────────────────────────────
 // Persistencia local en archivo (ignorado por git); en Firebase vive en Firestore.
-const isActor = (a: unknown): a is RequestActor => typeof a === 'object' && a !== null && typeof (a as RequestActor).uid === 'string';
-const NO_ACTOR = 'Se requiere una cuenta de personal SMV.';
 const ASSIGNMENTS_FILE = resolve(process.cwd(), '.local-order-assignments.json');
 
 function writeJsonAtomic(filePath: string, data: unknown): void {

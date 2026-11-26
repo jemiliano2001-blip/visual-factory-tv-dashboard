@@ -26,6 +26,7 @@ import { createMemoryRateLimiter } from '../../shared/rateLimit';
 import { buildAuditEntry, type AuditLogEntry } from '../../shared/auditLog';
 import { parseFunctionsEnv, type FunctionsEnvConfig } from '../../shared/envConfig';
 import { createRequestContextMiddleware } from '../../shared/requestContext';
+import { NO_ACTOR, isActor, safeErrorSummary } from '../../shared/apiHelpers';
 import { isKnownSatCode } from '../../shared/satCatalogServer';
 import {
   checkThresholds,
@@ -135,16 +136,6 @@ app.use('/api', createRequestContextMiddleware(info => {
 }));
 
 // ─── Helpers de errores seguros y auditoría ───────────────────────────────────
-function safeErrorSummary(err: unknown): { name: string; message: string } {
-  if (err instanceof Error) {
-    return {
-      name: err.name || 'Error',
-      message: err.message.replace(/\s+/g, ' ').trim().slice(0, 200),
-    };
-  }
-  return { name: 'UnknownError', message: String(err).replace(/\s+/g, ' ').trim().slice(0, 200) };
-}
-
 async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
   try {
     await admin.firestore().collection('audit_logs').add(entry);
@@ -192,9 +183,6 @@ async function verifyTokenAndGetMeta(token: string): Promise<VerifiedTokenMeta |
 async function verifyFirebaseToken(token: string): Promise<boolean> {
   return (await verifyTokenAndGetMeta(token)) !== null;
 }
-
-const isActor = (a: unknown): a is RequestActor => typeof a === 'object' && a !== null && typeof (a as RequestActor).uid === 'string';
-const NO_ACTOR = 'Se requiere una cuenta de personal SMV.';
 
 const healthRateLimit = createMemoryRateLimiter({
   maxRequests: 30,

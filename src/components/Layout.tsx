@@ -17,7 +17,7 @@ export default function Layout() {
 
   return (
     <ErrorBoundary>
-      <Suspense fallback={<div className="min-h-screen bg-background" />}>
+      <Suspense fallback={<div className="min-h-dvh bg-background" />}>
         <AppShellChrome />
       </Suspense>
     </ErrorBoundary>

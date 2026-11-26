@@ -16,7 +16,7 @@ const Login = lazy(() => import('./pages/Login'));
 
 function RouteLoadingFallback() {
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
+    <div className="min-h-dvh bg-background flex items-center justify-center">
       <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
     </div>
   );
@@ -39,7 +39,6 @@ function RouteTitleSync() {
 
 export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelado = false;
@@ -70,7 +69,6 @@ export default function App() {
       unsubAuth = onAuthStateChanged(auth, () => {
         if (cancelado) return;
         // Sin sesión no se crea una cuenta anónima: cada ruta protegida manda a /login.
-        setAuthError(null);
         setIsAuthReady(true);
       });
     }
@@ -85,28 +83,8 @@ export default function App() {
 
   if (!isAuthReady) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
-
-  if (authError) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
-        <div className="max-w-lg space-y-6">
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">
-            Error de autenticación
-          </h1>
-          <p className="text-muted-foreground text-sm leading-relaxed">{authError}</p>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="px-6 py-3 bg-primary hover:bg-primary/90 text-foreground font-bold rounded-xl transition-colors"
-          >
-            Reintentar
-          </button>
-        </div>
+      <div className="min-h-dvh bg-background flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }

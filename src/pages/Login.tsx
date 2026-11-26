@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { auth, isRealUser } from '../firebase';
-import { GoogleAuthProvider, signInWithCustomToken, signInWithEmailAndPassword, signInWithPopup, onAuthStateChanged, type User } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup, onAuthStateChanged, type User } from 'firebase/auth';
 import { useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { Eye, EyeOff, Tv } from 'lucide-react';
 
@@ -24,41 +24,10 @@ export default function Login() {
     return () => unsub();
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    const hash = typeof window !== 'undefined' && window.location.hash.startsWith('#')
-      ? window.location.hash.slice(1)
-      : '';
-    if (hash) {
-      const params = new URLSearchParams(hash);
-      const ssoToken = params.get('sso_token');
-      if (ssoToken) {
-        setLoading(true);
-        signInWithCustomToken(auth, ssoToken)
-          .then(() => {
-            if (!cancelled) navigate(from, { replace: true });
-          })
-          .catch((err) => {
-            console.error('[visual-factory][login] SSO falló:', err);
-            if (!cancelled) setError('No se pudo autenticar con SSO token.');
-          })
-          .finally(() => {
-            const urlLimpia = window.location.pathname + window.location.search;
-            window.history.replaceState(null, '', urlLimpia);
-            if (!cancelled) setLoading(false);
-          });
-      }
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [from, navigate]);
-
-
   if (!checked) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-dvh bg-background flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -99,18 +68,18 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden">
+    <div className="min-h-dvh bg-background flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden">
       <div className="w-full max-w-md bg-card rounded-2xl p-10 shadow-card border border-border relative z-10">
         <div className="flex flex-col items-center mb-10">
-          <div className="w-20 h-20 bg-indigo-500/10 rounded-2xl flex items-center justify-center mb-6 border border-indigo-500/20">
-            <Tv className="w-9 h-9 text-indigo-400" />
+          <div className="w-20 h-20 bg-primary/10 rounded-2xl flex items-center justify-center mb-6 border border-primary/20">
+            <Tv className="w-9 h-9 text-primary" />
           </div>
           <h1 className="text-3xl font-bold text-foreground tracking-tight">Fábrica Visual</h1>
           <p className="text-muted-foreground mt-3 text-center font-medium text-pretty">Acceso exclusivo para personal SMV.</p>
         </div>
 
         {error && (
-          <div role="alert" className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-2xl mb-6 text-sm font-medium">
+          <div role="alert" className="bg-destructive/10 border border-destructive/20 text-destructive p-4 rounded-2xl mb-6 text-sm font-medium">
             {error}
           </div>
         )}
@@ -124,6 +93,7 @@ export default function Login() {
               id="login-email"
               name="email"
               type="email"
+              inputMode="email"
               required
               autoComplete="username"
               spellCheck={false}
@@ -154,7 +124,7 @@ export default function Login() {
                 onClick={() => setShowPassword(v => !v)}
                 aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                 aria-pressed={showPassword}
-                className="absolute right-2 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                className="absolute right-2 top-1/2 -translate-y-1/2 flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 {showPassword ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
               </button>
@@ -163,7 +133,8 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-4 bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-2xl transition-all disabled:opacity-50 shadow-xl shadow-primary/20 mt-2"
+            aria-busy={loading}
+            className="w-full cursor-pointer py-4 bg-primary hover:bg-primary/90 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 text-primary-foreground font-bold rounded-2xl transition-all disabled:opacity-50 shadow-xl shadow-primary/20 mt-2"
           >
             {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
           </button>
@@ -176,7 +147,7 @@ export default function Login() {
           type="button"
           onClick={handleGoogle}
           disabled={loading}
-          className="w-full min-h-11 py-3 bg-secondary hover:bg-secondary/80 text-foreground font-semibold rounded-2xl border border-input transition-all disabled:opacity-50"
+          className="w-full min-h-11 cursor-pointer py-3 bg-secondary hover:bg-secondary/80 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 text-foreground font-semibold rounded-2xl border border-input transition-all disabled:opacity-50"
         >
           Entrar con Google
         </button>

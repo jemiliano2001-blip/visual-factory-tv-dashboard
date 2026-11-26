@@ -216,7 +216,9 @@ export default function OrdersTable({
               <CopyButton value={row.original.name} label={`Copiar SO ${row.original.name}`} />
             </div>
             <RequestBadges requests={pendingByOrder?.get(row.original.id)} />
-            <div className="font-mono-data text-xs tabular-nums text-muted-foreground">{created ? format(created, 'dd/MM/yyyy') : '—'}</div>
+            <div className="font-mono-data text-xs tabular-nums text-muted-foreground">
+              {created ? <time dateTime={created.toISOString()}>{format(created, 'dd/MM/yyyy')}</time> : '—'}
+            </div>
           </div>
         );
       },
@@ -353,7 +355,7 @@ export default function OrdersTable({
         return (
           <div className="space-y-1">
             <div className={`font-mono-data text-sm tabular-nums ${status.level === 'overdue' ? 'font-bold text-destructive' : 'text-muted-foreground'}`}>
-              {d ? format(d, 'dd/MM/yyyy') : 'Sin fecha'}
+              {d ? <time dateTime={d.toISOString()}>{format(d, 'dd/MM/yyyy')}</time> : 'Sin fecha'}
             </div>
             <Badge variant={STATUS_VARIANT[status.level]}>{status.label}</Badge>
           </div>

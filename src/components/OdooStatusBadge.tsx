@@ -30,7 +30,7 @@ const OdooStatusBadge: React.FC<OdooStatusBadgeProps> = ({
         disabled={isRefreshing}
         title="Actualizar datos de Odoo"
         aria-label="Actualizar datos de Odoo"
-        className="p-1.5 rounded-lg bg-card border border-border text-muted-foreground hover:text-secondary-foreground hover:bg-secondary transition-all disabled:opacity-50"
+        className="cursor-pointer p-1.5 rounded-lg bg-card border border-border text-muted-foreground hover:text-secondary-foreground hover:bg-secondary active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 transition-all disabled:opacity-50"
       >
         <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
       </button>
@@ -38,15 +38,15 @@ const OdooStatusBadge: React.FC<OdooStatusBadgeProps> = ({
         {connected === null ? (
           <div className="w-2 h-2 rounded-full bg-muted-foreground animate-pulse" />
         ) : connected ? (
-          <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+          <Wifi className="w-3.5 h-3.5 text-success" />
         ) : (
-          <WifiOff className="w-3.5 h-3.5 text-red-400" />
+          <WifiOff className="w-3.5 h-3.5 text-destructive" />
         )}
-        <span className={connected === null ? 'text-muted-foreground' : connected ? 'text-emerald-400' : 'text-red-400'}>
+        <span className={connected === null ? 'text-muted-foreground' : connected ? 'text-success' : 'text-destructive'}>
           {connected === null ? 'Odoo...' : connected ? 'Odoo' : 'Sin Odoo'}
         </span>
         {truncated && (
-          <span title="Odoo tiene más órdenes por facturar de las que se muestran" className="rounded bg-amber-500/20 px-1.5 py-0.5 text-amber-300">
+          <span title="Odoo tiene más órdenes por facturar de las que se muestran" className="rounded bg-warning/20 px-1.5 py-0.5 text-warning">
             Incompleto
           </span>
         )}

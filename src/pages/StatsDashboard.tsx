@@ -236,7 +236,7 @@ export default function StatsDashboard() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-background font-sans text-foreground">
+    <div className="min-h-dvh bg-background font-sans text-foreground">
       <div className="mx-auto max-w-[1600px] space-y-6 p-5 lg:p-8">
         {/* Cabecera unificada con AdminPanel */}
         <div className="flex flex-wrap items-end justify-between gap-3">

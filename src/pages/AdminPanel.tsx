@@ -602,7 +602,7 @@ export default function AdminPanel() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-      <div className="min-h-screen bg-background font-sans text-foreground">
+      <div className="min-h-dvh bg-background font-sans text-foreground">
         <div className={`mx-auto max-w-[1600px] p-5 lg:p-8 ${selectedCount > 0 ? 'pb-56 md:pb-28' : ''}`}>
           <div className="order-report-no-print space-y-5">
             {/* Cabecera */}
@@ -619,7 +619,11 @@ export default function AdminPanel() {
                     {freshness.stale && (
                       <AlertTriangle className="mr-1.5 inline size-4 align-text-bottom" aria-hidden="true" />
                     )}
-                    Actualizado <span className="font-mono-data tabular-nums">{freshness.clock}</span> ({freshness.relative})
+                    Actualizado{' '}
+                    <time dateTime={lastUpdated ?? undefined} className="font-mono-data tabular-nums">
+                      {freshness.clock}
+                    </time>{' '}
+                    ({freshness.relative})
                   </p>
                 )}
               </div>
@@ -905,7 +909,7 @@ export default function AdminPanel() {
         <div
           role="region"
           aria-label="Notificaciones de órdenes"
-          className={`fixed right-4 z-[65] max-w-[calc(100vw-2rem)] ${
+          className={`print:hidden fixed right-4 z-[65] max-w-[calc(100vw-2rem)] ${
             selectedCount > 0 ? 'bottom-36 md:bottom-24' : 'bottom-20 md:bottom-6'
           }`}
         >

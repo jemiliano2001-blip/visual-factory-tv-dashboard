@@ -8,12 +8,14 @@ import { setAdminTheme, useAdminTheme } from '../hooks/useAdminTheme';
 import { useUserSettings } from '../hooks/useUserSettings';
 import { AdminSidebarSections, AdminMobileNav } from './admin/AdminNav';
 import { NetworkStatusIndicator } from './NetworkStatusIndicator';
+import { ScrollToTopButton } from './ScrollToTopButton';
 import { Button } from './ui/button';
 
 export default function AppShellChrome() {
   const [user, setUser] = useState(auth.currentUser);
   const location = useLocation();
   const navigate = useNavigate();
+  const mainRef = useRef<HTMLElement | null>(null);
   const [theme, toggleTheme] = useAdminTheme();
   const account = useUserSettings();
   // El tema guardado en la cuenta se aplica una vez al cargar; después manda lo que se elija aquí.
@@ -78,9 +80,15 @@ export default function AppShellChrome() {
   };
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
+    <div className="relative flex h-dvh overflow-hidden bg-background text-foreground">
+      <a
+        href="#main-content"
+        className="print:hidden sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[90] focus:rounded-xl focus:bg-primary focus:px-4 focus:py-2.5 focus:text-sm focus:font-semibold focus:text-primary-foreground focus:shadow-overlay focus:outline-none"
+      >
+        Saltar al contenido principal
+      </a>
       {/* Sidebar — oculto en móvil, visible en md+ */}
-      <aside className="relative z-20 hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-card/70 backdrop-blur-xl">
+      <aside className="print:hidden relative z-20 hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-card/70 backdrop-blur-xl">
         {/* Marca */}
         <div className="flex items-center gap-3 border-b border-border px-6 py-5">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 ring-1 ring-primary/25">
@@ -125,7 +133,7 @@ export default function AppShellChrome() {
             <button
               type="button"
               onClick={onToggleTheme}
-              className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
             >
               {theme === 'light' ? <Moon className="size-[18px]" /> : <Sun className="size-[18px]" />}
               {theme === 'light' ? 'Modo oscuro' : 'Modo claro'}
@@ -145,7 +153,7 @@ export default function AppShellChrome() {
                 onClick={handleLogout}
                 title="Cerrar sesión"
                 aria-label="Cerrar sesión"
-                className="shrink-0 cursor-pointer rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
+                className="shrink-0 cursor-pointer rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
               >
                 <LogOut className="size-4" />
               </button>
@@ -159,16 +167,17 @@ export default function AppShellChrome() {
       </aside>
 
       {/* Contenido */}
-      <main className="custom-scrollbar relative z-10 flex-1 overflow-auto pb-14 md:pb-0">
+      <main ref={mainRef} id="main-content" tabIndex={-1} className="custom-scrollbar relative z-10 flex-1 overflow-auto pb-14 focus:outline-none md:pb-0">
         <NetworkStatusIndicator />
         <Outlet />
       </main>
+      <ScrollToTopButton scrollRef={mainRef} />
 
       {/* Barra de navegación inferior — solo en móvil. En /admin: secciones del Admin. */}
       {location.pathname === '/admin' ? <AdminMobileNav /> : (
       <nav
         aria-label="Navegación móvil"
-        className="fixed bottom-0 inset-x-0 z-30 flex md:hidden border-t border-border bg-card/95 backdrop-blur-2xl"
+        className="print:hidden fixed bottom-0 inset-x-0 z-30 flex md:hidden border-t border-border bg-card/95 backdrop-blur-2xl"
       >
         {([
           { to: '/admin', icon: <LayoutDashboard className="size-[22px]" />, label: 'Admin' },
